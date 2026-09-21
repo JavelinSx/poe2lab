@@ -35,6 +35,28 @@ end
 function _poe2lab_array(t)
   return setmetatable(t, { __jsontype = "array" })
 end
+
+-- The what-if calculator re-reads configTab.modList on every call, so extra mods are applied by
+-- temporarily swapping in a copy of that list with the parsed lines added.
+function _poe2lab_with_mods(lines, fn)
+  if #lines == 0 then return fn() end
+  local configTab = build.configTab
+  local base = configTab.modList
+  local modList = new("ModList"):ModList()
+  modList:AddList(base)
+  for _, line in ipairs(lines) do
+    local mods, extra = modLib.parseMod(line)
+    if not mods or extra then error("PoB cannot parse mod: " .. line, 0) end
+    for i = 1, #mods do
+      if mods[i] then modList:AddMod(modLib.setSource(mods[i], "Custom:poe2lab")) end
+    end
+  end
+  configTab.modList = modList
+  local ok, res = pcall(fn)
+  configTab.modList = base
+  if not ok then error(res, 0) end
+  return res
+end
 """
 
 
@@ -137,14 +159,22 @@ for id, node in pairs(build.spec.allocNodes) do
 end
 return _poe2lab_json(out)""")
 
-    def what_if(self, add_nodes=(), remove_nodes=()) -> dict[str, float]:
-        """Recalculate as if passive nodes were added/removed, without changing the build."""
+    def what_if(self, add_nodes=(), remove_nodes=(), mods=()) -> dict[str, float]:
+        """Recalculate as if passive nodes were added/removed and extra mod lines were present
+        (e.g. "10% increased Attack Speed"), without changing the build."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
+        lines = ", ".join(lua_string(m) for m in mods)
         return self._json(f"""
 local calcFunc = build.calcsTab:GetMiscCalculator()
-local out = calcFunc({{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}) }}, false)
+local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}) }}
+local out = _poe2lab_with_mods({{ {lines} }}, function() return calcFunc(override, false) end)
 return _poe2lab_numbers(out)""")
+
+    def can_parse_mod(self, line: str) -> bool:
+        return self._lua(f"""
+local mods, extra = modLib.parseMod({lua_string(line)})
+return (mods and not extra) and "yes" or "no" """) == "yes"
 
     def logs(self, clear: bool = True) -> list[str]:
         lines = self._json("return _poe2lab_json(_poe2lab_array(_POE2LAB_LOG))")

@@ -66,6 +66,26 @@ def test_invalid_input_raises(engine):
         engine.what_if(remove_nodes=[999999999])
 
 
+def test_injected_mods_apply_without_modifying_build(engine):
+    base = engine.stats()
+    boosted = engine.what_if(mods=["+100 to maximum Life", "10% increased Attack Speed"])
+    assert boosted["Life"] > base["Life"]
+    assert boosted["Speed"] > base["Speed"]
+    after = engine.what_if()
+    assert after["Life"] == base["Life"] and after["Speed"] == pytest.approx(base["Speed"])
+
+
+def test_unparseable_mod_raises(engine):
+    with pytest.raises(PobError, match="cannot parse"):
+        engine.what_if(mods=["totally not a mod"])
+
+
+def test_all_probe_stats_parse(engine):
+    from poe2lab.analysis.stats import STATS, mod_line
+    bad = [mod_line(s, m) for s in STATS for m in (1, 2) if not engine.can_parse_mod(mod_line(s, m))]
+    assert bad == []
+
+
 def test_pool_matches_single_engine(engine):
     nodes = [n["id"] for n in engine.allocated_nodes()][:6]
     expected = [engine.what_if(remove_nodes=[n])["CombinedDPS"] for n in nodes]
