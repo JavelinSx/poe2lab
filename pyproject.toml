@@ -1,0 +1,14 @@
+[project]
+name = "poe2lab"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["psutil"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# LuaJIT raises SEH code 0xe24c4a02 for Lua errors that PoB catches with pcall; faulthandler reports them as fatal.
+addopts = "-p no:faulthandler"
