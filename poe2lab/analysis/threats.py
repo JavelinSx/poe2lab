@@ -5,6 +5,7 @@ PoB has no data on real PoE2 monster skill damage, so this reports the largest m
 from dataclasses import dataclass
 
 DAMAGE_TYPES = ["Physical", "Fire", "Cold", "Lightning", "Chaos"]
+IMMUNE_HIT = 1e9  # PoB's infinite survivable hit (immunity, e.g. Chaos Inoculation) as the engine reports it
 BASE_MONSTER_CRIT_BONUS = 30  # data.monsterConstants.base_critical_hit_damage_bonus
 
 
@@ -32,6 +33,10 @@ class HitRow:
     crit: float  # same, if the hit crits
     juiced: float  # crit on a map with profile.damage_pct / crit_bonus
 
+    @property
+    def immune(self) -> bool:
+        return self.normal >= IMMUNE_HIT
+
 
 def survivable_hits(engine, profile: MapProfile) -> list[HitRow]:
     normal = engine.what_if(config=profile.config())
@@ -41,6 +46,9 @@ def survivable_hits(engine, profile: MapProfile) -> list[HitRow]:
     rows = []
     for t in DAMAGE_TYPES:
         key = f"{t}MaximumHitTaken"
+        if normal[key] >= IMMUNE_HIT:
+            rows.append(HitRow(t, IMMUNE_HIT, IMMUNE_HIT, IMMUNE_HIT))
+            continue
         # MaximumHitTaken already includes enemy damage mods but not the crit multiplier.
         rows.append(HitRow(t, normal[key], crit[key] / crit["EnemyCritEffect"], juiced[key] / juiced["EnemyCritEffect"]))
     return rows

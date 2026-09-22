@@ -67,6 +67,26 @@ def attribute_gates(statuses, swaps, deps) -> list[Gate]:
     return out
 
 
+def zero_damage_gates(engine, stats: dict, config: dict) -> list[Gate]:
+    """PoB cannot compute some skills (0 DPS for the main skill): say so and point at the skills that do damage,
+    instead of ranking every mod by zero."""
+    if stats.get("CombinedDPS", 0) >= 1:
+        return []
+    doing = [s for s in engine.skill_damage(config) if s["dps"] >= 1][:4]
+    where = ("; ".join(f"«{s['name']}» (группа {s['group']}) — {s['dps']:,.0f}" for s in doing)
+             if doing else "ни один скилл билда не даёт урона в PoB")
+    return [Gate("must", f"PoB не считает урон основного скилла «{engine.main_skill()}»",
+                 f"DPS 0 — оценки урона ниже ничего не значат. Урон есть у: {where}. Выберите основным скилл, "
+                 "который реально наносит урон (список «Основной скилл» вверху)")]
+
+
+def unread_gates(engine) -> list[Gate]:
+    return [Gate("must", f"PoB не прочитал предмет «{u['slot']}»",
+                 f"«{u['name']}» ({u['base']}): такой базы нет в текущей версии PoB — обычно это билд из прошлой "
+                 f"версии игры. Всё посчитано без этого предмета; обновите его в билде")
+            for u in engine.unread_items()]
+
+
 def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Gate]:
     out = []
     for t in ("Fire", "Cold", "Lightning"):
@@ -90,8 +110,9 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
     hit = stats.get("HitChance", 100)
     if hit < MIN_HIT_CHANCE:
         out.append(Gate("warn", "Низкий шанс попадания", f"{hit:.0f}%: точность — дешёвый урон"))
-    best = max(h.normal for h in hits)
-    for h in hits:
+    finite = [h for h in hits if not h.immune]  # an immunity is not "the best type" to measure weakness against
+    best = max((h.normal for h in finite), default=0)
+    for h in finite:
         if h.normal < best * WEAK_TYPE_SHARE:
             out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}",
                             f"переживаешь {h.normal:,.0f} ({h.normal / best:.0%} от лучшего типа); "
@@ -115,8 +136,9 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
 
 def defence_weights(hits: list) -> dict[str, float]:
     """Weaker damage types count more: weight ~ best / survivable hit, normalised to 1."""
-    best = max(h.normal for h in hits)
-    raw = {h.damage_type: best / h.normal for h in hits}
+    finite = [h for h in hits if not h.immune] or hits
+    best = max(h.normal for h in finite)
+    raw = {h.damage_type: 0.0 if h.immune else best / h.normal for h in hits}  # no need to defend an immunity
     total = sum(raw.values())
     return {t: w / total for t, w in raw.items()}
 
@@ -252,12 +274,18 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
         "mode": mode,
         "baseline": {
             "dps": stats["CombinedDPS"],
+            # a minion build: the damage is the army's (one minion times the active limit), see PobEngine.what_if
+            "minions": {"count": stats["MinionCount"], "perMinion": stats.get("Minion.CombinedDPS", 0.0)}
+            if stats.get("DpsFromMinions") else None,
             "life": stats["Life"],
+            "es": stats.get("EnergyShield", 0.0),
             "hitChance": stats.get("HitChance"),
             "survivableHit": {h.damage_type: asdict(h) for h in hits},
-            "recoveryPerSecond": rec.total,
+            "recoveryPerSecond": recovery_per_second(stats),
+            "recoveryPool": "es" if stats.get("EnergyShield", 0) > stats.get("Life", 0) else "life",
         },
-        "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps)
+        "gates": [asdict(g) for g in unread_gates(engine) + zero_damage_gates(engine, stats, profile.config())
+                  + attribute_gates(statuses, swaps, deps)
                   + gates(stats, hits, rec, profile.mana_sustained)],
         "notModelled": [asdict(g) for g in collect_mechanics(engine, statdesc_dir).gaps if g.likely_impact],
         "conditions": [asdict(c) for c in conditions],

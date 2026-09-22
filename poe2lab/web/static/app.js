@@ -268,21 +268,25 @@ TABS.overview = async (view) => {
   const b = r.baseline;
   const rng = r.damageRange;
   const hits = Object.entries(b.survivableHit);
-  const maxHit = Math.max(...hits.map(([, v]) => v.normal));
+  const finiteHits = hits.filter(([, v]) => v.normal < IMMUNE_HIT);
+  const maxHit = Math.max(1, ...finiteHits.map(([, v]) => v.normal));
 
   const kpi = h("div", { class: "grid kpi" },
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("dps")),
+    h("div", { class: "card kpi" }, h("div", { class: "label" }, b.minions ? t("dpsMinions") : t("dps")),
       h("div", { class: "value" }, fmt(rng.low), rng.high > rng.low ? h("span", { class: "to" }, ` … ${fmt(rng.high)}`) : null),
-      h("div", { class: "note" }, rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill))),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("life")), h("div", { class: "value" }, fmt(b.life))),
+      h("div", { class: "note" }, b.minions ? t("minionsNote", b.minions.count, fmt(b.minions.perMinion))
+        : rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill))),
+    h("div", { class: "card kpi" }, h("div", { class: "label" }, b.es > 0 ? t("lifeAndEs") : t("life")),
+      h("div", { class: "value" }, fmt(b.life), b.es > 0 ? h("span", { class: "to" }, ` + ${fmt(b.es)}`) : null),
+      b.es > 0 ? h("div", { class: "note" }, t("lifeEsNote")) : null),
     h("div", { class: "card kpi" }, h("div", { class: "label" }, t("hitChance")), h("div", { class: "value" }, fmt(b.hitChance) + "%")),
     h("div", { class: "card kpi" }, h("div", { class: "label" }, t("recovery")),
       h("div", { class: "value" }, fmt(b.recoveryPerSecond), h("span", { class: "to" }, t("perSec"))),
-      h("div", { class: "note" }, t("whileAttacking"))));
+      h("div", { class: "note" }, b.recoveryPool === "es" ? t("esRecoveryNote") : t("whileAttacking"))));
 
   // a table, not overlapping bars: one row per damage type, one column per situation, the weakest type marked
-  const weakest = hits.reduce((w, cur) => (cur[1].normal < w[1].normal ? cur : w));
-  const hitCell = (type, val) => h("td", { class: "num hit-cell" },
+  const weakest = (finiteHits.length ? finiteHits : hits).reduce((w, cur) => (cur[1].normal < w[1].normal ? cur : w));
+  const hitCell = (type, val) => val >= IMMUNE_HIT ? h("td", { class: "num hit-cell" }, h("div", { class: "hit-num pos" }, t("immune"))) : h("td", { class: "num hit-cell" },
     h("div", { class: "hit-num" }, fmt(val)),
     h("div", { class: "hit-track" }, h("span", { style: `width:${Math.max(2, (val / maxHit) * 100)}%;background:${DMG_COLOR[type]}` })));
   const hitCard = h("div", { class: "card" },
@@ -440,10 +444,16 @@ const STAT_FMT = {
   dps: (v) => fmt(v), hitChance: (v) => fmt(v) + "%", critChance: (v) => fmt(v, 1) + "%", speed: (v) => fmt(v, 2),
   moveSpeed: (v) => pct((v - 1) * 100),
 };
-const statText = (key, v) => (STAT_FMT[key] ? STAT_FMT[key](v) : key.startsWith("res_") ? fmt(v) + "%" : fmt(v));
+const IMMUNE_HIT = 1e9;  // the engine's value for an infinite survivable hit (immunity)
+const statText = (key, v) => (key.startsWith("hit_") && v >= IMMUNE_HIT ? t("immune")
+  : STAT_FMT[key] ? STAT_FMT[key](v) : key.startsWith("res_") ? fmt(v) + "%" : fmt(v));
 
 // difference cell: from my side (+ means I have more); green when that is the better direction
 function diffCell(key, mine, ref, higherBetter = true) {
+  if (key.startsWith("hit_") && (mine >= IMMUNE_HIT || ref >= IMMUNE_HIT)) {
+    if (mine >= IMMUNE_HIT && ref >= IMMUNE_HIT) return h("td", { class: "num muted" }, "=");
+    return h("td", { class: "num " + ((mine >= IMMUNE_HIT) === higherBetter ? "pos" : "neg") }, mine >= IMMUNE_HIT ? t("immune") : t("notImmune"));
+  }
   const d = mine - ref;
   if (Math.abs(d) < 1e-9 || (Math.abs(ref) > 0 && Math.abs(d / ref) < 0.005)) return h("td", { class: "num muted" }, "=");
   const good = (d > 0) === higherBetter;

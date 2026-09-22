@@ -16,7 +16,16 @@ METRICS = {
 
 
 def recovery_per_second(out: dict) -> float:
-    """Life regained per second while attacking: leech + life on hit (both in LifeLeechGainRate), regen, recoup."""
+    """What refills the pool the build actually stands on, per second.
+
+    Life builds: leech + life on hit (both in LifeLeechGainRate), regeneration, recoup - all work while fighting.
+    Energy shield builds (ES above life, incl. Chaos Inoculation at 1 life): ES regeneration and leech, plus
+    recharge. Recharge only starts after a pause without damage, so its rate is discounted by that delay:
+    rate / (1 + delay in seconds). A heuristic, but it moves the right way for both "faster recharge" and
+    "faster start of recharge" mods."""
+    if out.get("EnergyShield", 0.0) > out.get("Life", 0.0):
+        recharge = out.get("EnergyShieldRecharge", 0.0) / (1 + out.get("EnergyShieldRechargeDelay", 0.0))
+        return out.get("EnergyShieldRegenRecovery", 0.0) + out.get("EnergyShieldLeechRate", 0.0) + recharge
     return out.get("LifeLeechGainRate", 0.0) + out.get("LifeRegenRecovery", 0.0) + out.get("LifeRecoupRecoveryAvg", 0.0)
 
 

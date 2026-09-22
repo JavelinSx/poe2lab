@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -12,11 +13,32 @@ function _poe2lab_json(value)
   return dkjson.encode(value)
 end
 
+local function _poe2lab_finite(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
+
 function _poe2lab_numbers(t)
   local res = {}
   for k, v in pairs(t) do
-    if type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge then
+    if _poe2lab_finite(v) then
       res[k] = v
+    elseif v == math.huge and type(k) == "string" and k:match("MaximumHitTaken$") then
+      res[k] = 1e9  -- immune to the damage type (e.g. Chaos Inoculation); poe2lab.analysis.threats.IMMUNE_HIT
+    end
+  end
+  -- A minion skill as the main skill: the player's own DPS is 0 and the damage lives in output.Minion (per
+  -- minion). Every analysis reads CombinedDPS, so there it becomes the army's damage: one minion times the
+  -- active limit. The player's own number stays as PlayerCombinedDPS.
+  local m = t.Minion
+  if type(m) == "table" then
+    for k, v in pairs(m) do
+      if _poe2lab_finite(v) then res["Minion." .. k] = v end
+    end
+    local per = m.CombinedDPS or m.TotalDPS or 0
+    if (res.CombinedDPS or 0) < 1e-6 and _poe2lab_finite(per) and per > 0 then
+      local count = (_poe2lab_finite(t.ActiveMinionLimit) and t.ActiveMinionLimit > 0) and t.ActiveMinionLimit or 1
+      res.PlayerCombinedDPS = res.CombinedDPS or 0
+      res.CombinedDPS = per * count
+      res.MinionCount = count
+      res.DpsFromMinions = 1
     end
   end
   return dkjson.encode(res)
@@ -152,8 +174,35 @@ class PobEngine:
         self.load_xml(decode_pob_code(code), name)
 
     def load_xml(self, xml: str, name: str = "build"):
+        self._xml = xml
         self._lua(f"loadBuildFromXML({lua_string(xml)}, {lua_string(name)})")
         self._check_loaded()
+
+    def unread_items(self) -> list[dict]:
+        """Items the build file puts in a slot that PoB dropped while loading - typically a base renamed in a later
+        game version (an old guide), so everything is computed without them and PoB says nothing."""
+        xml = getattr(self, "_xml", None)
+        if not xml:
+            return []
+        items = {}
+        for m in re.finditer(r"<Item\s([^>]*)>(.*?)</Item>", xml, re.S):
+            item_id = re.search(r'\bid="(\d+)"', m.group(1))
+            if not item_id:
+                continue
+            lines = [l.strip() for l in m.group(2).strip().splitlines() if l.strip() and not l.strip().startswith("<")]
+            body = [l for l in lines if not l.startswith(("Rarity:", "Unique ID", "Item Level", "Quality", "Sockets"))]
+            rarity = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("Rarity:")), "")
+            name = body[0] if body else ""
+            base = body[1] if rarity in ("RARE", "UNIQUE") and len(body) > 1 else name
+            items[item_id.group(1)] = {"name": name, "base": base, "rarity": rarity}
+        slotted = {}
+        for tag in re.findall(r"<Slot\b[^>]*>", xml):  # attribute order differs between PoB versions
+            attrs = dict(re.findall(r'(\w+)="([^"]*)"', tag))
+            if "name" in attrs and "itemId" in attrs and "nodeId" not in attrs:
+                slotted[attrs["name"]] = attrs["itemId"]
+        loaded = {i["slot"] for i in self.equipped_items()}
+        return [{"slot": slot, **items[iid]} for slot, iid in slotted.items()
+                if iid != "0" and iid in items and slot not in loaded and "Swap" not in slot]
 
     def load_character_json(self, character_json: str):
         """Load a character as returned by the official PoE API (characters endpoint)."""
@@ -203,6 +252,24 @@ return _poe2lab_json(out)""")
             f"build.skillsTab.socketGroupList[{socket_group_index}].mainActiveSkill = {active_skill_index}"
         )
         self.recalc()
+
+    def skill_damage(self, config: dict | None = None) -> list[dict]:
+        """Damage of every active skill of every enabled socket group if it were the main skill (the build's choice
+        is restored). For a main skill PoB cannot compute (0 DPS) this shows where the damage actually is."""
+        group = int(self._lua("return build.mainSocketGroup"))
+        active = int(self._lua(f"return build.skillsTab.socketGroupList[{group}].mainActiveSkill or 1"))
+        out = []
+        try:
+            for g in self.socket_groups():
+                if not g["enabled"]:
+                    continue
+                for i, name in enumerate(g["skills"], 1):
+                    self.set_main_skill(g["index"], i)
+                    dps = self.what_if(config=config)["CombinedDPS"]
+                    out.append({"group": g["index"], "skill": i, "name": name, "dps": dps})
+        finally:
+            self.set_main_skill(group, active)
+        return sorted(out, key=lambda x: -x["dps"])
 
     def main_skill(self) -> str | None:
         return self._lua("""
