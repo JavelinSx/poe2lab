@@ -1,0 +1,82 @@
+"""The build assistant: an LLM that already has the build, its mechanics from game data and the player's confirmed
+facts in context, and uses the PoB engine through tools for every number."""
+import json
+
+from ..knowledge import collect as collect_mechanics
+from ..profile import BuildProfile
+from ..profile import describe as describe_profile
+from .llm import ChatClient
+from .tools import SPECS, Toolbox
+
+MAX_TOOL_ROUNDS = 8
+
+SYSTEM_RULES = """Ты — аналитик билдов Path of Exile 2 (патч 0.5.x) и помощник игрока. Отвечай по-русски.
+
+Как работать:
+1. Все цифры (урон, защита, эффект модов и предметов) бери только из инструментов — они считают через Path of
+   Building. Не оценивай числа «на глаз».
+2. Механику выводи сам из данных ниже: описания скиллов и уникальных предметов взяты из данных игры, а список
+   «PoB не считает» — это статы и строки, которые PoB игнорирует. Связывай их в цепочки, как опытный игрок
+   (например: баф даёт регенерацию ярости → ярость держится в максимуме; скилл тратит ярость → предмет получает
+   стаки за потраченную ярость).
+3. Не задавай вопросов, ответ на которые следует из данных или из обычной игры. Бери разумные допущения опытного
+   игрока и называй их одной строкой: скиллы с кулдауном используются по кулдауну, стакающиеся баффы в максимуме,
+   ресурсы при непрерывном бое, враг — обычный монстр 79 уровня. Спрашивай только если ответ меняет вывод и его
+   нельзя вывести из данных.
+4. Факты из профиля билда подтверждены игроком — доверяй им больше, чем PoB.
+5. Если важная механика не учтена в расчёте, посчитай её эффект через evaluate_mods (переведи в строку мода PoB)
+   и предложи записать поправку через propose_profile_change.
+6. Отвечай коротко: сначала 1–3 главных вывода с цифрами, затем детали. Отделяй «сломано в игре» от «можно
+   улучшить». Испорченные (corrupted) предметы менять нельзя — для них только «что искать в замене»."""
+
+
+def build_context(engine, bp: BuildProfile) -> str:
+    """Everything the model should know before the first question; stable, so the API can cache it."""
+    info = engine.info()
+    mech = collect_mechanics(engine)
+    parts = [f"Билд: {info['class']} / {info['ascendancy']}, {info['level']} ур., основной скилл: {engine.main_skill()}."]
+    parts.append("Профиль билда (подтверждено игроком):\n" + "\n".join(f"- {l}" for l in describe_profile(bp)))
+    parts.append("PoB не считает (есть в данных игры, в расчёт не попадает):\n" + "\n".join(
+        f"- {g.where}: {g.text}" for g in mech.gaps))
+    skills = []
+    for s in mech.skills:
+        head = f"[{s['group']}] {s['name']}" + (" (саппорт)" if s["support"] else "")
+        body = (s["description"] + "\n" if s["description"] and not s["support"] else "") + "; ".join(s["lines"])
+        skills.append(f"{head}: {body}")
+    parts.append("Скиллы и саппорты билда (текст из данных игры):\n" + "\n".join(skills))
+    if mech.uniques:
+        parts.append("Уникальные предметы:\n" + "\n".join(
+            f"- {u['name']} ({u['slot']}): " + "; ".join(u["lines"]) for u in mech.uniques))
+    parts.append("Надетые предметы: " + ", ".join(f"{i['slot']}: {i['name']}"
+                                                 + (" [испорчен]" if i["corrupted"] else "")
+                                                 for i in engine.equipped_item_details()))
+    return "\n\n".join(parts)
+
+
+class Assistant:
+    def __init__(self, client: ChatClient, toolbox: Toolbox, context: str):
+        self.client = client
+        self.toolbox = toolbox
+        self.messages = [{"role": "system", "content": SYSTEM_RULES + "\n\n" + context}]
+        self.tool_log: list[dict] = []
+
+    def ask(self, question: str) -> str:
+        self.messages.append({"role": "user", "content": question})
+        for _ in range(MAX_TOOL_ROUNDS):
+            reply = self.client.complete(self.messages, SPECS)
+            message = {"role": "assistant", "content": reply.get("content") or ""}
+            calls = reply.get("tool_calls") or []
+            if calls:
+                message["tool_calls"] = calls
+            self.messages.append(message)
+            if not calls:
+                return message["content"]
+            for call in calls:
+                fn = call["function"]
+                result = self.toolbox.call(fn["name"], fn.get("arguments") or "{}")
+                self.tool_log.append({"tool": fn["name"], "arguments": fn.get("arguments"), "result": result[:2000]})
+                self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+        return "Не удалось получить ответ за разумное число шагов — уточни вопрос."
+
+    def transcript(self) -> str:
+        return json.dumps(self.messages, ensure_ascii=False, indent=2)
