@@ -91,6 +91,20 @@ def test_chat_without_configuration_explains(client, settings_dir):
     assert r.status_code == 400 and "Ассистент" in r.json()["detail"]
 
 
+def test_mod_search_finds_parseable_mods_in_both_languages(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    ru = client.get("/api/mods/search", params={"q": "скорость умений"}).json()["results"]
+    assert ru[0]["en"] == "#% increased Skill Speed" and ru[0]["line"] == "1% increased Skill Speed"
+    en = client.get("/api/mods/search", params={"q": "maximum life"}).json()["results"]
+    assert any(r["line"] == "+1 to maximum Life" for r in en)
+
+
+def test_stale_build_requests_are_refused(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    assert client.get("/api/mechanics", params={"build": "ma95"}).status_code == 409
+    assert client.get("/api/mechanics", params={"build": "titan"}).status_code == 200
+
+
 def test_unknown_build_is_a_clean_error(client):
     r = client.post("/api/load", json={"name": "no such build"}, headers=H)
     assert r.status_code == 400

@@ -235,7 +235,18 @@ details ul { margin: 8px 0 0 0; padding-left: 18px; color: var(--muted); font-si
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .profile-line { font-size: 13px; color: var(--muted); padding: 3px 0; }
-.corr { display: grid; grid-template-columns: 1fr 90px 110px 30px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.corr { display: grid; grid-template-columns: 1fr 90px 110px 30px; gap: 8px; align-items: start; margin-bottom: 10px; }
+.suggest { position: relative; }
+.suggest-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; max-height: 340px; overflow-y: auto;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+}
+.suggest-item { padding: 7px 10px; cursor: pointer; border-bottom: 1px solid var(--line); font-size: 13px; }
+.suggest-item:last-child { border-bottom: 0; }
+.suggest-item:hover { background: var(--gold-soft); }
+.mod-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 10px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+input.mod-num { width: 64px; padding: 3px 6px; text-align: center; }
 .x { background: none; border: 0; color: var(--bad); cursor: pointer; font-size: 16px; }
 
 @media (max-width: 900px) {

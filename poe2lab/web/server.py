@@ -22,6 +22,7 @@ from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
 from ..i18n import dictionary as translation_dictionary
+from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
 from ..pobfiles import PROJECT_BUILDS, list_pob_builds, resolve_build
 from ..profile import BuildProfile, describe as describe_profile, open_build
@@ -43,9 +44,11 @@ class Session:
         self.toolbox: Toolbox | None = None
         self._prices: PriceBook | None | bool = False
 
-    def require(self):
+    def require(self, build: str | None = None):
         if self.engine is None:
             raise HTTPException(409, "сначала откройте билд")
+        if build is not None and build != self.path.stem:
+            raise HTTPException(409, f"открыт другой билд ({self.path.stem}); запрос для {build} отменён")
 
     @property
     def profile(self) -> MapProfile:
@@ -172,6 +175,42 @@ def i18n(lang: str):
     return _dictionaries[lang]
 
 
+_mod_catalog: dict = {}
+
+
+def _catalog(lang: str) -> list[dict]:
+    """Official stat templates PoB can actually use, like the trade filter's list (built once, ~3 s)."""
+    if lang not in _mod_catalog:
+        session.require()
+        try:
+            templates = stat_templates(lang)
+        except OSError:
+            raise HTTPException(503, "справочник модов недоступен (нет связи с pathofexile.com)")
+        engine = session.engine
+        _mod_catalog[lang] = [t | {"line": pob_line(t["en"])} for t in templates if engine.can_parse_mod(pob_line(t["en"]))]
+    return _mod_catalog[lang]
+
+
+@app.get("/api/mods/search")
+def mods_search(q: str, lang: str = "ru", limit: int = 25):
+    """Mods whose text (in English or the UI language) contains every word of the query."""
+    # word stems, so Russian case endings still match: "скорость" finds "скорости", "умение" finds "умений"
+    words = [w[:-2] if len(w) >= 6 else w[:-1] if len(w) == 5 else w for w in q.lower().split() if w]
+    if not words:
+        return {"results": []}
+    with session.lock:
+        catalog = _catalog(lang)
+    hits = []
+    for t in catalog:
+        text = (t["en"] + " | " + t.get(lang, "")).lower()
+        if all(w in text for w in words):
+            local = t.get(lang, t["en"]).lower()
+            rank = (not local.startswith(words[0]) and not t["en"].lower().startswith(words[0]), len(t["en"]))
+            hits.append((rank, t))
+    hits.sort(key=lambda x: x[0])
+    return {"results": [{"en": t["en"], "text": t.get(lang, t["en"]), "line": t["line"]} for _, t in hits[:limit]]}
+
+
 @app.get("/api/llm")
 def llm_settings():
     return _llm_view()
@@ -220,7 +259,7 @@ def _summary():
     e = session.engine
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
             "gems": sorted({g["name"] for g in e.gems()}),
-            "profile": describe_profile(session.bp), "profileRaw": _profile_raw(),
+            "profile": describe_profile(session.bp), "profileRaw": _profile_raw(), "hasProfile": _profile_path().exists(),
             "items": e.equipped_item_details()}
 
 
@@ -239,16 +278,16 @@ def build():
 
 
 @app.get("/api/report")
-def report(mode: str = "balanced"):
+def report(mode: str = "balanced", build: str | None = None):
     with session.lock:
-        session.require()
+        session.require(build)
         return _json(session.cached(("report", mode), lambda: build_report(session.engine, session.profile, mode=mode)))
 
 
 @app.get("/api/gear")
-def gear(mode: str = "balanced"):
+def gear(mode: str = "balanced", build: str | None = None):
     with session.lock:
-        session.require()
+        session.require(build)
 
         def compute():
             e, prof = session.engine, session.profile
@@ -279,9 +318,9 @@ def gear(mode: str = "balanced"):
 
 
 @app.get("/api/mechanics")
-def mechanics():
+def mechanics(build: str | None = None):
     with session.lock:
-        session.require()
+        session.require(build)
         m = session.cached("mechanics", lambda: collect_mechanics(session.engine))
         return _json({"gaps": m.gaps, "skills": m.skills, "uniques": m.uniques})
 

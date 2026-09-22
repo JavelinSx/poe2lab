@@ -96,7 +96,7 @@ MANUAL = {
         "regenerate # life per second": "# к регенерации здоровья в секунду",
         "#% increased area damage": "#% увеличение урона по области",
         "#% of physical damage from hits taken as fire damage": "#% физического урона от ударов получаемого как урон от огня",
-        "gain # druidic prowess for every # total rage spent": "Даёт # друидической доблести за каждые # потраченной ярости",
+        "gain # druidic prowess for every # total rage spent": "Даёт # друидической доблести за каждые # потраченной свирепости",
     },
 }
 
@@ -114,6 +114,27 @@ def dictionary(lang: str) -> dict:
     for src, dst in _item_pairs(lang):
         names.setdefault(src, dst)
     return {"stats": stats, "names": names}
+
+
+def stat_templates(lang: str = "ru") -> list[dict]:
+    """Unique stat templates as the trade filter lists them: {"en": ..., lang: ...} ("en" only for English)."""
+    seen, out = set(), []
+    pairs = _stat_pairs(lang) if lang != "en" else (
+        (e["text"], e["text"]) for g in _get("en", "stats") for e in g["entries"] if "\n" not in e["text"])
+    for src, dst in pairs:
+        key = stat_key(src)
+        if key not in seen:
+            seen.add(key)
+            out.append({"en": src, lang: dst})
+    return out
+
+
+def pob_line(template: str, values: list[str] | None = None) -> str:
+    """Trade template -> PoB mod line: '#' become numbers (default 1), flat additions get the '+' the game prints."""
+    values = list(values or [])
+    it = iter(values)
+    line = re.sub(r"#", lambda _: next(it, "1"), template)
+    return re.sub(r"(^|\s)(\d+(?:\.\d+)?)(%?) to ", r"\1+\2\3 to ", line)
 
 
 def translate_line(line: str, d: dict) -> str | None:

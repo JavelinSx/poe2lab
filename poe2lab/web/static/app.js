@@ -67,10 +67,15 @@ const chip = (cls, text) => h("span", { class: "chip " + cls }, text);
 // ---------- state ----------
 const state = { build: null, mode: "balanced", tab: "overview", cache: {}, chat: [] };
 const resetCache = () => { state.cache = {}; };
+// the cache belongs to the build open when the request started: a late answer for a previous build cannot land in
+// the current build's cache; the same request in flight is shared instead of repeated
 async function cached(key, fn) {
-  if (!(key in state.cache)) state.cache[key] = await fn();
-  return state.cache[key];
+  const cache = state.cache;
+  if (!(key in cache)) cache[key] = fn();
+  try { return await cache[key]; } catch (e) { delete cache[key]; throw e; }
 }
+// analysis requests name the build they are for; the server refuses them if another build is open by then
+const buildQuery = () => `build=${encodeURIComponent(state.build.name)}`;
 
 // ---------- language ----------
 function applyStaticTexts() {
@@ -186,9 +191,9 @@ async function switchTab(tab) {
   }
 }
 
-const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}`));
+const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}&${buildQuery()}`));
 // the "unit" is either the Rage stat or a probe mod line
-const unitName = (name) => (LANG === "ru" && name === "Maximum Rage" ? "максимум ярости" : trMod(name));
+const unitName = (name) => (LANG === "ru" && name === "Maximum Rage" ? "максимум свирепости" : trMod(name));
 
 // ---------- overview ----------
 TABS.overview = async (view) => {
@@ -284,7 +289,7 @@ TABS.damage = async (view) => {
 // ---------- gear ----------
 TABS.gear = async (view) => {
   view.replaceChildren(loading(t("calcGear")));
-  const g = await cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}`));
+  const g = await cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`));
 
   const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
     g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", {},
@@ -356,7 +361,7 @@ TABS.compare = async () => {
 // ---------- mechanics ----------
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));
-  const m = await cached("mechanics", () => api("/api/mechanics"));
+  const m = await cached("mechanics", () => api(`/api/mechanics?${buildQuery()}`));
   const where = (w) => trFree(w.replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`))
     .replace(/\(([^()]+)\)$/, (all, s) => (SLOT_RU[s] !== undefined ? `(${slotName(s)})` : all));
   // in Russian mode show only what has an official translation; the English original stays in the tooltip
@@ -387,9 +392,7 @@ TABS.profile = async () => {
   const mana = h("input", { type: "checkbox", checked: !!raw.mana_sustained });
   const corrBox = h("div", {});
   const drawCorr = () => corrBox.replaceChildren(...raw.corrections.map((c, i) => h("div", { class: "corr" },
-    h("div", {},
-      h("input", { type: "text", value: c.mod, style: "width:100%", oninput: (e) => { c.mod = e.target.value; }, title: c.source || "" }),
-      LANG !== "en" && trMod(c.mod) !== c.mod ? h("div", { class: "hint" }, trMod(c.mod)) : null),
+    modEditor(c, drawCorr),
     h("input", { type: "number", value: c.uptime ?? 1, step: 0.05, min: 0, max: 1, oninput: (e) => { c.uptime = Number(e.target.value); } }),
     h("label", { class: "small" }, h("input", { type: "checkbox", checked: !!c.confirmed, onchange: (e) => { c.confirmed = e.target.checked; } }), t("confirmed")),
     h("button", { class: "x", title: t("remove"), onclick: () => { raw.corrections.splice(i, 1); drawCorr(); } }, "×"))));
@@ -414,6 +417,7 @@ TABS.profile = async () => {
 
   return h("div", { class: "grid two" },
     h("div", { class: "card stack" }, h("h3", {}, t("factsTitle")), h("div", { class: "sub" }, t("factsSub")),
+      state.build.hasProfile ? null : h("div", { class: "action" }, t("noProfileYet", state.build.name)),
       h("div", { class: "row" }, h("label", {}, rageMax, t("rageMax")), h("span", { class: "muted" }, t("otherwise")), rageVal),
       h("label", {}, mana, t("manaOk")),
       h("div", { class: "section-title", style: "margin-top:10px" }, t("correctionsTitle")),
@@ -424,6 +428,65 @@ TABS.profile = async () => {
     h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))));
 };
+
+// ---------- mod picker (like the in-game trade filter) ----------
+// A chosen mod is shown in the player's language with an input per number; the PoB line is rebuilt from it,
+// so the stored text is always one PoB understands.
+function modEditor(c, redraw) {
+  if (!c.mod) return modSearch((line) => { c.mod = line; redraw(); });
+  const tpl = GAME.stats[statKey(c.mod)];
+  const shown = tpl || c.mod.replace(TOKEN_RE, "#");
+  const tokens = [...c.mod.matchAll(TOKEN_RE)];
+  if ((shown.match(/#/g) || []).length !== tokens.length) {
+    return h("div", {}, h("input", { type: "text", value: c.mod, style: "width:100%", oninput: (e) => { c.mod = e.target.value; } }));
+  }
+  const parts = shown.split("#");
+  const row = h("div", { class: "mod-edit" });
+  parts.forEach((text, k) => {
+    row.append(text);
+    if (k < tokens.length) {
+      const tok = tokens[k][0];
+      row.append(h("input", {
+        type: "number", class: "mod-num", value: tok.replace(/^\+/, ""), step: "any",
+        oninput: (e) => { c.mod = replaceToken(c.mod, k, e.target.value, tok.startsWith("+")); },
+      }));
+    }
+  });
+  return h("div", {}, row,
+    h("div", { class: "hint" }, h("button", { class: "link", onclick: () => { c.mod = ""; redraw(); } }, t("changeMod")),
+      LANG !== "en" ? h("span", { title: c.mod }, " · " + c.mod) : null));
+}
+
+function replaceToken(line, k, value, plus) {
+  let i = 0;
+  return line.replace(TOKEN_RE, (m) => {
+    if (i++ !== k) return m;
+    const v = String(value).trim() || "0";
+    return plus && !v.startsWith("-") ? `+${v.replace(/^\+/, "")}` : v;
+  });
+}
+
+function modSearch(onPick) {
+  const input = h("input", { type: "text", placeholder: t("modSearchPh"), style: "width:100%", autocomplete: "off" });
+  const list = h("div", { class: "suggest-list hidden" });
+  let timer;
+  const run = async () => {
+    const q = input.value.trim();
+    if (q.length < 2) { list.classList.add("hidden"); return; }
+    list.replaceChildren(h("div", { class: "suggest-item muted" }, t("modSearching")));
+    list.classList.remove("hidden");
+    try {
+      const r = await api(`/api/mods/search?q=${encodeURIComponent(q)}&lang=${LANG}`);
+      list.replaceChildren(...(r.results.length ? r.results.map((m) => h("div", {
+        class: "suggest-item", onmousedown: (e) => { e.preventDefault(); onPick(m.line); },
+      }, h("div", {}, m.text), LANG !== "en" ? h("div", { class: "hint" }, m.en) : null)) : [h("div", { class: "suggest-item muted" }, t("modNothing"))]));
+    } catch (e) { list.replaceChildren(h("div", { class: "suggest-item muted" }, e.message)); }
+  };
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 200); });
+  input.addEventListener("blur", () => setTimeout(() => list.classList.add("hidden"), 150));
+  input.addEventListener("focus", () => { if (list.children.length) list.classList.remove("hidden"); });
+  return h("div", { class: "suggest" }, input, list);
+}
 
 // ---------- assistant ----------
 function aiSettingsCard(settings, onSaved) {
