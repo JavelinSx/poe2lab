@@ -14,6 +14,7 @@ from poe2lab.analysis.sockets import plan_sockets
 from poe2lab.analysis.sources import describe
 from poe2lab.analysis.threats import MapProfile, survivable_hits
 from poe2lab.data.moddb import ModDB
+from poe2lab.economy.ninja import PriceBook
 from poe2lab.engine import PobEngine
 
 MODE_NAMES = {"damage": "урон", "balanced": "баланс", "defence": "защита"}
@@ -36,6 +37,8 @@ def main():
     ap.add_argument("--slot", help="only this slot")
     ap.add_argument("--path", type=int, default=6, help="steps of the cross-slot crafting path (0 = skip)")
     ap.add_argument("--sockets", action=argparse.BooleanOptionalAction, default=True, help="socket (rune) plan")
+    ap.add_argument("--league", help="poe.ninja league for prices (default: current challenge league)")
+    ap.add_argument("--prices", action=argparse.BooleanOptionalAction, default=True, help="fetch poe.ninja prices")
     args = ap.parse_args()
 
     code = args.build.resolve().read_text()
@@ -46,6 +49,13 @@ def main():
     profile = MapProfile(rage=args.rage)
     weights = defence_weights(survivable_hits(engine, profile))
     db = ModDB.from_engine(engine)
+    prices = None
+    if args.prices:
+        try:
+            prices = PriceBook.load(args.league)
+            print(f"Цены: poe.ninja, лига {prices.league} (1 div = {prices.exalted_per_divine:.0f} ex)")
+        except OSError as err:
+            print(f"Цены недоступны ({err}); продолжаю без них")
 
     t = time.perf_counter()
     plans = plan_all(engine, db, profile.config(), args.mode, weights, args.top)
@@ -87,7 +97,7 @@ def main():
             note = "  (проверь, что слот свободен)" if s.uncertain and not s.removed else ""
             print(f"  {i}. {s.slot}: {how} «{' / '.join(s.added)}»  {s.score:+.1f}  ({effect(s.changes)}){note}")
             if s.mod_id in by_id:
-                for src in describe(db, essences, by_id[s.mod_id], s.item_type):
+                for src in describe(db, essences, by_id[s.mod_id], s.item_type, prices):
                     print(f"       откуда: {src}")
         if path:
             print(f"  Итого против текущего: {effect(path[-1].total)}")
@@ -103,7 +113,14 @@ def main():
         for s in sockets:
             print(f"  {s.slot}, сокет {s.index}: сейчас {s.current} (даёт {s.current_score:+.1f})")
             for o in s.best:
-                note = "  [руна из уникального предмета — доступность/цена?]" if o.name.startswith("Legacy of") else ""
+                price = prices.get(o.name) if prices else None
+                if price:
+                    per = prices.per_divine(o.score, price)
+                    note = f"  цена {prices.describe(price)}" + (f", {per:.0f} очков/div" if per else "")
+                elif o.name.startswith("Legacy of"):
+                    note = "  [руна из уникального предмета, цены нет]"
+                else:
+                    note = "  цены нет" if prices else ""
                 print(f"      → {o.name}: {' / '.join(o.lines)}  {o.score:+.1f}  ({effect(o.changes)}){note}")
             if not s.best:
                 print("      лучше текущей вставки ничего нет")
