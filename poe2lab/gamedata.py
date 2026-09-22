@@ -314,11 +314,14 @@ def build_templates(lang: str = "ru") -> dict[str, str]:
                 same = [w for w in e["want"] if w["limit"] == en["limit"] and w["specs"] == en["specs"]]
                 if not same:
                     continue
-                # PoB prints a multi-line description as one line: match it as one
-                en_text, tr_text = en["text"].replace("\n", " "), same[0]["text"].replace("\n", " ")
-                if _tokens(en_text) != _tokens(tr_text):
-                    continue
-                out.setdefault(stat_key(_hashed(en_text)), _hashed(tr_text))
+                en_lines, tr_lines = en["text"].split("\n"), same[0]["text"].split("\n")
+                # PoB prints a multi-line description either as one line or line by line: keep both forms
+                pairs = [(" ".join(en_lines), " ".join(tr_lines))]
+                if len(en_lines) > 1 and len(en_lines) == len(tr_lines):
+                    pairs += list(zip(en_lines, tr_lines))
+                for en_text, tr_text in pairs:
+                    if _tokens(en_text) == _tokens(tr_text):
+                        out.setdefault(stat_key(_hashed(en_text)), _hashed(tr_text))
     return out
 
 

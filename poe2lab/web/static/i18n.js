@@ -427,6 +427,8 @@ const FREE_RU = [
   [/ ?(?:стат )?[a-z0-9%+]+(?:_[a-z0-9%+]+){2,}/g, ""],  // internal stat ids: no use to a player
   [/Custom Modifiers/g, "пользовательские модификаторы"],
   [/\((\d+) (Str|Dex|Int)\)/g, (_, n, a) => `(${n} ${ATTR_GEN_RU[a]})`],
+  // slot lists the server writes plainly: "держат предметы: Gloves, Belt"
+  [/(держат предметы: )([^;]+)/g, (_, head, list) => head + list.split(", ").map((x) => (SLOT_RU[x] ? SLOT_RU[x] : x)).join(", ")],
   // currency: Divine Orb / Exalted Orb in the client's words, shortened
   [/(\d) div\b/g, "$1 бож."],
   [/(\d|<1) ex\b/g, "$1 возв."],
