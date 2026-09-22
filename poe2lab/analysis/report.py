@@ -85,8 +85,8 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
     regain = stats.get("ManaRegenRecovery", 0) + stats.get("ManaLeechGainRate", 0) + stats.get("ManaOnHitRate", 0)
     if cost > regain and not mana_sustained:
         out.append(Gate("warn", "Основной скилл тратит больше маны, чем восстанавливается",
-                        f"{cost:.0f}/с против {regain:.0f}/с (реген + лич + за удар), дефицит {cost - regain:.0f}/с; "
-                        "мана за убийство и фласки PoB здесь не учитывает"))
+                        f"{cost:.0f}/с против {regain:.0f}/с (регенерация + похищение + за удар), дефицит {cost - regain:.0f}/с; "
+                        "ману за убийство и флаконы PoB здесь не учитывает"))
     hit = stats.get("HitChance", 100)
     if hit < MIN_HIT_CHANCE:
         out.append(Gate("warn", "Низкий шанс попадания", f"{hit:.0f}%: точность — дешёвый урон"))
@@ -103,7 +103,7 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
                         "под непрерывными ударами он не восстанавливается"))
     elif rec.half_life_refill_seconds is None:
         out.append(Gate("warn", "Жизнь в бою не восстанавливается",
-                        "нет лича, регенерации и recoup — жизнь возвращается только фласками"))
+                        "нет похищения, регенерации и возмещения — здоровье возвращается только флаконами"))
     elif rec.regen == 0:
         out.append(Gate("warn", "Нет регенерации жизни",
                         f"{rec.total:,.0f}/с только пока атакуешь; половина жизни за {rec.half_life_refill_seconds:.1f} с"))
@@ -228,7 +228,8 @@ def core_damage(engine, profile: MapProfile, grads: list[Gradient]) -> dict:
     return out
 
 
-def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int = 6, top: int = 10) -> dict:
+def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int = 6, top: int = 10,
+                 statdesc_dir=None) -> dict:
     stats = engine.what_if(config=profile.config())
     hits = survivable_hits(engine, profile)
     rec = recovery(engine, profile)
@@ -258,7 +259,7 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
         },
         "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps)
                   + gates(stats, hits, rec, profile.mana_sustained)],
-        "notModelled": [asdict(g) for g in collect_mechanics(engine).gaps if g.likely_impact],
+        "notModelled": [asdict(g) for g in collect_mechanics(engine, statdesc_dir).gaps if g.likely_impact],
         "conditions": [asdict(c) for c in conditions],
         "damageRange": damage_range(engine, profile.config(), conditions),
         "core": core_damage(engine, profile, grads),

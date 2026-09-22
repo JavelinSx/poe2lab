@@ -35,3 +35,11 @@ def test_skill_descriptions_and_uniques_are_collected(mechanics):
     wc = next(s for s in mechanics.skills if s["name"] == "Walking Calamity")
     assert "Glory" in wc["description"]
     assert any(u["name"].startswith("Amor Mandragora") for u in mechanics.uniques)
+
+
+def test_wrapped_item_lines_are_joined():
+    from poe2lab.knowledge import _join_wrapped
+    lines = ["Gain 1% of Damage as Extra Damage of a random Element per", "Rune Socketed in Equipped Items",
+             "+20 to Strength"]
+    assert _join_wrapped(lines) == ["Gain 1% of Damage as Extra Damage of a random Element per Rune Socketed in "
+                                    "Equipped Items", "+20 to Strength"]

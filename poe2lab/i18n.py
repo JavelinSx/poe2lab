@@ -10,6 +10,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from .gamedata import load_names, load_templates
+
 HOSTS = {"en": "https://www.pathofexile.com", "ru": "https://ru.pathofexile.com"}
 USER_AGENT = "poe2lab/0.1 (personal build analysis tool; github.com/JavelinSx/poe2lab)"
 CACHE_DIR = Path(__file__).resolve().parents[1] / "data" / "cache" / "trade"
@@ -61,6 +63,18 @@ def _stat_pairs(lang: str):
                 yield src, e["text"]
 
 
+_SLOT_OR_NUMBER = re.compile(r"#|\d+(?:\.\d+)?")
+
+
+def _numbers_as_slots(src: str, dst: str) -> str:
+    """Trade templates keep fixed numbers ("for 4 seconds"), but the key turns them into '#' like any value; when
+    both languages have the same numbers in the same order, make the fixed ones slots too, so a printed line's
+    numbers fill the template in order."""
+    if _SLOT_OR_NUMBER.findall(src) == _SLOT_OR_NUMBER.findall(dst):
+        return _SLOT_OR_NUMBER.sub("#", dst)
+    return dst
+
+
 def _signature(entry: dict) -> tuple:
     return ("name" in entry, entry.get("disc", ""), bool((entry.get("flags") or {}).get("unique")))
 
@@ -96,7 +110,7 @@ MANUAL = {
         "regenerate # life per second": "# к регенерации здоровья в секунду",
         "#% increased area damage": "#% увеличение урона по области",
         "#% of physical damage from hits taken as fire damage": "#% физического урона от ударов получаемого как урон от огня",
-        "gain # druidic prowess for every # total rage spent": "Даёт # друидической доблести за каждые # потраченной свирепости",
+        "gain # druidic prowess for every # total rage spent": "Дарует # заряд Друидизма за каждые итоговые # единиц потраченной свирепости",
     },
 }
 
@@ -109,9 +123,13 @@ def dictionary(lang: str) -> dict:
         raise ValueError(f"unsupported language {lang!r}")
     stats = dict(MANUAL.get(lang, {}))
     for src, dst in _stat_pairs(lang):
-        stats.setdefault(stat_key(src), dst)
+        stats.setdefault(stat_key(src), _numbers_as_slots(src, dst))
+    for key, dst in load_templates(lang).items():  # the game's own descriptions: "reduced" wordings, unparsed lines
+        stats.setdefault(key, dst)
     names = dict(_static_pairs(lang))
     for src, dst in _item_pairs(lang):
+        names.setdefault(src, dst)
+    for src, dst in load_names(lang).items():  # skills from items, areas, buffs: from the installed game
         names.setdefault(src, dst)
     return {"stats": stats, "names": names}
 

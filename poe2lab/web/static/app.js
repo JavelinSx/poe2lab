@@ -302,12 +302,12 @@ TABS.gear = async (view) => {
       s.sources.length ? h("div", { class: "src" }, t("from") + s.sources.map(trSource).join(" · ")) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
 
   const socketCard = h("div", { class: "card" }, h("h3", {}, t("socketsTitle")),
-    h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", g.prices.league) : "")),
+    h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", trName(g.prices.league)) : "")),
     g.sockets.length ? g.sockets.map((s) => h("div", { style: "margin-bottom:12px" },
       h("div", {}, chip("tag", slotName(s.slot)), t("socketNow", s.index), h("b", {}, trName(s.current)), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
       s.best.length ? h("table", {}, h("tbody", {}, s.best.map((o) => h("tr", {},
         h("td", {}, h("div", {}, trName(o.name)), h("div", { class: "mod muted" }, trMod(o.lines.join(" / ")))),
-        h("td", {}, deltas(o.changes)), h("td", { class: "num" }, o.price || "")))))
+        h("td", {}, deltas(o.changes)), h("td", { class: "num" }, trFree(o.price || ""))))))
         : h("div", { class: "muted small" }, t("nothingBetter"))))
       : h("p", { class: "muted" }, t("noSockets")));
 
@@ -364,14 +364,22 @@ TABS.compare = async () => {
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));
   const m = await cached("mechanics", () => api(`/api/mechanics?${buildQuery()}`));
-  const where = (w) => trFree(w.replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`))
-    .replace(/\(([^()]+)\)$/, (all, s) => (SLOT_RU[s] !== undefined ? `(${slotName(s)})` : all));
+  // "Name, Base (Slot)" / "Skill (группа N)": names through trItem, so a rare's random English name is dropped in
+  // Russian (the game builds it from words with several Russian variants — it cannot be recovered exactly)
+  const where = (w) => {
+    const m = w.match(/^(.*) \(([^()]+)\)$/);
+    if (!m) return trFree(w);
+    const tail = m[2].replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`);
+    return h("span", { title: w }, `${trItem(m[1])} (${SLOT_RU[m[2]] !== undefined ? slotName(m[2]) : trFree(tail)})`);
+  };
   // in Russian mode show only what has an official translation; the English original stays in the tooltip
   const line = (text) => h("div", { title: text }, trMod(text));
-  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, where(g.where)), line(g.text),
+  // the game's own text in the player's language (from the installed game) beats any translation of ours
+  const gapText = (g) => (LANG !== "en" && g.text_local ? h("div", { title: g.text }, g.text_local) : line(g.text));
+  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, where(g.where)), gapText(g),
     LANG === "en" && g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
   // raw internal stat ids ("stat_name = 20") mean nothing to a player; the English view keeps them
-  const shown = m.gaps.filter((g) => LANG === "en" || !/^[a-z0-9_%+]+ = /.test(g.text));
+  const shown = m.gaps.filter((g) => LANG === "en" || g.text_local || !/^[A-Za-z0-9_%+]+ = /.test(g.text));
   const impact = shown.filter((g) => g.likely_impact);
   const rest = shown.filter((g) => !g.likely_impact);
   return h("div", { class: "grid two" },
@@ -379,8 +387,11 @@ TABS.mechanics = async (view) => {
       impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
     h("div", { class: "card" }, h("h3", {}, t("skillsTitle")), h("div", { class: "sub" }, t("skillsSub")),
       m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, `${s.group}. ${trName(s.name)}`),
-        s.description && LANG === "en" ? h("p", { class: "muted small" }, s.description) : null,
-        h("ul", {}, s.lines.map((l) => h("li", { title: l }, trMod(l)))))),
+        s.description && (LANG === "en" || GAME.names[s.description])
+          ? h("p", { class: "muted small" }, LANG === "en" ? s.description : GAME.names[s.description]) : null,
+        h("ul", {}, LANG !== "en" && s.linesLocal && s.linesLocal.length
+          ? s.linesLocal.map((l, i) => h("li", { title: s.lines[i] || "" }, l))
+          : s.lines.map((l) => h("li", { title: l }, trMod(l)))))),
       m.uniques.map((u) => h("details", {}, h("summary", {}, trItem(u.name)), h("ul", {}, u.lines.map((l) => h("li", { title: l }, trMod(l))))))));
 };
 
@@ -459,8 +470,8 @@ function modEditor(c, redraw) {
     }
   });
   return h("div", {}, row,
-    h("div", { class: "hint" }, h("button", { class: "link", onclick: () => { c.mod = ""; redraw(); } }, t("changeMod")),
-      LANG !== "en" ? h("span", { title: c.mod }, " · " + c.mod) : null));
+    // the PoB line itself stays in the tooltip: in Russian mode nothing English is shown on the page
+    h("div", { class: "hint", title: c.mod }, h("button", { class: "link", onclick: () => { c.mod = ""; redraw(); } }, t("changeMod"))));
 }
 
 function replaceToken(line, k, value, plus) {
@@ -485,7 +496,8 @@ function modSearch(onPick) {
       const r = await api(`/api/mods/search?q=${encodeURIComponent(q)}&lang=${LANG}`);
       list.replaceChildren(...(r.results.length ? r.results.map((m) => h("div", {
         class: "suggest-item", onmousedown: (e) => { e.preventDefault(); onPick(m.line); },
-      }, h("div", {}, m.text), LANG !== "en" ? h("div", { class: "hint" }, m.en) : null)) : [h("div", { class: "suggest-item muted" }, t("modNothing"))]));
+        title: LANG !== "en" ? m.en : null,
+      }, h("div", {}, m.text))) : [h("div", { class: "suggest-item muted" }, t("modNothing"))]));
     } catch (e) { list.replaceChildren(h("div", { class: "suggest-item muted" }, e.message)); }
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 200); });

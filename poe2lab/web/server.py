@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -21,6 +22,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
+from .. import gamedata
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -79,6 +81,7 @@ class Session:
 
 session = Session()
 app = FastAPI(title="poe2lab")
+app.add_middleware(GZipMiddleware, minimum_size=4096)  # the RU dictionary is several MB
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "testserver"}
 CSRF_HEADER = "x-poe2lab"
@@ -162,16 +165,34 @@ def _llm_view() -> dict:
 _dictionaries: dict = {}
 
 
+_game_lock = threading.Lock()
+
+
+def _game_texts(lang: str) -> Path | None:
+    """Stat descriptions in `lang` unpacked from the installed game (built once and again after a game patch,
+    ~15 s); None when there is no game install or extractor, so everything falls back to the English lines."""
+    if lang not in gamedata.LANG_NAMES:
+        return None
+    with _game_lock:
+        if gamedata.stale(lang) and gamedata.game_dir() and gamedata.BUN.is_file():
+            try:
+                gamedata.build(lang)
+            except (gamedata.GameDataError, OSError):
+                return None
+    return gamedata.statdesc_dir(lang) if gamedata.available(lang) else None
+
+
 @app.get("/api/i18n/{lang}")
 def i18n(lang: str):
     """Official game texts for the UI language (stat templates, names); empty if GGG's data is unreachable."""
     if lang not in _dictionaries:
+        _game_texts(lang)
         try:
             _dictionaries[lang] = {"available": True, **translation_dictionary(lang)}
         except ValueError as err:
             raise HTTPException(400, str(err))
         except OSError:
-            return {"available": False, "stats": {}, "names": {}}
+            return {"available": False, "stats": {}, "names": gamedata.load_names(lang)}
     return _dictionaries[lang]
 
 
@@ -298,7 +319,8 @@ def build():
 def report(mode: str = "balanced", build: str | None = None):
     with session.lock:
         session.require(build)
-        return _json(session.cached(("report", mode), lambda: build_report(session.engine, session.profile, mode=mode)))
+        return _json(session.cached(("report", mode), lambda: build_report(session.engine, session.profile, mode=mode,
+                                                                              statdesc_dir=_game_texts("ru"))))
 
 
 @app.get("/api/gear")
@@ -338,7 +360,7 @@ def gear(mode: str = "balanced", build: str | None = None):
 def mechanics(build: str | None = None):
     with session.lock:
         session.require(build)
-        m = session.cached("mechanics", lambda: collect_mechanics(session.engine))
+        m = session.cached("mechanics", lambda: collect_mechanics(session.engine, _game_texts("ru")))
         return _json({"gaps": m.gaps, "skills": m.skills, "uniques": m.uniques})
 
 
@@ -420,6 +442,6 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 def index():
     # version static URLs by modification time so browsers never run a stale script
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for name in ("app.js", "i18n.js", "app.css"):
+    for name in ("app.js", "i18n.js", "pob_labels.js", "app.css"):
         html = html.replace(f"/static/{name}", f"/static/{name}?v={int((STATIC / name).stat().st_mtime)}")
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

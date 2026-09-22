@@ -87,7 +87,21 @@ def ui(argv: list[str]):
     uvicorn.run("poe2lab.web.server:app", host="127.0.0.1", port=args.port, log_level="warning")
 
 
-EXTRA = ("dossier", "builds", "ui")
+def game_texts(rest):
+    """Unpack official Russian texts from the installed game (re-run after a game patch; the UI also does it
+    automatically when the game is newer than the unpacked copy)."""
+    from . import gamedata
+    ap = argparse.ArgumentParser(prog="python -m poe2lab gamedata", description=game_texts.__doc__)
+    ap.add_argument("--game", type=Path, help="Path of Exile 2 folder (default: Steam / standalone install)")
+    args = ap.parse_args(rest)
+    try:
+        info = gamedata.build("ru", args.game)
+    except gamedata.GameDataError as err:
+        sys.exit(str(err))
+    print(f"{info['game']}: описаний статов {info['statFiles']}, названий {info['names']}")
+
+
+EXTRA = ("dossier", "builds", "ui", "gamedata")
 
 
 def main():
@@ -103,6 +117,9 @@ def main():
         return
     if command == "ui":
         ui(rest)
+        return
+    if command == "gamedata":
+        game_texts(rest)
         return
     script = SCRIPTS / COMMANDS[command]
     sys.argv = [str(script), *rest]

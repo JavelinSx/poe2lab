@@ -383,19 +383,47 @@ end
 return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted = item.corrupted and true or false,
   rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options }})""")
 
-    def mechanics_raw(self) -> dict:
+    def _local_describer(self, statdesc_dir: Path) -> bool:
+        """A second copy of PoB's StatDescriber reading description files from `statdesc_dir` (same layout as
+        Data/StatDescriptions, texts in another language). Kept per directory; False if it cannot be built."""
+        path = statdesc_dir.resolve().as_posix()
+        return self._lua(f"""
+_poe2lab_describers = _poe2lab_describers or {{}}
+local dir = {lua_string(path)}
+if not _poe2lab_describers[dir] then
+  local f = io.open("Modules/StatDescriber.lua", "rb")
+  if not f then return "no" end
+  local src = f:read("*a"); f:close()
+  src = src:gsub('"Data/StatDescriptions/', function() return '"' .. dir .. '/' end)
+  local chunk = loadstring(src, "StatDescriberLocal")
+  if not chunk then return "no" end
+  _poe2lab_describers[dir] = chunk()
+end
+_poe2lab_localDescribe = _poe2lab_describers[dir]
+return 'yes'""") == "yes"
+
+    def mechanics_raw(self, statdesc_dir: Path | None = None) -> dict:
         """Per skill (every gem effect in every socket group): description, readable stat lines, and the stats PoB
         has no mapping for (silently ignored in calculations). Per item: lines PoB could not parse, and the full text
-        of unique items. Filtering and interpretation live in poe2lab.knowledge."""
+        of unique items. Filtering and interpretation live in poe2lab.knowledge.
+
+        With `statdesc_dir` (stat descriptions in the player's language, see poe2lab.gamedata) every readable line
+        also comes in that language: `linesLocal` / `textLocal`."""
+        local = bool(statdesc_dir) and self._local_describer(statdesc_dir)
+        if not local:
+            self._lua("_poe2lab_localDescribe = nil")
         return self._json("""
 local function arr(t) return _poe2lab_array(t or {}) end
-local function describe(stats, scope)
-  local ok, lines = pcall(data.describeStats, stats, scope)
+local function run(fn, stats, scope)
+  if not fn then return arr({}) end
+  local ok, lines = pcall(fn, stats, scope)
   if not ok or not lines then return arr({}) end
   local out = arr({})
   for i, l in ipairs(lines) do out[i] = StripEscapes(l) end
   return out
 end
+local function describe(stats, scope) return run(data.describeStats, stats, scope) end
+local function describeLocal(stats, scope) return run(_poe2lab_localDescribe, stats, scope) end
 local skills = arr({})
 local seen = {}
 for gi, g in ipairs(build.skillsTab.socketGroupList) do
@@ -414,11 +442,12 @@ for gi, g in ipairs(build.skillsTab.socketGroupList) do
             for stat, value in pairs(stats) do
               if not set.statMap[stat] then
                 unmapped[#unmapped + 1] = { stat = stat, value = value,
-                  text = describe({ [stat] = value }, set.statDescriptionScope) }
+                  text = describe({ [stat] = value }, set.statDescriptionScope),
+                  textLocal = describeLocal({ [stat] = value }, set.statDescriptionScope) }
               end
             end
             sets[#sets + 1] = { label = set.label or "", lines = describe(stats, set.statDescriptionScope),
-                                unmapped = unmapped }
+                                linesLocal = describeLocal(stats, set.statDescriptionScope), unmapped = unmapped }
           end
           skills[#skills + 1] = { group = gi, name = ge.name, support = ge.support and true or false,
             description = ge.description or "", statSets = sets }

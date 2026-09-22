@@ -44,7 +44,7 @@ const I18N = {
     noSockets: "Сокетов на предметах, которые можно менять, нет.",
     slots: "Слоты", corrupted: "с порчей", craftable: "можно крафтить",
     affixCount: (p) => `${p.base}, ур. ${p.item_level} · префиксы ${p.prefixes}/${p.limit}, суффиксы ${p.suffixes}/${p.limit}`,
-    approx: " (приблизительно)", prefix: "преф", suffix: "суфф", holds: "держит: ", utility: "утилити — PoB не оценивает",
+    approx: " (приблизительно)", prefix: "преф", suffix: "суфф", holds: "держит: ", utility: "служебный аффикс — PoB не оценивает",
     candidate: "Предмет-кандидат", slot: "Слот",
     candidatePh: "Вставьте предмет из игры (Ctrl+C на предмете) или отредактируйте текущий…",
     breakeven: "Точка безубыточности (необязательно)", breakevenPh: "строка мода кандидата, например: Adds 26 to 42 Physical Damage",
@@ -70,7 +70,7 @@ const I18N = {
     keySaved: (h) => `ключ сохранён (${h}) — оставьте поле пустым, чтобы не менять`, keyPh: "вставьте ключ",
     noKeyNeeded: "ключ не нужен", modelPh: "название модели", loadModels: "Загрузить список моделей",
     saveAi: "Сохранить", clearKey: "Удалить ключ", aiSaved: "Настройки ИИ сохранены",
-    modelsLoaded: (n) => `Моделей: ${n}`, modelsHint: "Модель должна поддерживать вызов инструментов (tool calling).",
+    modelsLoaded: (n) => `Моделей: ${n}`, modelsHint: "Модель должна поддерживать вызов инструментов.",
     keyStorage: "Ключ хранится только на этом компьютере (%APPDATA%\\poe2lab\\llm.json) и не попадает в репозиторий.",
     dataLeaves: "Данные билда и вопросы уходят выбранному провайдеру.",
     chatHello: "Спросите о билде: что улучшить, стоит ли брать предмет, почему умираете. Механику билда я уже знаю из данных игры и вашего профиля.",
@@ -214,6 +214,7 @@ const CLASS_RU = {
 
 // ---------- official game texts (stat templates and names from GGG's trade data) ----------
 let GAME = { stats: {}, names: {} };
+let BUILD_BASES = [], BUILD_ITEMS = [];  // item bases / full item names of the open build
 let BUILD_NAMES = [];  // names occurring in the open build, longest first, for free-text replacement
 
 const TOKEN_RE = /[+-]?\(\s*-?\d+(?:\.\d+)?\s*-\s*-?\d+(?:\.\d+)?\s*\)|[+-]?\d+(?:\.\d+)?/g;
@@ -239,11 +240,18 @@ async function loadGameTexts() {
 }
 
 // a mod line, or several joined with " / "
+// mod prefixes the game prints before the stat text (official wording from GGG's trade data)
+const MOD_PREFIX_RU = { "Bonded: ": "Связаны: " };
+
 function trMod(line) {
   if (LANG === "en" || !line) return line;
   return line.split(" / ").map((part) => {
-    const tpl = GAME.stats[statKey(part)];
-    return (tpl && fillTemplate(tpl, part)) || part;
+    const prefix = Object.keys(MOD_PREFIX_RU).find((p) => part.startsWith(p));
+    const body = prefix ? part.slice(prefix.length) : part;
+    const tpl = GAME.stats[statKey(part)] || GAME.stats[statKey(body)];
+    const done = tpl && fillTemplate(tpl, GAME.stats[statKey(part)] ? part : body);
+    if (!done) return part;
+    return GAME.stats[statKey(part)] || !prefix ? done : MOD_PREFIX_RU[prefix] + done;
   }).join(" / ");
 }
 
@@ -252,13 +260,19 @@ function trName(name) {
   return GAME.names[name] || CLASS_RU[name] || name;
 }
 
-// "Random Name, Base Type" for rares / "Unique Name, Base Type" for uniques
+// "Random Name, Base Type" for rares / "Unique Name, Base Type" for uniques / "Prefix Base of Suffix" for magic
+// items. Random rare names and magic affix names have several Russian variants in the game's word lists, so they
+// cannot be recovered from English exactly: those items are shown by their base.
 function trItem(name) {
   if (LANG === "en" || !name) return name;
   const parts = name.split(", ");
-  if (parts.length !== 2) return trName(name);
-  const [first, base] = parts;
-  return GAME.names[first] ? `${GAME.names[first]}, ${trName(base)}` : trName(base);
+  if (parts.length === 2) {
+    const [first, base] = parts;
+    return GAME.names[first] ? `${GAME.names[first]}, ${trName(base)}` : trName(base);
+  }
+  if (GAME.names[name]) return GAME.names[name];
+  const base = BUILD_BASES.find((b) => name.includes(b));
+  return base ? GAME.names[base] : name;
 }
 
 function setBuildNames(build) {
@@ -267,6 +281,11 @@ function setBuildNames(build) {
   for (const g of build.gems || []) names.add(g);
   for (const it of build.items || []) { it.name.split(", ").forEach((p) => names.add(p)); names.add(it.baseName); }
   BUILD_NAMES = [...names].filter((n) => n && GAME.names[n]).sort((a, b) => b.length - a.length);
+  BUILD_BASES = [...new Set((build.items || []).map((it) => it.baseName))]
+    .filter((n) => n && GAME.names[n]).sort((a, b) => b.length - a.length);
+  // full item names as the server writes them into sentences: "Rare Name, Base" → the base alone in Russian
+  BUILD_ITEMS = (build.items || []).map((it) => it.name).filter((n) => n && n.includes(", "))
+    .sort((a, b) => b.length - a.length);
 }
 
 const SUPPORT_COLOR_RU = { Strength: "красных", Dexterity: "зелёных", Intelligence: "синих" };
@@ -274,7 +293,9 @@ const SUPPORT_COLOR_RU = { Strength: "красных", Dexterity: "зелёны�
 // server-made sentences: translate «quoted mods», support-gem counts and names from the open build
 function trFree(text) {
   if (LANG === "en" || !text) return text;
-  let s = text.replace(/«([^»]+)»/g, (_, inner) => `«${GAME.names[inner] ? GAME.names[inner] : trMod(inner)}»`);
+  let s = text.replace(/«([^»]+)»/g, (_, inner) =>
+    `«${SLOT_RU[inner] !== undefined ? slotName(inner) : GAME.names[inner] ? GAME.names[inner] : trMod(inner)}»`);
+  for (const n of BUILD_ITEMS) s = s.split(n).join(trItem(n));
   s = s.replace(/(\d+) (Strength|Dexterity|Intelligence) Support Gems/g, (_, n, c) => `${n} ${SUPPORT_COLOR_RU[c]} камней поддержки`);
   for (const n of BUILD_NAMES) s = s.split(n).join(GAME.names[n]);
   for (const [en, ru] of Object.entries(SLOT_RU)) s = s.split(`(${en})`).join(`(${ru})`);
@@ -290,9 +311,13 @@ const FREE_RU = [
   [/Не хватает spirit/g, "Не хватает духа"],
   [/spirit на резервы/g, "дух на резервы"],
   [/\bspirit\b/gi, "дух"],
-  [/Druidic Prowess/g, "друидическая доблесть"],
+  [/Druidic Prowess/g, "Друидизм"],
   [/ ?(?:стат )?[a-z0-9%+]+(?:_[a-z0-9%+]+){2,}/g, ""],  // internal stat ids: no use to a player
   [/Custom Modifiers/g, "пользовательские модификаторы"],
+  [/\((\d+) (Str|Dex|Int)\)/g, (_, n, a) => `(${n} ${ATTR_GEN_RU[a]})`],
+  // currency: Divine Orb / Exalted Orb in the client's words, shortened
+  [/(\d) div\b/g, "$1 бож."],
+  [/(\d|<1) ex\b/g, "$1 возв."],
 ];
 
 // "обычный ролл: MOD (нужен уровень предмета N+)" / "эссенция NAME: MOD — price" / "desecration: MOD"
@@ -301,7 +326,7 @@ function trSource(src) {
   let m = src.match(/^обычный ролл: (.+?)( \(нужен уровень предмета \d+\+\))?$/);
   if (m) return `обычный ролл: ${trMod(m[1])}${m[2] || ""}`;
   m = src.match(/^эссенция (.+?): (.+?)( — .+)?$/);
-  if (m) return `эссенция ${trName(m[1])}: ${trMod(m[2])}${m[3] || ""}`;
+  if (m) return `эссенция ${trName(m[1])}: ${trMod(m[2])}${trFree(m[3] || "")}`;
   m = src.match(/^desecration: (.+)$/);
   if (m) return `осквернение: ${trMod(m[1])}`;
   return trFree(src);
@@ -320,13 +345,14 @@ function slotName(s) { return LANG === "ru" ? (SLOT_RU[s] || s) : s; }
 function conditionLabel(label) {
   if (LANG !== "ru") return label;
   if (PHRASE_RU[label]) return PHRASE_RU[label];
+  if (POB_LABELS_RU[label]) return POB_LABELS_RU[label];
   let m = label.match(/^Is the enemy (.+?)\??$/);
   if (m) return `Враг ${STATE_RU[m[1]] || m[1]}?`;
   m = label.match(/^Do you have (.+?)\?$/);
   if (m) return `Есть ${BUFF_RU[m[1]] || m[1]}?`;
   m = label.match(/^Act (\d+): (.+)$/);
-  if (m) return `Акт ${m[1]}: ${m[2]}`;
+  if (m) return `Акт ${m[1]}: ${trName(m[2])}`;
   m = label.match(/^Interlude (\d+): (.+)$/);
-  if (m) return `Интерлюдия ${m[1]}: ${m[2]}`;
+  if (m) return `Интерлюдия ${m[1]}: ${trName(m[2])}`;
   return label;
 }

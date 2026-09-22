@@ -26,6 +26,7 @@ class Gap:
     what: str  # stat id or item line
     text: str  # readable game text when available
     likely_impact: bool  # looks like it changes damage/defence/resources
+    text_local: str = ""  # the same text in the player's language (official, from the game files) when available
 
 
 @dataclass
@@ -35,22 +36,26 @@ class Mechanics:
     uniques: list[dict] = field(default_factory=list)  # slot, name, lines
 
 
-def collect(engine) -> Mechanics:
-    raw = engine.mechanics_raw()
+def collect(engine, statdesc_dir=None) -> Mechanics:
+    """`statdesc_dir`: stat descriptions in the player's language (poe2lab.gamedata); adds `linesLocal` to skills and
+    `text_local` to gaps."""
+    raw = engine.mechanics_raw(statdesc_dir)
     m = Mechanics()
     for s in raw["skills"]:
         lines = [l for st in s["statSets"] for l in st["lines"]]
+        local = [l for st in s["statSets"] for l in st.get("linesLocal", [])]
         m.skills.append({"group": s["group"], "name": s["name"], "support": s["support"],
-                         "description": s["description"], "lines": list(dict.fromkeys(lines))})
+                         "description": s["description"], "lines": list(dict.fromkeys(lines)),
+                         "linesLocal": list(dict.fromkeys(local))})
         for st in s["statSets"]:
             for u in st["unmapped"]:
                 if _NOISE.search(u["stat"]) or not u["value"]:
                     continue
                 text = " / ".join(u["text"]) or f"{u['stat']} = {u['value']:g}"
                 m.gaps.append(Gap("skill", f"{s['name']} (группа {s['group']})", u["stat"], text,
-                                  bool(_IMPACT.search(u["stat"]))))
+                                  bool(_IMPACT.search(u["stat"])), " / ".join(u.get("textLocal", []))))
     for it in raw["items"]:
-        for line in it["unparsed"]:
+        for line in _join_wrapped(it["unparsed"]):
             if _ITEM_NOISE.search(line):
                 continue
             m.gaps.append(Gap("item", f"{it['name']} ({it['slot']})", line, line, bool(_IMPACT.search(line))))
@@ -58,6 +63,20 @@ def collect(engine) -> Mechanics:
             m.uniques.append({"slot": it["slot"], "name": it["name"], "lines": it["uniqueText"]})
     m.gaps = _dedupe(m.gaps)
     return m
+
+
+# PoB keeps a wrapped item line as two: "... of a random Element per" + "Rune Socketed in Equipped Items".
+_DANGLING = re.compile(r"\b(per|for|of|to|and|with|in|the|a|an|by|from|while|if|when|as|on|among)$", re.I)
+
+
+def _join_wrapped(lines: list[str]) -> list[str]:
+    out: list[str] = []
+    for line in lines:
+        if out and _DANGLING.search(out[-1]):
+            out[-1] = f"{out[-1]} {line}"
+        else:
+            out.append(line)
+    return out
 
 
 def _dedupe(gaps: list[Gap]) -> list[Gap]:
