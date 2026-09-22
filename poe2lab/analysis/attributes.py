@@ -108,26 +108,32 @@ class SupportAtRisk:
     index: int
     name: str
     skill: str
-    skill_dps_pct: float  # its own skill's DPS change when the support is off
+    skill_dps_pct: float  # its own skill's DPS change when the support is off (its conditions assumed met)
     main_dps_pct: float  # main skill's DPS change
+    conditions: list[str] = field(default_factory=list)  # Configuration checkboxes assumed ticked for this row
 
 
 def supports_at_risk(engine, config: dict, attr: str) -> list[SupportAtRisk]:
+    """Each support of the short colour, valued with its own conditional effects switched on - otherwise a
+    conditional support such as Momentum shows as worthless."""
     gems = engine.gems()
     skill_of = {g["group"]: g["name"] for g in gems if not g["support"] and g["index"] == 1}
-    main_base = engine.what_if(config=config)
     out = []
     for g in gems:
         if not (g["support"] and g["enabled"] and g["color"] == SUPPORT_COLOR[attr]):
             continue
+        conds = engine.skill_conditions(g["name"])
+        cfg = config | {c["var"]: True for c in conds}
         pair = [(g["group"], g["index"])]
-        own_base = engine.what_if(config=config, main_socket_group=g["group"])
-        own_off = engine.what_if(config=config, main_socket_group=g["group"], disable_gems=pair)
-        main_off = engine.what_if(config=config, disable_gems=pair)
+        own_base = engine.what_if(config=cfg, main_socket_group=g["group"])
+        own_off = engine.what_if(config=cfg, main_socket_group=g["group"], disable_gems=pair)
+        main_base = engine.what_if(config=cfg)
+        main_off = engine.what_if(config=cfg, disable_gems=pair)
         out.append(SupportAtRisk(
             g["group"], g["index"], g["name"], skill_of.get(g["group"], "?"),
             skill_dps_pct=_pct(own_off["CombinedDPS"], own_base["CombinedDPS"]),
             main_dps_pct=_pct(main_off["CombinedDPS"], main_base["CombinedDPS"]),
+            conditions=[c["label"] for c in conds],
         ))
     return sorted(out, key=lambda s: (s.main_dps_pct, s.skill_dps_pct))
 

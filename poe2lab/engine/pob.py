@@ -286,6 +286,24 @@ for _, node in pairs(build.spec.allocNodes) do
 end
 return _poe2lab_json(counts)""")
 
+    def skill_conditions(self, gem_name: str) -> list[dict]:
+        """Configuration checkboxes tied to a gem (e.g. Momentum's 'Moved 2m during Skill use?').
+        Effects behind them count as zero in PoB until the box is ticked."""
+        return self._json(f"""
+local name = {lua_string(gem_name)}
+local out = _poe2lab_array({{}})
+for _, opt in ipairs(require("Modules.ConfigOptions")) do
+  local s = opt.ifSkill
+  local match = s == name
+  if type(s) == "table" then
+    for _, v in ipairs(s) do if v == name then match = true end end
+  end
+  if match and opt.type == "check" and opt.var then
+    out[#out + 1] = {{ var = opt.var, label = StripEscapes(opt.label or opt.var) }}
+  end
+end
+return _poe2lab_json(out)""")
+
     def config(self) -> dict:
         """Current Configuration tab values explicitly set in the build."""
         return self._json("return _poe2lab_json(build.configTab.input)")

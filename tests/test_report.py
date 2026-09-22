@@ -49,6 +49,15 @@ def test_supports_at_risk_ranks_main_skill_support_first(titan):
     assert all(g["enabled"] for g in titan.gems())
 
 
+def test_conditional_support_is_valued_with_its_condition(titan):
+    # In game the Titan's Momentum (on Rampage) is the support switched off by the Dexterity shortfall.
+    momentum = next(s for s in attrs.supports_at_risk(titan, MapProfile().config(), "Dex") if s.name == "Momentum")
+    assert momentum.skill == "Rampage"
+    assert momentum.conditions == ["Moved 2m during Skill use?"]
+    assert momentum.skill_dps_pct == pytest.approx(-29.3, abs=0.5)
+    assert titan.config().get("momentumDamage") is None
+
+
 def test_item_dependency_detects_break():
     # Strip Strength so that the amulet alone holds the 126 Strength gem requirement.
     e = PobEngine()
