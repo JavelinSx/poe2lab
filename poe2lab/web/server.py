@@ -12,7 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..analysis.items import breakeven, compare
-from ..analysis.report import build_report, defence_weights
+from ..analysis.report import MODES, build_report, defence_weights
+from ..analysis.tree import analyse as analyse_tree
 from ..analysis.slots import craft_path, plan_all
 from ..analysis.sockets import plan_sockets
 from ..analysis.sources import describe as describe_sources
@@ -483,6 +484,17 @@ def _reference(name: str):
         engine, bp = _errors(lambda: open_build(resolve_build(name)))
         session.ref = (name, engine, bp)
     return session.ref
+
+
+@app.get("/api/tree")
+def tree(mode: str = "balanced", points: int = 6, build: str | None = None):
+    if mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    with session.lock:
+        session.require(build)
+        points = max(1, min(points, 10))
+        return _json(session.cached(("tree", mode, points), lambda: analyse_tree(
+            session.engine, session.profile, mode=mode, max_points=points)))
 
 
 @app.get("/api/versus")

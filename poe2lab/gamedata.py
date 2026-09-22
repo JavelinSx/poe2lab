@@ -27,6 +27,7 @@ TABLES = {  # table -> (key column, text columns)
     "baseitemtypes": ("Id", ["Name"]),
     "buffdefinitions": ("Id", ["Name"]),
     "leaguenames": ("Id", ["Name1"]),
+    "passiveskills": ("Id", ["Name"]),
 }
 # Names PoB shows that no table holds under the same English text (PoB's own labels for game things).
 MANUAL_NAMES = {"ru": {"Thorns": "Шипы"}}

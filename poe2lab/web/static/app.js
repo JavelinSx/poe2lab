@@ -592,6 +592,52 @@ function renderItemResult(r) {
     r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", trMod(r.breakeven.line), fmt(r.breakeven.factor * 100)) : t("beBad")) : null);
 }
 
+// ---------- passive tree ----------
+TABS.tree = async (view) => {
+  view.replaceChildren(loading(t("treeLoading")));
+  const points = state.treePoints || 6;
+  const r = await cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`));
+  const pointsSel = h("select", { onchange: (e) => { state.treePoints = Number(e.target.value); switchTab("tree"); } },
+    [3, 4, 5, 6, 8, 10].map((n) => h("option", { value: n, selected: n === points }, t("upToPoints", n))));
+  const nodeName = (n) => h("span", { title: n.name }, trName(n.name));
+  const typeChip = (type) => type === "Keystone" ? chip("tag", t("keystone")) : type === "Notable" ? chip("warn", t("notable")) : null;
+  const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
+  const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
+
+  const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth")),
+    h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
+    h("label", { class: "field", style: "max-width:220px;margin-bottom:10px" }, h("span", {}, t("reach")), pointsSel),
+    r.growth.length ? h("table", { class: "versus-items" },
+      h("thead", {}, h("tr", {}, h("th", {}, t("node")), h("th", { class: "num" }, t("points")), h("th", {}, t("perPoint")), h("th", {}, t("treeGives")))),
+      h("tbody", {}, r.growth.map((g) => h("tr", {},
+        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats),
+          g.via.length ? h("div", { class: "hint" }, t("via", [...new Set(g.via.map(trName))].join(", "))) : null),
+        h("td", { class: "num" }, g.points),
+        h("td", {}, scoreBar(g.perPoint, maxValue)),
+        h("td", {}, deltas(g.changes, METRIC, 0.3))))))
+      : h("p", { class: "muted" }, t("treeNothing")));
+
+  const branchRow = (b) => h("tr", {},
+    h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats)),
+    h("td", { class: "num" }, b.points), h("td", {}, deltas(b.changes, METRIC, 0.3)));
+  const respec = h("div", { class: "card" }, h("h3", {}, t("treeRespec")), h("div", { class: "sub" }, t("treeRespecSub")),
+    r.respec.length ? h("table", { class: "versus-items" },
+      h("thead", {}, h("tr", {}, h("th", {}, t("branch")), h("th", { class: "num" }, t("freed")), h("th", {}, t("youLose")))),
+      h("tbody", {}, r.respec.map(branchRow)))
+      : h("p", { class: "muted" }, t("treeNoRespec")));
+
+  const listCard = (title, sub, list) => list.length ? h("div", { class: "card" },
+    h("details", {}, h("summary", {}, `${title} (${list.length})`), h("div", { class: "sub", style: "margin-top:8px" }, sub),
+      h("table", { class: "versus-items" }, h("tbody", {}, list.map((b) => h("tr", {},
+        h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats)), h("td", { class: "num" }, t("pointsN", b.points)))))))) : null;
+
+  return h("div", { class: "stack" },
+    h("div", { class: "sub" }, t("treeIntro", r.allocated)),
+    growth, respec,
+    listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
+    listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
+};
+
 // ---------- mechanics ----------
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));

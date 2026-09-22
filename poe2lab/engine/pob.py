@@ -290,6 +290,37 @@ for id, node in pairs(build.spec.allocNodes) do
 end
 return _poe2lab_json(out)""")
 
+    def tree_reach(self, max_points: int = 6) -> list[dict]:
+        """Unallocated notables and keystones of the main tree reachable within max_points, with the path PoB
+        would allocate (its shortest path from the current tree, target included) and the target's stat lines."""
+        return self._json(f"""
+local out = _poe2lab_array({{}})
+for id, node in pairs(build.spec.nodes) do
+  if not node.alloc and (node.type == "Notable" or node.type == "Keystone") and not node.ascendancyName
+     and node.path and #node.path > 0 and #node.path <= {int(max_points)} then
+    local path, names = _poe2lab_array({{}}), _poe2lab_array({{}})
+    for i, n in ipairs(node.path) do path[i] = n.id; names[i] = n.dn or "" end
+    out[#out + 1] = {{ id = id, name = node.dn or "", type = node.type, path = path, pathNames = names,
+                      stats = _poe2lab_array(node.sd or {{}}) }}
+  end
+end
+return _poe2lab_json(out)""")
+
+    def tree_branches(self) -> list[dict]:
+        """Allocated nodes of the main tree with what would be unallocated along with each (PoB's `depends`: the
+        node itself and everything only reachable through it) - the points a respec of that node frees."""
+        return self._json("""
+local out = _poe2lab_array({})
+for id, node in pairs(build.spec.allocNodes) do
+  if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName then
+    local deps = _poe2lab_array({})
+    for i, n in ipairs(node.depends or { node }) do deps[i] = n.id end
+    out[#out + 1] = { id = id, name = node.dn or "", type = node.type or "", depends = deps,
+                      stats = _poe2lab_array(node.sd or {}) }
+  end
+end
+return _poe2lab_json(out)""")
+
     def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
                 remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None,
                 replace_item: tuple[str, str] | None = None,
