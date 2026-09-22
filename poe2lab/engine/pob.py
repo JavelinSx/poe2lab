@@ -50,6 +50,22 @@ local function extendModList(base, lines)
   return modList
 end
 
+function _poe2lab_with_gems_disabled(pairsList, fn)
+  if #pairsList == 0 then return fn() end
+  local saved = {}
+  for _, p in ipairs(pairsList) do
+    local group = build.skillsTab.socketGroupList[p[1]]
+    local gem = group and group.gemList[p[2]]
+    if not gem then error("no gem " .. p[1] .. "." .. p[2], 0) end
+    saved[#saved + 1] = { gem = gem, enabled = gem.enabled }
+    gem.enabled = false
+  end
+  local ok, res = pcall(fn)
+  for _, s in ipairs(saved) do s.gem.enabled = s.enabled end
+  if not ok then error(res, 0) end
+  return res
+end
+
 -- The what-if calculator re-reads the config tab (inputs, modList, enemyModList) on every call, so
 -- config values and extra player/enemy mods are applied temporarily and everything is restored after.
 function _poe2lab_with_setup(config, lines, enemyLines, fn)
@@ -191,25 +207,49 @@ end
 return _poe2lab_json(out)""")
 
     def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
-                remove_slot: str | None = None) -> dict[str, float]:
+                remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None) -> dict[str, float]:
         """Recalculate without changing the build, as if:
         - passive nodes were added/removed,
         - extra player mod lines were present (e.g. "10% increased Attack Speed"),
         - extra enemy mod lines were present (e.g. "50% increased Damage"),
         - Configuration tab values were set (e.g. {"enemyLevel": 79, "enemyCritChance": 100}),
-        - the item in remove_slot (e.g. "Ring 1") was taken off."""
+        - the item in remove_slot (e.g. "Ring 1") was taken off,
+        - gems given as (socket group, gem index) pairs were disabled,
+        - offence was reported for main_socket_group instead of the build's main skill."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
         lines = ", ".join(lua_string(m) for m in mods)
         enemy_lines = ", ".join(lua_string(m) for m in enemy_mods)
         cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
-        slot = f", repSlotName = {lua_string(remove_slot)}" if remove_slot else ""
+        extra = ""
+        if remove_slot:
+            extra += f", repSlotName = {lua_string(remove_slot)}"
+        if main_socket_group:
+            extra += f", mainSocketGroup = {int(main_socket_group)}"
+        gems = ", ".join(f"{{ {int(g)}, {int(i)} }}" for g, i in disable_gems)
         return self._json(f"""
 local calcFunc = build.calcsTab:GetMiscCalculator()
-local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}){slot} }}
-local out = _poe2lab_with_setup({{ {cfg} }}, {{ {lines} }}, {{ {enemy_lines} }},
-  function() return calcFunc(override, false) end)
+local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}){extra} }}
+local out = _poe2lab_with_gems_disabled({{ {gems} }}, function()
+  return _poe2lab_with_setup({{ {cfg} }}, {{ {lines} }}, {{ {enemy_lines} }},
+    function() return calcFunc(override, false) end)
+end)
 return _poe2lab_numbers(out)""")
+
+    def gems(self) -> list[dict]:
+        """Every gem in every socket group; color is PoB's colour code (green = dexterity, blue = int, red = str)."""
+        return self._json("""
+local out = _poe2lab_array({})
+for gi, g in ipairs(build.skillsTab.socketGroupList) do
+  for i, gem in ipairs(g.gemList) do
+    local d = gem.gemData
+    if d then
+      out[#out + 1] = { group = gi, index = i, name = d.name, support = d.grantedEffect.support and true or false,
+                        enabled = gem.enabled ~= false, color = tostring(gem.color or d.color or "") }
+    end
+  end
+end
+return _poe2lab_json(out)""")
 
     def equipped_items(self) -> list[dict]:
         """Items in gear slots (jewels excluded)."""

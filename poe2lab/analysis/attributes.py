@@ -98,5 +98,43 @@ def item_dependencies(engine, config: dict, sources: list[dict]) -> list[ItemDep
     return deps
 
 
+SUPPORT_COLOR = {"Str": "^xE05030", "Dex": "^x70FF70", "Int": "^x7070FF"}
+
+
+@dataclass
+class SupportAtRisk:
+    """A support of the short colour: the game switches one of them off, PoB keeps all of them on."""
+    group: int
+    index: int
+    name: str
+    skill: str
+    skill_dps_pct: float  # its own skill's DPS change when the support is off
+    main_dps_pct: float  # main skill's DPS change
+
+
+def supports_at_risk(engine, config: dict, attr: str) -> list[SupportAtRisk]:
+    gems = engine.gems()
+    skill_of = {g["group"]: g["name"] for g in gems if not g["support"] and g["index"] == 1}
+    main_base = engine.what_if(config=config)
+    out = []
+    for g in gems:
+        if not (g["support"] and g["enabled"] and g["color"] == SUPPORT_COLOR[attr]):
+            continue
+        pair = [(g["group"], g["index"])]
+        own_base = engine.what_if(config=config, main_socket_group=g["group"])
+        own_off = engine.what_if(config=config, main_socket_group=g["group"], disable_gems=pair)
+        main_off = engine.what_if(config=config, disable_gems=pair)
+        out.append(SupportAtRisk(
+            g["group"], g["index"], g["name"], skill_of.get(g["group"], "?"),
+            skill_dps_pct=_pct(own_off["CombinedDPS"], own_base["CombinedDPS"]),
+            main_dps_pct=_pct(main_off["CombinedDPS"], main_base["CombinedDPS"]),
+        ))
+    return sorted(out, key=lambda s: (s.main_dps_pct, s.skill_dps_pct))
+
+
+def _pct(new: float, old: float) -> float:
+    return (new - old) / old * 100 if old else 0.0
+
+
 def _full(attr: str) -> str:
     return {"Str": "Strength", "Dex": "Dexterity", "Int": "Intelligence"}[attr]

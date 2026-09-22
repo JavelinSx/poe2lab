@@ -40,6 +40,15 @@ def test_attribute_status_and_cheapest_fix(titan):
     assert all(not d.breaks for d in deps)  # Strength surplus covers any single item
 
 
+def test_supports_at_risk_ranks_main_skill_support_first(titan):
+    risk = attrs.supports_at_risk(titan, MapProfile().config(), "Dex")
+    assert len(risk) == 5
+    top = risk[0]
+    assert (top.name, top.skill) == ("Rapid Attacks II", "Furious Slam")
+    assert top.main_dps_pct == pytest.approx(-15.6, abs=0.3)
+    assert all(g["enabled"] for g in titan.gems())
+
+
 def test_item_dependency_detects_break():
     # Strip Strength so that the amulet alone holds the 126 Strength gem requirement.
     e = PobEngine()

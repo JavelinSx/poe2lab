@@ -175,6 +175,10 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
     statuses = attrs.status(stats, sources, engine.attribute_node_counts())
     swaps = attrs.node_swaps(engine, profile.config(), statuses)
     deps = attrs.item_dependencies(engine, profile.config(), sources)
+    at_risk = {
+        s.attr: attrs.supports_at_risk(engine, profile.config(), s.attr)
+        for s in statuses if s.margin < 0 and any("Support Gems" in n for n in s.needed_by)
+    }
     return {
         "build": {**engine.info(), "mainSkill": engine.main_skill()},
         "profile": asdict(profile),
@@ -191,6 +195,7 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
             "status": [asdict(s) | {"margin": s.margin} for s in statuses],
             "nodeSwaps": [asdict(s) for s in swaps],
             "itemDependencies": [asdict(d) for d in deps],
+            "supportsAtRisk": {a: [asdict(s) for s in lst] for a, lst in at_risk.items()},
         },
         "defenceWeights": weights,
         "ranking": [

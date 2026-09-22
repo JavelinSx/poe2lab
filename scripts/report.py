@@ -49,6 +49,11 @@ def print_report(r: dict):
         print(f"  {LEVEL_MARK[g['level']]} {g['title']}: {g['detail']}")
     if not r["gates"]:
         print("  всё закрыто")
+    for attr, lst in a["supportsAtRisk"].items():
+        print(f"  В игре один из саппортов на {names[attr]} выключен, а PoB считает все включёнными. Потеря, если выключен:")
+        for s in lst:
+            print(f"      {s['name']:22} на {s['skill']:16} DPS этого скилла {s['skill_dps_pct']:+6.1f}%, "
+                  f"основного {s['main_dps_pct']:+6.1f}%")
 
     print(f"\n2. КУДА ВКЛАДЫВАТЬСЯ (один мод ≈ один средний аффикс; цель — {MODE_NAMES[r['mode']]})")
     for x in r["ranking"]:
