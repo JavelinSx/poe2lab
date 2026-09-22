@@ -277,6 +277,66 @@ for _, slot in ipairs(build.itemsTab.orderedSlots) do
 end
 return _poe2lab_json(out)""")
 
+    def export_item_data(self, mod_sets=("Item", "Desecrated")) -> dict:
+        """Item affixes (per set) and item bases from PoB's game data."""
+        sets = ", ".join(lua_string(s) for s in mod_sets)
+        return self._json(f"""
+local function arr(t)
+  local out = _poe2lab_array({{}})
+  for i, v in ipairs(t or {{}}) do out[i] = v end
+  return out
+end
+local mods = _poe2lab_array({{}})
+for _, setName in ipairs({{ {sets} }}) do
+  for id, m in pairs(data.itemMods[setName] or {{}}) do
+    local hashes = _poe2lab_array({{}})
+    for h in pairs(m.tradeHashes or {{}}) do hashes[#hashes + 1] = tostring(h) end
+    mods[#mods + 1] = {{ id = id, set = setName, type = m.type or "", affix = m.affix or "", lines = arr(m),
+      level = m.level or 0, group = m.group or id, weightKey = arr(m.weightKey), weightVal = arr(m.weightVal),
+      tags = arr(m.modTags), tradeHashes = hashes }}
+  end
+end
+local bases = _poe2lab_array({{}})
+for name, b in pairs(data.itemBases) do
+  local tags = _poe2lab_array({{}})
+  for t, on in pairs(b.tags or {{}}) do if on then tags[#tags + 1] = t end end
+  bases[#bases + 1] = {{ name = name, type = b.type or "", subType = b.subType or "", tags = tags,
+    implicit = b.implicit or "", level = (b.req and b.req.level) or 0 }}
+end
+return _poe2lab_json({{ mods = mods, bases = bases }})""")
+
+    def equipped_item_details(self) -> list[dict]:
+        """Equipped gear with base tags, item level, corruption and explicit lines (for affix analysis)."""
+        return self._json("""
+local out = _poe2lab_array({})
+for _, slot in ipairs(build.itemsTab.orderedSlots) do
+  local item = not slot.nodeId and build.itemsTab.items[slot.selItemId]
+  if item and item.base then
+    local tags = _poe2lab_array({})
+    for t, on in pairs(item.base.tags or {}) do if on then tags[#tags + 1] = t end end
+    local explicit = _poe2lab_array({})
+    for _, ml in ipairs(item.explicitModLines or {}) do
+      explicit[#explicit + 1] = { line = ml.line, crafted = ml.crafted and true or false,
+        fractured = ml.fractured and true or false, desecrated = ml.desecrated and true or false }
+    end
+    out[#out + 1] = { slot = slot.slotName, name = item.name or "", baseName = item.baseName or "",
+      type = item.type or "", rarity = item.rarity or "", itemLevel = item.itemLevel or 0,
+      corrupted = item.corrupted and true or false, tags = tags, explicit = explicit }
+  end
+end
+return _poe2lab_json(out)""")
+
+    def equip_item(self, slot: str, item_text: str):
+        """Really equip an item (in memory) and recalculate. Unlike what_if(replace_item=...) this persists,
+        so several slots can be changed together; equip the old text again to undo."""
+        self._lua(f"""
+local itemsTab = build.itemsTab
+local item = _poe2lab_item({lua_string(item_text)})
+itemsTab:AddItem(item, true)
+itemsTab.slots[ {lua_string(slot)} ]:SetSelItemId(item.id)
+itemsTab:PopulateSlots()
+build.calcsTab:BuildOutput()""")
+
     def item_text(self, slot: str) -> str:
         """The equipped item in PoB's text format - edit it and pass it back via what_if(replace_item=...)."""
         text = self._lua(f"""

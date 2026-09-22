@@ -64,7 +64,7 @@ STATS: list[Stat] = [
     _s("life_regen_pct", "% of maximum Life regenerated per second", "Regenerate {v}% of maximum Life per second", 1, "recovery"),
     _s("life_recoup", "% of Damage taken Recouped as Life", "{v}% of Damage taken Recouped as Life", 10, "recovery"),
     _s("life_leech_amount", "% increased amount of Life Leeched", "{v}% increased amount of Life Leeched", 10, "recovery"),
-    _s("life_leech", "% of Physical Damage Leeched as Life", "Leeches {v}% of Physical Damage as Life", 5, "recovery"),
+    _s("life_leech", "% of Physical Attack Damage Leeched as Life", "Leech {v}% of Physical Attack Damage as Life", 5, "recovery"),
 ]
 
 

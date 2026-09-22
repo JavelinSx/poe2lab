@@ -44,6 +44,11 @@ def _pct(new: dict, base: dict, metric: str) -> float:
     return (metric_value(new, metric) - b) / b * 100 if b else 0.0
 
 
+def metric_changes(new: dict, base: dict) -> dict[str, float]:
+    """% change of every tracked metric between two what_if outputs."""
+    return {m: _pct(new, base, m) for m in METRICS}
+
+
 def compute(runner, stats: list[Stat] = STATS, config: dict | None = None,
             base_mods: list[str] = ()) -> tuple[dict, list[Gradient]]:
     """runner: a PobEngine or EnginePool with the build loaded and main skill selected.
@@ -62,9 +67,5 @@ def compute(runner, stats: list[Stat] = STATS, config: dict | None = None,
     grads = []
     for i, stat in enumerate(stats):
         r1, r2 = rest[2 * i], rest[2 * i + 1]
-        grads.append(Gradient(
-            stat,
-            {m: _pct(r1, base, m) for m in METRICS},
-            {m: _pct(r2, base, m) for m in METRICS},
-        ))
+        grads.append(Gradient(stat, metric_changes(r1, base), metric_changes(r2, base)))
     return base, grads

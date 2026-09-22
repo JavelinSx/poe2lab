@@ -79,6 +79,12 @@ def gates(stats: dict, hits: list, rec) -> list[Gate]:
         out.append(Gate("priority", "Хаос-резист ниже капа", f"{chaos:.0f}%, до капа +{RES_CAP - chaos:.0f}%"))
     if stats.get("SpiritUnreserved", 0) < 0:
         out.append(Gate("must", "Не хватает spirit", f"перерасход {-stats['SpiritUnreserved']:.0f}"))
+    cost = stats.get("ManaPerSecondCost", 0)
+    regain = stats.get("ManaRegenRecovery", 0) + stats.get("ManaLeechGainRate", 0) + stats.get("ManaOnHitRate", 0)
+    if cost > regain:
+        out.append(Gate("warn", "Основной скилл тратит больше маны, чем восстанавливается",
+                        f"{cost:.0f}/с против {regain:.0f}/с (реген + лич + за удар), дефицит {cost - regain:.0f}/с; "
+                        "мана за убийство и фласки PoB здесь не учитывает"))
     hit = stats.get("HitChance", 100)
     if hit < MIN_HIT_CHANCE:
         out.append(Gate("warn", "Низкий шанс попадания", f"{hit:.0f}%: точность — дешёвый урон"))

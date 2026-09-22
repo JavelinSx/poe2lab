@@ -40,6 +40,33 @@ def compare(engine, config: dict, slot: str, item_text: str) -> Comparison:
     )
 
 
+_FLAG_LINES = ("Corrupted", "Mirrored", "Unmodifiable", "Sanctified")
+_TAG = re.compile(r"^(\{[^}]*\})+")
+
+
+def remove_lines(item_text: str, lines: list[str]) -> str:
+    """Drop explicit mod lines (matched after stripping PoB tags like {crafted})."""
+    out, todo = [], list(lines)
+    for raw in item_text.split("\n"):
+        plain = _TAG.sub("", raw).strip()
+        if plain in todo:
+            todo.remove(plain)
+            continue
+        out.append(raw)
+    if todo:
+        raise ValueError(f"lines not found in item: {todo}")
+    return "\n".join(out)
+
+
+def add_lines(item_text: str, lines: list[str]) -> str:
+    """Append explicit mod lines, keeping trailing flags such as 'Corrupted' last."""
+    rows = item_text.rstrip("\n").split("\n")
+    cut = len(rows)
+    while cut > 0 and rows[cut - 1].strip() in _FLAG_LINES:
+        cut -= 1
+    return "\n".join(rows[:cut] + list(lines) + rows[cut:])
+
+
 def scale_line(item_text: str, line: str, factor: float) -> str:
     """Scale every number in one mod line of the item (e.g. 'Adds 26 to 42 Physical Damage')."""
     if line not in item_text:
