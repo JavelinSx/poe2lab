@@ -80,6 +80,17 @@ def test_damage_range_brackets_enemy_debuffs(titan):
     assert not any("Adrenaline" in c for c in rng["conditions"])  # player buffs are not enemy debuffs
 
 
+def test_energy_shield_build_gets_es_recovery_not_infinity():
+    from poe2lab.profile import open_build
+    engine, _ = open_build("ma95")
+    profile = MapProfile()
+    rec = recovery(engine, profile)
+    assert rec.es_primary and rec.es_recharge > 0 and rec.half_life_refill_seconds is None
+    found = gates(engine.what_if(config=profile.config()), survivable_hits(engine, profile), rec)
+    texts = " ".join(g.title + g.detail for g in found)
+    assert "энергощит" in texts and "inf" not in texts
+
+
 def test_item_dependency_detects_break():
     # Strip Strength so that the amulet alone holds the 126 Strength gem requirement.
     e = PobEngine()

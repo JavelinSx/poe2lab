@@ -53,14 +53,24 @@ class Recovery:
     regen: float
     recoup: float
     leech_capped_per_hit: bool
+    energy_shield: float = 0.0
+    es_recharge: float = 0.0  # per second once recharge starts
+    es_recharge_delay: float = 0.0  # seconds without taking damage before recharge starts
 
     @property
     def total(self) -> float:
+        """Life regained per second while fighting (leech, regeneration, recoup)."""
         return self.leech + self.regen + self.recoup
 
     @property
-    def half_life_refill_seconds(self) -> float:
-        return self.life * 0.5 / self.total if self.total else float("inf")
+    def half_life_refill_seconds(self) -> float | None:
+        """None when life does not come back at all in combat (only flasks)."""
+        return self.life * 0.5 / self.total if self.total else None
+
+    @property
+    def es_primary(self) -> bool:
+        """Energy shield is the larger part of the pool, so it is what gets restored between hits."""
+        return self.energy_shield > self.life
 
 
 def recovery(engine, profile: MapProfile) -> Recovery:
@@ -72,4 +82,7 @@ def recovery(engine, profile: MapProfile) -> Recovery:
         regen=out.get("LifeRegenRecovery", 0.0),
         recoup=out.get("LifeRecoupRecoveryAvg", 0.0),
         leech_capped_per_hit=cap > 0 and per_hit >= cap * 0.999,
+        energy_shield=out.get("EnergyShield", 0.0),
+        es_recharge=out.get("EnergyShieldRecharge", 0.0),
+        es_recharge_delay=out.get("EnergyShieldRechargeDelay", 0.0),
     )

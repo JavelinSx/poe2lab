@@ -96,7 +96,15 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
             out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}",
                             f"переживаешь {h.normal:,.0f} ({h.normal / best:.0%} от лучшего типа); "
                             f"критом на сочной карте — {h.juiced:,.0f}"))
-    if rec.regen == 0:
+    if rec.es_primary:
+        out.append(Gate("warn", "Защита держится на энергощите",
+                        f"энергощит {rec.energy_shield:,.0f} (жизнь {rec.life:,.0f}): перезаряжается "
+                        f"{rec.es_recharge:,.0f}/с, но только после {rec.es_recharge_delay:.1f} с без урона; "
+                        "под непрерывными ударами он не восстанавливается"))
+    elif rec.half_life_refill_seconds is None:
+        out.append(Gate("warn", "Жизнь в бою не восстанавливается",
+                        "нет лича, регенерации и recoup — жизнь возвращается только фласками"))
+    elif rec.regen == 0:
         out.append(Gate("warn", "Нет регенерации жизни",
                         f"{rec.total:,.0f}/с только пока атакуешь; половина жизни за {rec.half_life_refill_seconds:.1f} с"))
     if rec.leech_capped_per_hit:
