@@ -180,18 +180,40 @@ def upgrade_path(engine, profile: MapProfile, mode: str, steps: int, weights: di
     return path
 
 
+# Charge types: (name, maximum stat, Configuration checkbox)
+CHARGES = [("Power Charges", "PowerChargesMax", "usePowerCharges"),
+           ("Frenzy Charges", "FrenzyChargesMax", "useFrenzyCharges"),
+           ("Endurance Charges", "EnduranceChargesMax", "useEnduranceCharges")]
+
+
+def _resource(name, assumed, maximum, off: dict, on: dict, counted: bool, set_in_build: bool) -> dict:
+    return {"name": name, "assumed": assumed, "maximum": maximum, "counted": counted, "set_in_build": set_in_build,
+            "dps_without": off["CombinedDPS"], "dps_with": on["CombinedDPS"],
+            "ehp_without": off.get("TotalEHP", 0), "ehp_with": on.get("TotalEHP", 0)}
+
+
 def core_damage(engine, profile: MapProfile, grads: list[Gradient]) -> dict:
-    """What the damage stands on: resource stacks (Rage) and every stat's worth in units of that resource."""
+    """What the damage stands on: resources (Rage, charges) with and without them, and every stat's worth in units
+    of the main one."""
     cfg = profile.config()
     with_res = engine.what_if(config=cfg)
+    build_cfg = engine.config()
     out = {"resources": [], "unit": None, "exchange": []}
     if with_res.get("MaximumRage", 0) > 0:
         without = engine.what_if(config=cfg | {"multiplierRage": 0})
-        out["resources"].append({
-            "name": "Rage", "assumed": with_res["Rage"], "maximum": with_res["MaximumRage"],
-            "dps_without": without["CombinedDPS"], "dps_with": with_res["CombinedDPS"],
-            "set_in_build": "multiplierRage" in engine.config(),
-        })
+        out["resources"].append(_resource("Rage", with_res["Rage"], with_res["MaximumRage"], without, with_res,
+                                          True, "multiplierRage" in build_cfg))
+    for name, max_key, var in CHARGES:
+        maximum = with_res.get(max_key, 0)
+        if maximum <= 0:
+            continue
+        off = engine.what_if(config=cfg | {var: False})
+        on = engine.what_if(config=cfg | {var: True})
+        effect = abs(on["CombinedDPS"] / off["CombinedDPS"] - 1) if off["CombinedDPS"] else 0
+        ehp_effect = abs(on.get("TotalEHP", 0) / off["TotalEHP"] - 1) if off.get("TotalEHP") else 0
+        if max(effect, ehp_effect) >= 0.005:
+            out["resources"].append(_resource(name, maximum if build_cfg.get(var) else 0, maximum, off, on,
+                                              bool(build_cfg.get(var)), var in build_cfg))
     rage = next((g for g in grads if g.stat.key == "max_rage"), None)
     if rage and rage.one["dps"] > 0:
         unit_name, per_point = "Maximum Rage", rage.one["dps"] / rage.stat.unit

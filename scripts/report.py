@@ -58,10 +58,15 @@ def print_report(r: dict):
 
     core = r["core"]
     print("\nЯДРО УРОНА")
+    res_names = {"Rage": "Свирепость", "Power Charges": "Заряды энергии", "Frenzy Charges": "Заряды ярости",
+                 "Endurance Charges": "Заряды выносливости"}
     for res in core["resources"]:
-        note = "" if res["set_in_build"] else " — в самом PoB поле Rage пустое, его левая панель показывает DPS без свирепости"
-        print(f"  Свирепость: считаю {res['assumed']:.0f} из {res['maximum']:.0f}. Без неё DPS {res['dps_without']:,.0f}, "
-              f"с ней {res['dps_with']:,.0f} (×{res['dps_with'] / res['dps_without']:.2f}){note}")
+        state = f"считаю {res['assumed']:.0f} из {res['maximum']:.0f}" if res["counted"] else "не учитываются в билде"
+        ehp = ""
+        if res["ehp_without"] and abs(res["ehp_with"] / res["ehp_without"] - 1) >= 0.005:
+            ehp = f"; EHP {res['ehp_without']:,.0f} → {res['ehp_with']:,.0f}"
+        print(f"  {res_names.get(res['name'], res['name'])}: {state}. DPS без них {res['dps_without']:,.0f}, "
+              f"с ними {res['dps_with']:,.0f} (×{res['dps_with'] / res['dps_without']:.2f}){ehp}")
     if core["unit"]:
         u = core["unit"]
         print(f"  Курс в единицах «{u['name']}» (1 ед. = {u['dps_pct_per_point']:+.2f}% DPS):")
