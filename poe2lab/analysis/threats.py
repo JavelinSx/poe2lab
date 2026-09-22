@@ -15,6 +15,7 @@ class MapProfile:
     damage_pct: float = 50  # map/juice "monsters deal increased damage"
     crit_bonus: float = 50  # map/juice extra monster critical damage bonus
     rage: int | None = None  # current Rage in combat; None = maximum (PoB caps it). No effect on builds without Rage
+    mana_sustained: bool = False  # confirmed in game: mana is not a constraint, skip mana-deficit checks
 
     def config(self, crit: bool = False, crit_bonus: float = 0) -> dict:
         cfg = {"enemyLevel": self.enemy_level, "enemyIsBoss": self.boss,

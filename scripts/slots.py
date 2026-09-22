@@ -15,7 +15,8 @@ from poe2lab.analysis.sources import describe
 from poe2lab.analysis.threats import MapProfile, survivable_hits
 from poe2lab.data.moddb import ModDB
 from poe2lab.economy.ninja import PriceBook
-from poe2lab.engine import PobEngine
+from poe2lab.profile import describe as describe_profile
+from poe2lab.profile import open_build
 
 MODE_NAMES = {"damage": "урон", "balanced": "баланс", "defence": "защита"}
 
@@ -29,8 +30,9 @@ def effect(ch: dict) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("build", type=Path)
-    ap.add_argument("--group", type=int)
-    ap.add_argument("--skill", type=int, default=1)
+    ap.add_argument("--group", type=int, help="main skill socket group (default: from the build profile)")
+    ap.add_argument("--skill", type=int)
+    ap.add_argument("--no-corrections", action="store_true", help="ignore the profile's corrections for PoB gaps")
     ap.add_argument("--mode", default="balanced", choices=list(MODES))
     ap.add_argument("--rage", type=int)
     ap.add_argument("--top", type=int, default=4)
@@ -41,24 +43,23 @@ def main():
     ap.add_argument("--prices", action=argparse.BooleanOptionalAction, default=True, help="fetch poe.ninja prices")
     args = ap.parse_args()
 
-    code = args.build.resolve().read_text()
-    engine = PobEngine()
-    engine.load_code(code)
-    if args.group:
-        engine.set_main_skill(args.group, args.skill)
-    profile = MapProfile(rage=args.rage)
+    engine, bp = open_build(args.build, args.group, args.skill, corrections=not args.no_corrections)
+    for line in describe_profile(bp):
+        print(f"[профиль] {line}")
+    profile = MapProfile(rage=args.rage if args.rage is not None else bp.rage, mana_sustained=bp.mana_sustained)
+    check_mana = not bp.mana_sustained
     weights = defence_weights(survivable_hits(engine, profile))
     db = ModDB.from_engine(engine)
     prices = None
     if args.prices:
         try:
-            prices = PriceBook.load(args.league)
+            prices = PriceBook.load(args.league or bp.league)
             print(f"Цены: poe.ninja, лига {prices.league} (1 div = {prices.exalted_per_divine:.0f} ex)")
         except OSError as err:
             print(f"Цены недоступны ({err}); продолжаю без них")
 
     t = time.perf_counter()
-    plans = plan_all(engine, db, profile.config(), args.mode, weights, args.top)
+    plans = plan_all(engine, db, profile.config(), args.mode, weights, args.top, check_mana)
     print(f"План по слотам, цель — {MODE_NAMES[args.mode]} (очки = та же оценка, что в отчёте; {time.perf_counter() - t:.1f} с)")
     for p in plans:
         if args.slot and p.slot != args.slot:
@@ -85,7 +86,7 @@ def main():
 
     if args.path and not args.slot:
         t = time.perf_counter()
-        path = craft_path(engine, db, profile.config(), args.mode, weights, steps=args.path)
+        path = craft_path(engine, db, profile.config(), args.mode, weights, steps=args.path, check_mana=check_mana)
         print(f"\nПУТЬ КРАФТА ПО ВСЕМ СЛОТАМ (только предметы, которые можно крафтить; после каждого шага всё пересчитано, "
               f"{time.perf_counter() - t:.1f} с)")
         print("  Это целевой набор аффиксов, без учёта того, как его получить крафтом (случайность, омены, цена — следующий этап);")

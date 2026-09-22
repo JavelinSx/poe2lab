@@ -1,0 +1,20 @@
+{
+  "main_skill": {"group": 4, "skill": 1, "name": "Furious Slam"},
+  "rage": null,
+  "mana_sustained": true,
+  "league": null,
+  "corrections": [
+    {
+      "mod": "Gain 30% of Damage as Extra Fire Damage",
+      "source": "баф Walking Calamity: PoB не применяет стат walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire",
+      "uptime": 1.0,
+      "confirmed": false
+    }
+  ],
+  "notes": [
+    "Свирепость всегда в максимуме: Walking Calamity (регенерация свирепости во время действия) + Ferocious Roar (подтверждено в игре).",
+    "Мана и жизнь держатся личем (подтверждено в игре); PoB при непрерывных ударах показывает дефицит маны ~110/с.",
+    "Amor Mandragora во втором наборе оружия: 1 Druidic Prowess за каждые 20 потраченной свирепости — PoB эту механику не считает, эффект не учтён.",
+    "Momentum в группе Rampage выключен в игре из-за нехватки ловкости (22 из 25)."
+  ]
+}

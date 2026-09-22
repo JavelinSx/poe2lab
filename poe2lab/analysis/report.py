@@ -65,7 +65,7 @@ def attribute_gates(statuses, swaps, deps) -> list[Gate]:
     return out
 
 
-def gates(stats: dict, hits: list, rec) -> list[Gate]:
+def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Gate]:
     out = []
     for t in ("Fire", "Cold", "Lightning"):
         res, over = stats.get(f"{t}Resist", 0), stats.get(f"{t}ResistOverCap", 0)
@@ -81,7 +81,7 @@ def gates(stats: dict, hits: list, rec) -> list[Gate]:
         out.append(Gate("must", "Не хватает spirit", f"перерасход {-stats['SpiritUnreserved']:.0f}"))
     cost = stats.get("ManaPerSecondCost", 0)
     regain = stats.get("ManaRegenRecovery", 0) + stats.get("ManaLeechGainRate", 0) + stats.get("ManaOnHitRate", 0)
-    if cost > regain:
+    if cost > regain and not mana_sustained:
         out.append(Gate("warn", "Основной скилл тратит больше маны, чем восстанавливается",
                         f"{cost:.0f}/с против {regain:.0f}/с (реген + лич + за удар), дефицит {cost - regain:.0f}/с; "
                         "мана за убийство и фласки PoB здесь не учитывает"))
@@ -223,7 +223,8 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
             "survivableHit": {h.damage_type: asdict(h) for h in hits},
             "recoveryPerSecond": rec.total,
         },
-        "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps) + gates(stats, hits, rec)],
+        "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps)
+                  + gates(stats, hits, rec, profile.mana_sustained)],
         "conditions": [asdict(c) for c in audit_conditions(engine, profile.config())],
         "core": core_damage(engine, profile, grads),
         "attributes": {

@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from poe2lab.analysis.items import breakeven, compare
 from poe2lab.analysis.threats import MapProfile
-from poe2lab.engine import PobEngine
+from poe2lab.profile import open_build
 
 SHORT = {"Physical": "физ", "Fire": "огонь", "Cold": "холод", "Lightning": "молн", "Chaos": "хаос"}
 
@@ -20,21 +20,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("build", type=Path)
     ap.add_argument("--slot", required=True, help='e.g. "Weapon 1", "Helmet", "Ring 1"')
-    ap.add_argument("--group", type=int)
-    ap.add_argument("--skill", type=int, default=1)
+    ap.add_argument("--group", type=int, help="main skill socket group (default: from the build profile)")
+    ap.add_argument("--skill", type=int)
+    ap.add_argument("--no-corrections", action="store_true", help="ignore the profile's corrections for PoB gaps")
     ap.add_argument("--item", type=Path, help="candidate item text")
     ap.add_argument("--dump", type=Path, help="write the equipped item text here")
     ap.add_argument("--breakeven", help="a mod line of the candidate to shrink until it only ties the current item")
     ap.add_argument("--rage", type=int, help="current Rage in combat (default: maximum)")
     args = ap.parse_args()
 
-    code = args.build.resolve().read_text()
     item_path = args.item.resolve() if args.item else None
     dump_path = args.dump.resolve() if args.dump else None
-    engine = PobEngine()
-    engine.load_code(code)
-    if args.group:
-        engine.set_main_skill(args.group, args.skill)
+    engine, bp = open_build(args.build, args.group, args.skill, corrections=not args.no_corrections)
+    rage = args.rage if args.rage is not None else bp.rage
 
     if dump_path:
         dump_path.write_text(engine.item_text(args.slot), encoding="utf-8")
@@ -42,11 +40,11 @@ def main():
     if not item_path:
         return
 
-    config = MapProfile(rage=args.rage).config()
+    config = MapProfile(rage=rage).config()
     text = item_path.read_text(encoding="utf-8")
     c = compare(engine, config, args.slot, text)
     print(f"{args.slot}: кандидат против текущего (основной скилл {engine.main_skill()}, свирепость "
-          f"{'максимум' if args.rage is None else args.rage})")
+          f"{'максимум' if rage is None else rage})")
     print(f"  DPS {c.dps_pct:+.1f}%   жизнь {c.life_pct:+.1f}%   лечение {c.recovery_pct:+.1f}%")
     print("  переживаемый удар: " + "  ".join(f"{SHORT[t]} {v:+.1f}%" for t, v in c.hit_pct.items()))
     for attr, (have, need) in c.unmet_requirements.items():

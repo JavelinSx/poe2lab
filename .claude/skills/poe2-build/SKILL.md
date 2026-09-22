@@ -14,11 +14,20 @@ from the repo root. On Windows set `PYTHONIOENCODING=utf-8` so Russian output pr
   import) -> Generate -> Copy. Save it as `builds/<name>.txt` (the file holds only the code).
 - The code contains no account data, but it does reveal the build; mention this before committing it to git.
 
+## 1a. Build profile — confirmed facts and PoB gaps
+
+`builds/<name>.profile.json` (next to the code) is applied by every command automatically: main skill group, Rage,
+`mana_sustained`, league, `corrections` (mod lines added for mechanics PoB does not model, scaled by uptime) and notes.
+Read it first. When the user confirms something about real play (Rage level, mana, a buff's uptime, a mechanic PoB
+misses), record it there instead of repeating flags. Mark unconfirmed corrections with `"confirmed": false` and say so.
+`--no-corrections` shows plain PoB numbers.
+
 ## 2. Pin down the main skill — ask, do not guess
 
 `python -m poe2lab inspect builds/<name>.txt` lists socket groups (index, skills) and compares our numbers with the
 stats stored in the code. Ask which skill carries the damage and pass it as `--group N [--skill M]` to every command
-(a group can hold several active skills; `--skill` picks one). Wrong group = every damage number is meaningless.
+(a group can hold several active skills; `--skill` picks one), or store it in the build profile.
+Wrong group = every damage number is meaningless.
 If the user can, have them confirm Life/ES/armour/resistances against the in-game character sheet.
 
 ## 3. Pick the command for the question

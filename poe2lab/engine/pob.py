@@ -383,6 +383,25 @@ end
 return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted = item.corrupted and true or false,
   rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options }})""")
 
+    def set_custom_mods(self, title: str, lines: list[str]):
+        """Put mod lines into a Custom Modifiers block of the Configuration tab (replacing a block with the same
+        title; empty list removes it) and recalculate. Unlike what_if(mods=...) this persists for every later call."""
+        for line in lines:
+            if not self.can_parse_mod(line):
+                raise PobError(f"PoB cannot parse mod: {line}")
+        text = "\n".join(lines)
+        self._lua(f"""
+local configTab = build.configTab
+local list = configTab.configSets[configTab.activeConfigSetId].customModsList
+for i = #list, 1, -1 do
+  if list[i].title == {lua_string(title)} then table.remove(list, i) end
+end
+if {lua_string(text)} ~= "" then
+  list[#list + 1] = {{ title = {lua_string(title)}, enabled = true, text = {lua_string(text)} }}
+end
+configTab:BuildModList()
+build.calcsTab:BuildOutput()""")
+
     def equip_item(self, slot: str, item_text: str):
         """Really equip an item (in memory) and recalculate. Unlike what_if(replace_item=...) this persists,
         so several slots can be changed together; equip the old text again to undo."""

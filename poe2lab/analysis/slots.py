@@ -28,17 +28,18 @@ def mana_balance(out: dict) -> float:
     return gain - out.get("ManaPerSecondCost", 0)
 
 
-def holds(base: dict, without: dict) -> list[str]:
+def holds(base: dict, without: dict, check_mana: bool = True) -> list[str]:
     """What stops working in game if this affix goes: Spirit for reservations, attribute requirements,
-    mana to keep casting the main skill."""
+    resistance caps and (unless the build's mana is confirmed fine) mana to keep casting the main skill."""
     out = []
     if without.get("SpiritUnreserved", 0) < 0 <= base.get("SpiritUnreserved", 0):
         out.append("spirit на резервы")
-    before, after = mana_balance(base), mana_balance(without)
-    if after < 0 <= before:
-        out.append("мана на основной скилл")
-    elif before < 0 and after < before - max(10.0, 0.1 * abs(before)):
-        out.append(f"мана: дефицит {before:.0f}/с станет {after:.0f}/с")
+    if check_mana:
+        before, after = mana_balance(base), mana_balance(without)
+        if after < 0 <= before:
+            out.append("мана на основной скилл")
+        elif before < 0 and after < before - max(10.0, 0.1 * abs(before)):
+            out.append(f"мана: дефицит {before:.0f}/с станет {after:.0f}/с")
     for res in ("Fire", "Cold", "Lightning"):
         if without.get(f"{res}Resist", 0) < 75 <= base.get(f"{res}Resist", 0):
             out.append(f"кап резиста {res}")
@@ -104,7 +105,8 @@ def _score(changes: dict, mode: str, weights: dict) -> float:
     return score(SimpleNamespace(one=changes), mode, weights)
 
 
-def plan_slot(engine, db: ModDB, config: dict, item: dict, mode: str, weights: dict, top: int = 5) -> SlotPlan:
+def plan_slot(engine, db: ModDB, config: dict, item: dict, mode: str, weights: dict, top: int = 5,
+              check_mana: bool = True) -> SlotPlan:
     slot, tags, ilvl = item["slot"], item["tags"], item["itemLevel"]
     text = engine.item_text(slot)
     base = engine.what_if(config=config)
@@ -118,7 +120,7 @@ def plan_slot(engine, db: ModDB, config: dict, item: dict, mode: str, weights: d
         changes = {m: -v for m, v in metric_changes(without, base).items()}
         affixes.append(AffixValue(a.mod.type, a.rolled, list(a.mod.lines), a.tier, a.tiers,
                                   a.mod.distance(a.rolled) > APPROX, _score(changes, mode, weights), changes,
-                                  holds(base, without), is_utility(a.rolled)))
+                                  holds(base, without, check_mana), is_utility(a.rolled)))
 
     present = {a.mod.group for a in found}
     candidates = []
@@ -180,7 +182,7 @@ class CraftStep:
 
 
 def craft_path(engine, db: ModDB, config: dict, mode: str, weights: dict, steps: int = 6,
-               per_kind: int = 3) -> list[CraftStep]:
+               per_kind: int = 3, check_mana: bool = True) -> list[CraftStep]:
     """Greedy crafting across all craftable items: apply the single best add/replace, recompute everything
     (so a capped resistance stops being attractive), repeat. The build is restored afterwards."""
     originals = {it["slot"]: engine.item_text(it["slot"]) for it in engine.equipped_item_details()}
@@ -194,7 +196,7 @@ def craft_path(engine, db: ModDB, config: dict, mode: str, weights: dict, steps:
                 if (item["corrupted"] or item["type"] in SKIP_TYPES or "Swap" in item["slot"]
                         or item["rarity"] not in AFFIX_LIMIT):
                     continue
-                plan = plan_slot(engine, db, config, item, mode, weights, top=per_kind)
+                plan = plan_slot(engine, db, config, item, mode, weights, top=per_kind, check_mana=check_mana)
                 text = engine.item_text(item["slot"])
                 for kind in ("Prefix", "Suffix"):
                     mine = [a for a in plan.affixes if a.type == kind]
@@ -205,7 +207,7 @@ def craft_path(engine, db: ModDB, config: dict, mode: str, weights: dict, steps:
                     for cand in [c for c in plan.candidates if c.type == kind][:per_kind]:
                         new_text = add_lines(remove_lines(text, removed) if removed else text, cand.lines)
                         out = engine.what_if(config=config, replace_item=(item["slot"], new_text))
-                        if holds(current, out):
+                        if holds(current, out, check_mana):
                             continue  # would uncap a resistance or break spirit / attributes / mana
                         changes = metric_changes(out, current)
                         s = _score(changes, mode, weights)
@@ -224,10 +226,11 @@ def craft_path(engine, db: ModDB, config: dict, mode: str, weights: dict, steps:
     return path
 
 
-def plan_all(engine, db: ModDB, config: dict, mode: str, weights: dict, top: int = 5) -> list[SlotPlan]:
+def plan_all(engine, db: ModDB, config: dict, mode: str, weights: dict, top: int = 5,
+             check_mana: bool = True) -> list[SlotPlan]:
     plans = []
     for item in engine.equipped_item_details():
         if item["type"] in SKIP_TYPES or "Swap" in item["slot"] or item["rarity"] not in AFFIX_LIMIT:
             continue
-        plans.append(plan_slot(engine, db, config, item, mode, weights, top))
+        plans.append(plan_slot(engine, db, config, item, mode, weights, top, check_mana))
     return plans

@@ -1,4 +1,4 @@
-"""Map survival report: what hits you survive, how fast you recover, and which mods fix the weak spots.
+﻿"""Map survival report: what hits you survive, how fast you recover, and which mods fix the weak spots.
 
 Example: python scripts/threats.py builds/titan.txt --group 4 --map-damage 50 --map-crit 50
 """
@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from poe2lab.analysis.gradients import compute
 from poe2lab.analysis.stats import mod_line
 from poe2lab.analysis.threats import MapProfile, recovery, survivable_hits
-from poe2lab.engine import PobEngine
+from poe2lab.profile import open_build
 
 FIXES = [
     ("phys_hit", "Physical max hit", "Physical"),
@@ -22,8 +22,9 @@ FIXES = [
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("build", type=Path)
-    ap.add_argument("--group", type=int)
-    ap.add_argument("--skill", type=int, default=1)
+    ap.add_argument("--group", type=int, help="main skill socket group (default: from the build profile)")
+    ap.add_argument("--skill", type=int)
+    ap.add_argument("--no-corrections", action="store_true", help="ignore the profile's corrections for PoB gaps")
     ap.add_argument("--level", type=int, default=79, help="monster level (T15 waystone = 79)")
     ap.add_argument("--boss", default="None", choices=["None", "Boss", "Pinnacle", "Uber"])
     ap.add_argument("--map-damage", type=float, default=50, help="monsters' increased damage from map/juice, %%")
@@ -31,12 +32,8 @@ def main():
     ap.add_argument("--top", type=int, default=6)
     args = ap.parse_args()
 
-    code = args.build.resolve().read_text()
-    engine = PobEngine()
-    engine.load_code(code)
-    if args.group:
-        engine.set_main_skill(args.group, args.skill)
-    profile = MapProfile(args.level, args.boss, args.map_damage, args.map_crit)
+    engine, bp = open_build(args.build, args.group, args.skill, corrections=not args.no_corrections)
+    profile = MapProfile(args.level, args.boss, args.map_damage, args.map_crit, bp.rage, bp.mana_sustained)
 
     print(f"{engine.info()} | main skill: {engine.main_skill()}")
     print(f"enemy: level {profile.enemy_level}, boss={profile.boss}; juiced map = +{profile.damage_pct:g}% monster damage, "

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from poe2lab.analysis.report import MODES, build_report
 from poe2lab.analysis.threats import DAMAGE_TYPES, MapProfile
-from poe2lab.engine import PobEngine
+from poe2lab.profile import describe, open_build
 
 LEVEL_MARK = {"must": "[!!]", "priority": "[! ]", "warn": "[ .]"}
 SHORT = {"Physical": "физ", "Fire": "огонь", "Cold": "холод", "Lightning": "молн", "Chaos": "хаос"}
@@ -105,8 +105,9 @@ def print_report(r: dict):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("build", type=Path)
-    ap.add_argument("--group", type=int)
-    ap.add_argument("--skill", type=int, default=1)
+    ap.add_argument("--group", type=int, help="main skill socket group (default: from the build profile)")
+    ap.add_argument("--skill", type=int)
+    ap.add_argument("--no-corrections", action="store_true", help="ignore the profile's corrections for PoB gaps")
     ap.add_argument("--mode", default="balanced", choices=list(MODES))
     ap.add_argument("--steps", type=int, default=6)
     ap.add_argument("--level", type=int, default=79)
@@ -117,15 +118,14 @@ def main():
     ap.add_argument("--json", type=Path, help="also write the report as JSON")
     args = ap.parse_args()
 
-    code = args.build.resolve().read_text()
     json_path = args.json.resolve() if args.json else None
-    engine = PobEngine()
-    engine.load_code(code)
-    if args.group:
-        engine.set_main_skill(args.group, args.skill)
+    engine, bp = open_build(args.build, args.group, args.skill, corrections=not args.no_corrections)
+    rage = args.rage if args.rage is not None else bp.rage
+    profile = MapProfile(args.level, args.boss, args.map_damage, args.map_crit, rage, bp.mana_sustained)
 
-    report = build_report(engine, MapProfile(args.level, args.boss, args.map_damage, args.map_crit, args.rage),
-                          mode=args.mode, steps=args.steps)
+    report = build_report(engine, profile, mode=args.mode, steps=args.steps)
+    for line in describe(bp):
+        print(f"[профиль] {line}")
     print_report(report)
     if json_path:
         json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

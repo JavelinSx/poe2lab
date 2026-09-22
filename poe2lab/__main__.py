@@ -23,31 +23,31 @@ def dossier(argv: list[str]):
     from .analysis.threats import MapProfile
     from .economy.ninja import PriceBook
     from .dossier import build_dossier
-    from .engine import PobEngine
+    from .profile import describe, open_build
 
     ap = argparse.ArgumentParser(prog="python -m poe2lab dossier")
     ap.add_argument("build", type=Path)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--group", type=int)
-    ap.add_argument("--skill", type=int, default=1)
+    ap.add_argument("--group", type=int, help="main skill socket group (default: from the build profile)")
+    ap.add_argument("--skill", type=int)
+    ap.add_argument("--no-corrections", action="store_true")
     ap.add_argument("--mode", default="balanced", choices=list(MODES))
     ap.add_argument("--rage", type=int)
     ap.add_argument("--league")
     ap.add_argument("--prices", action=argparse.BooleanOptionalAction, default=True)
     args = ap.parse_args(argv)
 
-    code, out = args.build.resolve().read_text(), args.out.resolve()
+    out = args.out.resolve()
+    engine, bp = open_build(args.build, args.group, args.skill, corrections=not args.no_corrections)
     prices = None
     if args.prices:
         try:
-            prices = PriceBook.load(args.league)
+            prices = PriceBook.load(args.league or bp.league)
         except OSError as err:
             print(f"prices unavailable: {err}", file=sys.stderr)
-    engine = PobEngine()
-    engine.load_code(code)
-    if args.group:
-        engine.set_main_skill(args.group, args.skill)
-    data = build_dossier(engine, MapProfile(rage=args.rage), args.mode, prices)
+    rage = args.rage if args.rage is not None else bp.rage
+    data = build_dossier(engine, MapProfile(rage=rage, mana_sustained=bp.mana_sustained), args.mode, prices)
+    data["buildProfile"] = describe(bp)
     out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"dossier written to {out}")
 

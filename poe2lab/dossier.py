@@ -18,8 +18,9 @@ def build_dossier(engine, profile: MapProfile, mode: str = "balanced", prices=No
     essences = engine.export_essences()
     by_id = {m.id: m for m in db.mods}
 
+    check_mana = not profile.mana_sustained
     path = []
-    for step in craft_path(engine, db, config, mode, weights, steps=craft_steps):
+    for step in craft_path(engine, db, config, mode, weights, steps=craft_steps, check_mana=check_mana):
         entry = asdict(step)
         mod = by_id.get(step.mod_id)
         entry["sources"] = describe(db, essences, mod, step.item_type, prices) if mod else []
@@ -36,7 +37,8 @@ def build_dossier(engine, profile: MapProfile, mode: str = "balanced", prices=No
 
     return {
         "report": report,
-        "slots": [asdict(p) | {"uncertain": p.uncertain} for p in plan_all(engine, db, config, mode, weights)],
+        "slots": [asdict(p) | {"uncertain": p.uncertain}
+                  for p in plan_all(engine, db, config, mode, weights, check_mana=check_mana)],
         "craftPath": path,
         "sockets": sockets,
         "prices": {"league": prices.league, "exaltedPerDivine": prices.exalted_per_divine} if prices else None,
