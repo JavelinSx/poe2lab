@@ -57,6 +57,13 @@ STATS: list[Stat] = [
     _s("block", "+% Block chance", "+{v}% to Block chance", 5, "defence"),
     _s("phys_as_fire", "% phys taken as Fire", "{v}% of Physical Damage from Hits taken as Fire Damage", 10, "defence"),
     _s("life_regen", "Life Regeneration per second", "Regenerate {v} Life per second", 30, "defence"),
+    # recovery
+    _s("life_on_hit", "Life per enemy Hit with Attacks", "Gain {v} Life per Enemy Hit with Attacks", 10, "recovery"),
+    _s("life_recovery_rate", "% increased Life Recovery rate", "{v}% increased Life Recovery rate", 10, "recovery"),
+    _s("life_regen_pct", "% of maximum Life regenerated per second", "Regenerate {v}% of maximum Life per second", 1, "recovery"),
+    _s("life_recoup", "% of Damage taken Recouped as Life", "{v}% of Damage taken Recouped as Life", 10, "recovery"),
+    _s("life_leech_amount", "% increased amount of Life Leeched", "{v}% increased amount of Life Leeched", 10, "recovery"),
+    _s("life_leech", "% of Physical Damage Leeched as Life", "Leeches {v}% of Physical Damage as Life", 5, "recovery"),
 ]
 
 

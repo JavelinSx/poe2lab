@@ -80,6 +80,30 @@ def test_unparseable_mod_raises(engine):
         engine.what_if(mods=["totally not a mod"])
 
 
+def test_config_override_applies_and_restores(engine):
+    base = engine.what_if()
+    mob = engine.what_if(config={"enemyLevel": 79, "enemyIsBoss": "None", "enemyCritChance": 100})
+    assert mob["PhysicalEnemyDamage"] < base["PhysicalEnemyDamage"]
+    assert mob["EnemyCritEffect"] > base["EnemyCritEffect"]
+    again = engine.what_if()
+    for key in ("PhysicalEnemyDamage", "EnemyCritEffect", "TotalEHP", "CombinedDPS"):
+        assert again[key] == pytest.approx(base[key])
+    assert engine.config().get("enemyLevel") is None
+
+
+def test_enemy_damage_mods_lower_survivable_hit(engine):
+    base = engine.what_if()
+    juiced = engine.what_if(enemy_mods=["50% increased Damage"])
+    assert juiced["PhysicalMaximumHitTaken"] < base["PhysicalMaximumHitTaken"]
+    assert engine.what_if()["PhysicalMaximumHitTaken"] == base["PhysicalMaximumHitTaken"]
+
+
+def test_survivable_hits_order(engine):
+    from poe2lab.analysis.threats import MapProfile, survivable_hits
+    for row in survivable_hits(engine, MapProfile()):
+        assert 0 < row.juiced < row.crit < row.normal
+
+
 def test_all_probe_stats_parse(engine):
     from poe2lab.analysis.stats import STATS, mod_line
     bad = [mod_line(s, m) for s in STATS for m in (1, 2) if not engine.can_parse_mod(mod_line(s, m))]

@@ -36,12 +36,8 @@ function _poe2lab_array(t)
   return setmetatable(t, { __jsontype = "array" })
 end
 
--- The what-if calculator re-reads configTab.modList on every call, so extra mods are applied by
--- temporarily swapping in a copy of that list with the parsed lines added.
-function _poe2lab_with_mods(lines, fn)
-  if #lines == 0 then return fn() end
-  local configTab = build.configTab
-  local base = configTab.modList
+local function extendModList(base, lines)
+  if #lines == 0 then return base end
   local modList = new("ModList"):ModList()
   modList:AddList(base)
   for _, line in ipairs(lines) do
@@ -51,9 +47,36 @@ function _poe2lab_with_mods(lines, fn)
       if mods[i] then modList:AddMod(modLib.setSource(mods[i], "Custom:poe2lab")) end
     end
   end
-  configTab.modList = modList
-  local ok, res = pcall(fn)
-  configTab.modList = base
+  return modList
+end
+
+-- The what-if calculator re-reads the config tab (inputs, modList, enemyModList) on every call, so
+-- config values and extra player/enemy mods are applied temporarily and everything is restored after.
+function _poe2lab_with_setup(config, lines, enemyLines, fn)
+  local configTab = build.configTab
+  local savedInput, savedPlaceholder = {}, {}
+  local hasConfig = next(config) ~= nil
+  if hasConfig then
+    for k, v in pairs(configTab.placeholder) do savedPlaceholder[k] = v end
+    for k, v in pairs(config) do
+      savedInput[k] = { value = configTab.input[k] }
+      configTab.input[k] = v
+    end
+    configTab:BuildModList()
+  end
+  local baseMods, baseEnemyMods = configTab.modList, configTab.enemyModList
+  local ok, res = pcall(function()
+    configTab.modList = extendModList(baseMods, lines)
+    configTab.enemyModList = extendModList(baseEnemyMods, enemyLines)
+    return fn()
+  end)
+  configTab.modList, configTab.enemyModList = baseMods, baseEnemyMods
+  if hasConfig then
+    for k, saved in pairs(savedInput) do configTab.input[k] = saved.value end
+    for k in pairs(configTab.placeholder) do configTab.placeholder[k] = nil end
+    for k, v in pairs(savedPlaceholder) do configTab.placeholder[k] = v end
+    configTab:BuildModList()
+  end
   if not ok then error(res, 0) end
   return res
 end
@@ -62,6 +85,14 @@ end
 
 class PobError(RuntimeError):
     pass
+
+
+def _lua_value(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    return lua_string(str(v))
 
 
 class PobEngine:
@@ -159,17 +190,27 @@ for id, node in pairs(build.spec.allocNodes) do
 end
 return _poe2lab_json(out)""")
 
-    def what_if(self, add_nodes=(), remove_nodes=(), mods=()) -> dict[str, float]:
-        """Recalculate as if passive nodes were added/removed and extra mod lines were present
-        (e.g. "10% increased Attack Speed"), without changing the build."""
+    def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None) -> dict[str, float]:
+        """Recalculate without changing the build, as if:
+        - passive nodes were added/removed,
+        - extra player mod lines were present (e.g. "10% increased Attack Speed"),
+        - extra enemy mod lines were present (e.g. "50% increased Damage"),
+        - Configuration tab values were set (e.g. {"enemyLevel": 79, "enemyCritChance": 100})."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
         lines = ", ".join(lua_string(m) for m in mods)
+        enemy_lines = ", ".join(lua_string(m) for m in enemy_mods)
+        cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
         return self._json(f"""
 local calcFunc = build.calcsTab:GetMiscCalculator()
 local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}) }}
-local out = _poe2lab_with_mods({{ {lines} }}, function() return calcFunc(override, false) end)
+local out = _poe2lab_with_setup({{ {cfg} }}, {{ {lines} }}, {{ {enemy_lines} }},
+  function() return calcFunc(override, false) end)
 return _poe2lab_numbers(out)""")
+
+    def config(self) -> dict:
+        """Current Configuration tab values explicitly set in the build."""
+        return self._json("return _poe2lab_json(build.configTab.input)")
 
     def can_parse_mod(self, line: str) -> bool:
         return self._lua(f"""
