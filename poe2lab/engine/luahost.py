@@ -5,18 +5,35 @@ Loading PoB's own lua51.dll through ctypes keeps the engine inside the Python pr
 """
 import ctypes
 import os
+import subprocess
 from pathlib import Path
 
-DEFAULT_POB_ROOT = Path(__file__).resolve().parents[2] / "pob2"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_POB_ROOT = REPO_ROOT / "pob2"
 
 
 class LuaError(RuntimeError):
     pass
 
 
+def ensure_pob(pob_root: Path) -> None:
+    """Fetch the PoB submodule if the repo was cloned without --recurse-submodules."""
+    if (pob_root / "src" / "HeadlessWrapper.lua").exists():
+        return
+    if pob_root.resolve() != DEFAULT_POB_ROOT.resolve():
+        raise FileNotFoundError(f"Path of Building not found in {pob_root}")
+    print("Path of Building (pob2) is missing - fetching the git submodule, this happens once...")
+    result = subprocess.run(["git", "submodule", "update", "--init", "--recursive"], cwd=REPO_ROOT,
+                            capture_output=True, text=True)
+    if result.returncode != 0 or not (pob_root / "src" / "HeadlessWrapper.lua").exists():
+        raise RuntimeError("could not fetch the pob2 submodule; run `git submodule update --init` in "
+                           f"{REPO_ROOT}\n{result.stderr.strip()}")
+
+
 class LuaHost:
     def __init__(self, pob_root: Path = DEFAULT_POB_ROOT):
         pob_root = Path(pob_root).resolve()
+        ensure_pob(pob_root)
         runtime = pob_root / "runtime"
         os.add_dll_directory(str(runtime))
         lua = ctypes.CDLL(str(runtime / "lua51.dll"))
