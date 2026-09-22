@@ -69,7 +69,25 @@ def builds():
     print('Use the name in any command, e.g. python -m poe2lab report "<name>"')
 
 
-EXTRA = ("dossier", "builds")
+def ui(argv: list[str]):
+    """Local web interface on http://127.0.0.1:<port>."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    ap = argparse.ArgumentParser(prog="python -m poe2lab ui")
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--no-browser", action="store_true")
+    args = ap.parse_args(argv)
+    url = f"http://127.0.0.1:{args.port}/"
+    if not args.no_browser:
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    print(f"poe2lab UI: {url}  (Ctrl+C to stop)")
+    uvicorn.run("poe2lab.web.server:app", host="127.0.0.1", port=args.port, log_level="warning")
+
+
+EXTRA = ("dossier", "builds", "ui")
 
 
 def main():
@@ -82,6 +100,9 @@ def main():
         return
     if command == "builds":
         builds()
+        return
+    if command == "ui":
+        ui(rest)
         return
     script = SCRIPTS / COMMANDS[command]
     sys.argv = [str(script), *rest]

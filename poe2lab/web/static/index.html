@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>poe2lab</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">poe2<span>lab</span></div>
+    <div class="side-title">Билды</div>
+    <div id="builds" class="build-list"><div class="muted small">загрузка…</div></div>
+    <div class="side-foot">
+      <div id="llm-status" class="small muted"></div>
+      <button id="refresh-builds" class="ghost small">обновить список</button>
+    </div>
+  </aside>
+
+  <main>
+    <header id="build-header" class="build-header hidden">
+      <div class="bh-main">
+        <h1 id="bh-name"></h1>
+        <div id="bh-sub" class="muted"></div>
+      </div>
+      <div class="bh-controls">
+        <label class="field">
+          <span>Основной скилл</span>
+          <select id="main-skill"></select>
+        </label>
+        <div class="field">
+          <span>Цель</span>
+          <div class="segmented" id="mode">
+            <button data-mode="damage">урон</button>
+            <button data-mode="balanced" class="active">баланс</button>
+            <button data-mode="defence">защита</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav id="tabs" class="tabs hidden">
+      <button data-tab="overview" class="active">Обзор</button>
+      <button data-tab="damage">Урон</button>
+      <button data-tab="gear">Снаряжение</button>
+      <button data-tab="compare">Сравнить предмет</button>
+      <button data-tab="mechanics">Механики</button>
+      <button data-tab="profile">Профиль</button>
+      <button data-tab="assistant">Ассистент</button>
+    </nav>
+
+    <section id="view" class="view">
+      <div class="empty">
+        <h2>Выберите билд слева</h2>
+        <p class="muted">Импортируйте персонажа в Path of Building (Import/Export Build → Authorize with Path of Exile →
+          импорт → <b>Save</b>) — он появится в списке. Или положите PoB-код в <code>builds/имя.txt</code>.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

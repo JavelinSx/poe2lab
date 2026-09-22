@@ -44,6 +44,8 @@ If the user can, have them confirm Life/ES/armour/resistances against the in-gam
 | Is this item better (item text from game Ctrl+C or edited PoB text) | `python -m poe2lab compare builds/X.txt --group N --slot "Weapon 1" --item new.txt [--breakeven "<mod line>"]`; `--dump cur.txt` saves the worn item to edit |
 | Which passives carry the build | `python -m poe2lab nodes builds/X.txt --group N` |
 | Raw stat values | `python -m poe2lab gradients builds/X.txt --group N` |
+| What PoB ignores (unmapped gem stats, unparsed item lines) | shown in `report` ("ЧТО PoB НЕ СЧИТАЕТ") and in the dossier `mechanics` — read these before asking the player anything |
+| Web interface for the user | `python -m poe2lab ui` (http://127.0.0.1:8765) |
 | Everything as JSON (for your own reasoning) | `python -m poe2lab dossier builds/X.txt --group N --out <scratchpad>/d.json` |
 
 Slot names: `Weapon 1`, `Helmet`, `Body Armour`, `Gloves`, `Boots`, `Amulet`, `Ring 1`, `Ring 2`, `Belt`.
