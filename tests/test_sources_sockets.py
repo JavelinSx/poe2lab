@@ -29,8 +29,8 @@ def db(titan):
 def test_essences_and_desecration_as_sources(titan, db):
     essences = titan.export_essences()
     chaos = next(m for m in db.mods if m.id == "ChaosResist6")
-    names = essence_sources(db, essences, chaos, "Helmet")
-    assert any(n.startswith("Essence of Ruin") for n in names)
+    names = [name for name, _ in essence_sources(db, essences, chaos, "Helmet")]
+    assert "Essence of Ruin" in names
     assert not essence_sources(db, essences, chaos, "Talisman")
     mom = next(m for m in db.mods if m.set == "Item" and "taken from Mana before Life" in m.lines[0])
     assert desecrated_sources(db, mom)
