@@ -74,6 +74,7 @@ class Candidate:
     level: int
     score: float
     changes: dict[str, float]
+    mod_id: str = ""
 
 
 @dataclass
@@ -130,7 +131,8 @@ def plan_slot(engine, db: ModDB, config: dict, item: dict, mode: str, weights: d
         except PobError:
             continue
         changes = metric_changes(out, base)
-        candidates.append(Candidate(mod.type, lines, list(mod.lines), mod.level, _score(changes, mode, weights), changes))
+        candidates.append(Candidate(mod.type, lines, list(mod.lines), mod.level, _score(changes, mode, weights),
+                                    changes, mod.id))
     candidates.sort(key=lambda c: -c.score)
 
     limit = AFFIX_LIMIT.get(item["rarity"], 0)
@@ -173,6 +175,8 @@ class CraftStep:
     changes: dict[str, float]  # this step alone
     total: dict[str, float]  # all steps so far vs the original build
     uncertain: bool  # the item's free-slot count was approximate
+    mod_id: str = ""
+    item_type: str = ""
 
 
 def craft_path(engine, db: ModDB, config: dict, mode: str, weights: dict, steps: int = 6,
@@ -206,13 +210,14 @@ def craft_path(engine, db: ModDB, config: dict, mode: str, weights: dict, steps:
                         changes = metric_changes(out, current)
                         s = _score(changes, mode, weights)
                         if best is None or s > best[0]:
-                            best = (s, item["slot"], removed, cand.lines, new_text, changes, plan.uncertain)
+                            best = (s, item["slot"], removed, cand, new_text, changes, plan.uncertain, item["type"])
             if best is None or best[0] < MIN_GAIN:
                 break
-            s, slot, removed, added, new_text, changes, uncertain = best
+            s, slot, removed, cand, new_text, changes, uncertain, item_type = best
             engine.equip_item(slot, new_text)
-            path.append(CraftStep(slot, list(removed), list(added), s, changes,
-                                  metric_changes(engine.what_if(config=config), start), uncertain))
+            path.append(CraftStep(slot, list(removed), list(cand.lines), s, changes,
+                                  metric_changes(engine.what_if(config=config), start), uncertain,
+                                  cand.mod_id, item_type))
     finally:
         for step_slot in {st.slot for st in path}:
             engine.equip_item(step_slot, originals[step_slot])

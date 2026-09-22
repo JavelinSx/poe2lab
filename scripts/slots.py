@@ -10,6 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from poe2lab.analysis.report import MODES, defence_weights
 from poe2lab.analysis.slots import craft_path, plan_all
+from poe2lab.analysis.sockets import plan_sockets
+from poe2lab.analysis.sources import describe
 from poe2lab.analysis.threats import MapProfile, survivable_hits
 from poe2lab.data.moddb import ModDB
 from poe2lab.engine import PobEngine
@@ -33,6 +35,7 @@ def main():
     ap.add_argument("--top", type=int, default=4)
     ap.add_argument("--slot", help="only this slot")
     ap.add_argument("--path", type=int, default=6, help="steps of the cross-slot crafting path (0 = skip)")
+    ap.add_argument("--sockets", action=argparse.BooleanOptionalAction, default=True, help="socket (rune) plan")
     args = ap.parse_args()
 
     code = args.build.resolve().read_text()
@@ -77,14 +80,33 @@ def main():
               f"{time.perf_counter() - t:.1f} с)")
         print("  Это целевой набор аффиксов, без учёта того, как его получить крафтом (случайность, омены, цена — следующий этап);")
         print("  шаги, которые снимают кап резиста или ломают spirit/атрибуты/ману, отброшены.")
+        by_id = {m.id: m for m in db.mods}
+        essences = engine.export_essences()
         for i, s in enumerate(path, 1):
             how = f"заменить «{' / '.join(s.removed)}» на" if s.removed else "докрафтить"
             note = "  (проверь, что слот свободен)" if s.uncertain and not s.removed else ""
             print(f"  {i}. {s.slot}: {how} «{' / '.join(s.added)}»  {s.score:+.1f}  ({effect(s.changes)}){note}")
+            if s.mod_id in by_id:
+                for src in describe(db, essences, by_id[s.mod_id], s.item_type):
+                    print(f"       откуда: {src}")
         if path:
             print(f"  Итого против текущего: {effect(path[-1].total)}")
         else:
             print("  нечего улучшать крафтом")
+
+    if args.sockets and not args.slot:
+        t = time.perf_counter()
+        sockets = plan_sockets(engine, profile.config(), args.mode, weights)
+        print(f"\nСОКЕТЫ: лучшая руна / соул-кор для каждого сокета ({time.perf_counter() - t:.1f} с).")
+        print("  Для испорченных предметов — только вставки, которые туда разрешены. Цифра у варианта — выгода замены")
+        print("  относительно текущей вставки; каждый сокет оценён отдельно (два хаос-кора подряд не сложатся так же).")
+        for s in sockets:
+            print(f"  {s.slot}, сокет {s.index}: сейчас {s.current} (даёт {s.current_score:+.1f})")
+            for o in s.best:
+                note = "  [руна из уникального предмета — доступность/цена?]" if o.name.startswith("Legacy of") else ""
+                print(f"      → {o.name}: {' / '.join(o.lines)}  {o.score:+.1f}  ({effect(o.changes)}){note}")
+            if not s.best:
+                print("      лучше текущей вставки ничего нет")
 
 
 if __name__ == "__main__":

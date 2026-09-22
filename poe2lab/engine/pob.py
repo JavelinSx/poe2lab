@@ -57,6 +57,15 @@ function _poe2lab_item(text)
   return item
 end
 
+function _poe2lab_item_runes(text, names)
+  local item = _poe2lab_item(text)
+  for i = 1, item.itemSocketCount do item.runes[i] = names[i] or "None" end
+  item:UpdateRunes()
+  item:BuildAndParseRaw()
+  item:NormaliseQuality()
+  return item
+end
+
 function _poe2lab_with_gems_disabled(pairsList, fn)
   if #pairsList == 0 then return fn() end
   local saved = {}
@@ -215,7 +224,8 @@ return _poe2lab_json(out)""")
 
     def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
                 remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None,
-                replace_item: tuple[str, str] | None = None) -> dict[str, float]:
+                replace_item: tuple[str, str] | None = None,
+                replace_runes: tuple[str, list[str]] | None = None) -> dict[str, float]:
         """Recalculate without changing the build, as if:
         - passive nodes were added/removed,
         - extra player mod lines were present (e.g. "10% increased Attack Speed"),
@@ -224,15 +234,21 @@ return _poe2lab_json(out)""")
         - the item in remove_slot (e.g. "Ring 1") was taken off,
         - gems given as (socket group, gem index) pairs were disabled,
         - offence was reported for main_socket_group instead of the build's main skill,
-        - replace_item = (slot, item text) was equipped instead (PoB format or text copied from the game)."""
+        - replace_item = (slot, item text) was equipped instead (PoB format or text copied from the game),
+        - replace_runes = (slot, [rune / soul core names per socket]) were socketed into the equipped item."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
         lines = ", ".join(lua_string(m) for m in mods)
         enemy_lines = ", ".join(lua_string(m) for m in enemy_mods)
         cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
         extra = ""
-        if remove_slot and replace_item:
-            raise PobError("use either remove_slot or replace_item")
+        if sum(x is not None for x in (remove_slot, replace_item, replace_runes)) > 1:
+            raise PobError("use only one of remove_slot, replace_item, replace_runes")
+        if replace_runes:
+            slot_name, names = replace_runes
+            runes = ", ".join(lua_string(n) for n in names)
+            extra += (f", repSlotName = {lua_string(slot_name)}, repItem = _poe2lab_item_runes("
+                      f"{lua_string(self.item_text(slot_name))}, {{ {runes} }})")
         if remove_slot:
             extra += f", repSlotName = {lua_string(remove_slot)}"
         if replace_item:
@@ -325,6 +341,47 @@ for _, slot in ipairs(build.itemsTab.orderedSlots) do
   end
 end
 return _poe2lab_json(out)""")
+
+    def export_essences(self) -> list[dict]:
+        """Essences: name, tier level and the mod id they guarantee per item class."""
+        essences = self._raw_essences()
+        for e in essences:
+            if not isinstance(e["mods"], dict):  # an empty Lua table encodes as []
+                e["mods"] = {}
+        return essences
+
+    def _raw_essences(self) -> list[dict]:
+        return self._json("""
+local out = _poe2lab_array({})
+for id, e in pairs(data.essences) do
+  local mods = {}
+  for itemClass, modId in pairs(e.mods or {}) do mods[itemClass] = modId end
+  out[#out + 1] = { id = id, name = e.name, type = e.type or "", tierLevel = e.tierLevel or 0, mods = mods }
+end
+return _poe2lab_json(out)""")
+
+    def socket_info(self, slot: str) -> dict:
+        """Sockets of the equipped item, the runes / soul cores in them and which augments fit it."""
+        return self._json(f"""
+local slot = build.itemsTab.slots[ {lua_string(slot)} ]
+local item = slot and build.itemsTab.items[slot.selItemId]
+if not item then error("no item in slot", 0) end
+local runes = _poe2lab_array({{}})
+for i = 1, item.itemSocketCount do runes[i] = item.runes[i] or "None" end
+local baseType, specificType = item:GetSocketedAugmentTypes()
+local options = _poe2lab_array({{}})
+for name, rune in pairs(data.itemMods.Runes) do
+  local mod = (baseType and rune[baseType]) or rune[specificType]
+  if mod then
+    local lines = _poe2lab_array({{}})
+    for i, l in ipairs(mod) do lines[i] = l end
+    options[#options + 1] = {{ name = name, type = mod.type or "", limit = mod.limit or 0, levelReq = mod.levelReq or 0,
+      corrupted = mod.canSocketInCorruptedSanctified and true or false,
+      unique = mod.canSocketInUniqueItems and true or false, lines = lines }}
+  end
+end
+return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted = item.corrupted and true or false,
+  rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options }})""")
 
     def equip_item(self, slot: str, item_text: str):
         """Really equip an item (in memory) and recalculate. Unlike what_if(replace_item=...) this persists,
