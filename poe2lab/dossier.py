@@ -8,6 +8,7 @@ from .analysis.sockets import plan_sockets
 from .analysis.sources import describe
 from .analysis.threats import MapProfile, survivable_hits
 from .data.moddb import ModDB
+from .knowledge import collect as collect_mechanics
 
 
 def build_dossier(engine, profile: MapProfile, mode: str = "balanced", prices=None, craft_steps: int = 6) -> dict:
@@ -35,8 +36,11 @@ def build_dossier(engine, profile: MapProfile, mode: str = "balanced", prices=No
             opt["scorePerDivine"] = prices.per_divine(opt["score"], price) if price else None
         sockets.append(entry)
 
+    mech = collect_mechanics(engine)
     return {
         "report": report,
+        "mechanics": {"notModelledByPoB": [asdict(g) for g in mech.gaps], "skills": mech.skills,
+                      "uniques": mech.uniques},
         "slots": [asdict(p) | {"uncertain": p.uncertain}
                   for p in plan_all(engine, db, config, mode, weights, check_mana=check_mana)],
         "craftPath": path,

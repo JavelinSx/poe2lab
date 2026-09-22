@@ -73,6 +73,12 @@ def print_report(r: dict):
                  (c["ele_hit_pct"], "элем-удар"), (c["recovery_pct"], "лечение"), (c["life_pct"], "жизнь")]
         return ", ".join(f"{name} {v:+.1f}%" for v, name in parts if abs(v) >= 0.5)
 
+    if r["notModelled"]:
+        print("\nЧТО PoB НЕ СЧИТАЕТ (стат/строка есть в данных игры, но в расчёт не попадает):")
+        for g in r["notModelled"]:
+            print(f"  {g['where']}: {g['text']}")
+        print("  Важное из этого стоит учесть поправкой в профиле билда (builds/<имя>.profile.json).")
+
     rng = r["damageRange"]
     if rng["conditions"]:
         print(f"\nВИЛКА УРОНА: {rng['low']:,.0f} (враг без дебаффов) … {rng['high']:,.0f} "

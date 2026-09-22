@@ -1,6 +1,7 @@
 """One report for a build: what must be fixed, where to invest for a goal, and a step-by-step upgrade path."""
 from dataclasses import asdict, dataclass
 
+from ..knowledge import collect as collect_mechanics
 from . import attributes as attrs
 from .conditions import audit as audit_conditions
 from .conditions import damage_range
@@ -227,6 +228,7 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
         },
         "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps)
                   + gates(stats, hits, rec, profile.mana_sustained)],
+        "notModelled": [asdict(g) for g in collect_mechanics(engine).gaps if g.likely_impact],
         "conditions": [asdict(c) for c in conditions],
         "damageRange": damage_range(engine, profile.config(), conditions),
         "core": core_damage(engine, profile, grads),

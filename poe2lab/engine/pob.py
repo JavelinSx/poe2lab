@@ -383,6 +383,72 @@ end
 return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted = item.corrupted and true or false,
   rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options }})""")
 
+    def mechanics_raw(self) -> dict:
+        """Per skill (every gem effect in every socket group): description, readable stat lines, and the stats PoB
+        has no mapping for (silently ignored in calculations). Per item: lines PoB could not parse, and the full text
+        of unique items. Filtering and interpretation live in poe2lab.knowledge."""
+        return self._json("""
+local function arr(t) return _poe2lab_array(t or {}) end
+local function describe(stats, scope)
+  local ok, lines = pcall(data.describeStats, stats, scope)
+  if not ok or not lines then return arr({}) end
+  local out = arr({})
+  for i, l in ipairs(lines) do out[i] = StripEscapes(l) end
+  return out
+end
+local skills = arr({})
+local seen = {}
+for gi, g in ipairs(build.skillsTab.socketGroupList) do
+  for _, gem in ipairs(g.gemList) do
+    local d = gem.gemData
+    if d and gem.enabled ~= false then
+      for _, ge in ipairs({ d.grantedEffect, d.secondaryGrantedEffect }) do
+        local key = gi .. ":" .. ge.id
+        if not seen[key] then
+          seen[key] = true
+          local sets = arr({})
+          for _, set in ipairs(ge.statSets or {}) do
+            local ok, stats = pcall(calcLib.buildSkillInstanceStats, gem, ge, set, false)
+            stats = ok and stats or {}
+            local unmapped = arr({})
+            for stat, value in pairs(stats) do
+              if not set.statMap[stat] then
+                unmapped[#unmapped + 1] = { stat = stat, value = value,
+                  text = describe({ [stat] = value }, set.statDescriptionScope) }
+              end
+            end
+            sets[#sets + 1] = { label = set.label or "", lines = describe(stats, set.statDescriptionScope),
+                                unmapped = unmapped }
+          end
+          skills[#skills + 1] = { group = gi, name = ge.name, support = ge.support and true or false,
+            description = ge.description or "", statSets = sets }
+        end
+      end
+    end
+  end
+end
+local items = arr({})
+for _, slot in ipairs(build.itemsTab.orderedSlots) do
+  local item = not slot.nodeId and build.itemsTab.items[slot.selItemId]
+  if item then
+    local unparsed = arr({})
+    for _, list in ipairs({ item.implicitModLines or {}, item.explicitModLines or {}, item.runeModLines or {} }) do
+      for _, ml in ipairs(list) do
+        if ml.extra or not ml.modList or #ml.modList == 0 then unparsed[#unparsed + 1] = StripEscapes(ml.line) end
+      end
+    end
+    local text = arr({})
+    if item.rarity == "UNIQUE" or item.rarity == "RELIC" then
+      for _, list in ipairs({ item.implicitModLines or {}, item.explicitModLines or {} }) do
+        for _, ml in ipairs(list) do text[#text + 1] = StripEscapes(ml.line) end
+      end
+    end
+    items[#items + 1] = { slot = slot.slotName, name = item.name or "", rarity = item.rarity or "",
+                          type = item.type or "", unparsed = unparsed, uniqueText = text }
+  end
+end
+return _poe2lab_json({ skills = skills, items = items })""")
+
     def set_custom_mods(self, title: str, lines: list[str]):
         """Put mod lines into a Custom Modifiers block of the Configuration tab (replacing a block with the same
         title; empty list removes it) and recalculate. Unlike what_if(mods=...) this persists for every later call."""

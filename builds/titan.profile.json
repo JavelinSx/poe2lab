@@ -5,8 +5,8 @@
   "league": null,
   "corrections": [
     {
-      "mod": "Gain 30% of Damage as Extra Fire Damage",
-      "source": "баф Walking Calamity: PoB не применяет стат walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire; используется практически по кулдауну",
+      "mod": "Gain 37% of Damage as Extra Fire Damage",
+      "source": "баф Walking Calamity (37% на уровне и качестве гема, по описанию стата в данных игры): PoB не применяет стат walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire; используется практически по кулдауну",
       "uptime": 1.0,
       "confirmed": true
     },
