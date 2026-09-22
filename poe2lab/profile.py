@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .analysis.threats import MapProfile
 from .engine import PobEngine
+from .pobfiles import PROJECT_BUILDS, resolve_build
 
 CORRECTION_BLOCK = "poe2lab corrections"
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
@@ -43,8 +44,10 @@ class BuildProfile:
 
     @classmethod
     def for_build(cls, build: Path) -> "BuildProfile":
-        path = build.with_name(build.stem + ".profile.json")
-        if not path.exists():
+        """Profile next to the build, or in the project's builds/ folder (for builds saved inside PoB)."""
+        name = build.stem + ".profile.json"
+        path = next((p for p in (build.with_name(name), PROJECT_BUILDS / name) if p.exists()), None)
+        if path is None:
             return cls()
         raw = json.loads(path.read_text(encoding="utf-8"))
         main = raw.get("main_skill", {})
@@ -58,12 +61,16 @@ class BuildProfile:
 
 def open_build(build: Path, group: int | None = None, skill: int | None = None,
                corrections: bool = True) -> tuple[PobEngine, BuildProfile]:
-    """Load a build with its profile: main skill (arguments override the profile) and corrections applied."""
-    build = Path(build).resolve()
-    code = build.read_text()
+    """Load a build (PoB code .txt, PoB-saved .xml, or the name of a build saved in PoB) with its profile:
+    main skill (arguments override the profile) and corrections applied."""
+    build = resolve_build(build)
+    text = build.read_text(encoding="utf-8")
     profile = BuildProfile.for_build(build)
     engine = PobEngine()
-    engine.load_code(code)
+    if build.suffix.lower() == ".xml":
+        engine.load_xml(text, build.stem)
+    else:
+        engine.load_code(text)
     group = group or profile.group
     if group:
         engine.set_main_skill(group, skill or (profile.skill if group == profile.group else 1))

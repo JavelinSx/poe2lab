@@ -21,6 +21,6 @@ def test_dossier_sections_and_prices():
     d = json.loads(json.dumps(build_dossier(e, MapProfile(), prices=prices, craft_steps=2), ensure_ascii=False))
     assert {"report", "slots", "craftPath", "sockets", "prices", "notes"} <= set(d)
     assert len(d["craftPath"]) == 2 and d["craftPath"][0]["sources"]
-    boots = [s for s in d["sockets"] if s["slot"] == "Boots"][0]
-    tacati = [o for o in boots["best"] if o["name"] == "Soul Core of Tacati"][0]
+    gloves = [s for s in d["sockets"] if s["slot"] == "Gloves"][0]  # boots are corrupted, so skipped
+    tacati = [o for o in gloves["best"] if o["name"] == "Soul Core of Tacati"][0]
     assert tacati["price"] == "40 ex" and tacati["scorePerDivine"] > 0

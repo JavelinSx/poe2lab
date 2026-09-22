@@ -10,9 +10,13 @@ from the repo root. On Windows set `PYTHONIOENCODING=utf-8` so Russian output pr
 
 ## 1. Get the build
 
-- The user exports a PoB code: PoB-PoE2 -> Import/Export Build -> (Authorize with Path of Exile, pick the character,
-  import) -> Generate -> Copy. Save it as `builds/<name>.txt` (the file holds only the code).
-- The code contains no account data, but it does reveal the build; mention this before committing it to git.
+- Preferred: the user imports the character in PoB-PoE2 (Import/Export Build -> Authorize with Path of Exile -> pick
+  the character -> import) and presses Save. Every command then takes the build by its PoB name
+  (`python -m poe2lab report "<name>"`); `python -m poe2lab builds` lists PoB-saved builds. Re-import + Save refreshes it.
+  PoB's login is PoB's own registered app — never try to reuse its OAuth credentials from our code.
+- Alternative: PoB code (Generate -> Copy) saved as `builds/<name>.txt`.
+- Profiles live in `builds/<name>.profile.json` for both kinds (for PoB-saved builds the name is the PoB build name).
+- A build file contains no account data, but it does reveal the build; mention this before committing it to git.
 
 ## 1a. Build profile — confirmed facts and PoB gaps
 
@@ -63,7 +67,10 @@ Slot names: `Weapon 1`, `Helmet`, `Body Armour`, `Gloves`, `Boots`, `Amulet`, `R
 - **Crafting path** is a target set of affixes from mods that can roll on that base at that item level (with
   essence/desecration sources), not a procedure: PoE2 client data has no real spawn weights, so do not promise odds
   or crafting cost.
-- **Prices** (poe.ninja, cached 1 h) are often thin markets ("мало сделок"); treat them as rough.
+- **Corrupted items cannot be modified at all** — no crafting, no socket changes. Slot plans only say what to look
+  for in a replacement.
+- **"Legacy of …" runes work only for Druids** (player knowledge, not in PoB data); they are filtered out for others.
+- **Prices** (poe.ninja, cached 1 h) are often thin markets ("мало сделок"); treat them as rough. Low priority for the user.
 
 ## 5. How to answer
 

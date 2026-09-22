@@ -50,6 +50,22 @@ def test_mana_gate_respects_confirmation():
     assert title not in {g.title for g in gates(stats, hits, rec, mana_sustained=True)}
 
 
+def test_build_by_name_and_from_pob_xml(tmp_path, monkeypatch):
+    from poe2lab import pobfiles
+    from poe2lab.engine import decode_pob_code
+    assert pobfiles.resolve_build("titan") == (BUILDS / "titan.txt").resolve()
+    saved = tmp_path / "Builds"
+    saved.mkdir()
+    (saved / "My Titan.xml").write_text(decode_pob_code((BUILDS / "titan.txt").read_text()), encoding="utf-8")
+    monkeypatch.setattr(pobfiles, "pob_build_dirs", lambda: [saved])
+    path = pobfiles.resolve_build("my titan")
+    assert path.name == "My Titan.xml"
+    engine, bp = open_build(path, group=4)
+    assert engine.main_skill() == "Furious Slam" and bp.path is None
+    with pytest.raises(FileNotFoundError):
+        pobfiles.resolve_build("no such build")
+
+
 def test_profile_file_is_valid_json():
     raw = json.loads((BUILDS / "titan.profile.json").read_text(encoding="utf-8"))
     assert raw["main_skill"]["group"] == 4

@@ -52,13 +52,36 @@ def dossier(argv: list[str]):
     print(f"dossier written to {out}")
 
 
+def builds():
+    """Builds saved inside Path of Building (after importing a character there and pressing Save)."""
+    from datetime import datetime
+
+    from .pobfiles import PROJECT_BUILDS, list_pob_builds, pob_build_dirs
+
+    dirs = pob_build_dirs()
+    print("PoB build folders: " + (", ".join(str(d) for d in dirs) or "none found"))
+    for p in list_pob_builds():
+        profile = "  (есть профиль)" if (PROJECT_BUILDS / f"{p.stem}.profile.json").exists() else ""
+        print(f"  {datetime.fromtimestamp(p.stat().st_mtime):%Y-%m-%d %H:%M}  {p.stem}{profile}")
+    codes = sorted(PROJECT_BUILDS.glob("*.txt"))
+    if codes:
+        print("PoB codes in builds/: " + ", ".join(p.stem for p in codes))
+    print('Use the name in any command, e.g. python -m poe2lab report "<name>"')
+
+
+EXTRA = ("dossier", "builds")
+
+
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in (*COMMANDS, "dossier"):
-        print("usage: python -m poe2lab {" + ",".join((*COMMANDS, "dossier")) + "} [args]  (-h after a command for help)")
+    if len(sys.argv) < 2 or sys.argv[1] not in (*COMMANDS, *EXTRA):
+        print("usage: python -m poe2lab {" + ",".join((*COMMANDS, *EXTRA)) + "} [args]  (-h after a command for help)")
         sys.exit(2)
     command, rest = sys.argv[1], sys.argv[2:]
     if command == "dossier":
         dossier(rest)
+        return
+    if command == "builds":
+        builds()
         return
     script = SCRIPTS / COMMANDS[command]
     sys.argv = [str(script), *rest]

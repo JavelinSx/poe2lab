@@ -109,8 +109,10 @@ def main():
         t = time.perf_counter()
         sockets = plan_sockets(engine, profile.config(), args.mode, weights)
         print(f"\nСОКЕТЫ: лучшая руна / соул-кор для каждого сокета ({time.perf_counter() - t:.1f} с).")
-        print("  Для испорченных предметов — только вставки, которые туда разрешены. Цифра у варианта — выгода замены")
-        print("  относительно текущей вставки; каждый сокет оценён отдельно (два хаос-кора подряд не сложатся так же).")
+        print("  Испорченные предметы пропущены — их менять нельзя. Цифра у варианта — выгода замены относительно")
+        print("  текущей вставки; каждый сокет оценён отдельно (два хаос-кора подряд не сложатся так же).")
+        if not sockets:
+            print("  сокетов на предметах, которые можно менять, нет")
         for s in sockets:
             print(f"  {s.slot}, сокет {s.index}: сейчас {s.current} (даёт {s.current_score:+.1f})")
             for o in s.best:
@@ -118,8 +120,6 @@ def main():
                 if price:
                     per = prices.per_divine(o.score, price)
                     note = f"  цена {prices.describe(price)}" + (f", {per:.0f} очков/div" if per else "")
-                elif o.name.startswith("Legacy of"):
-                    note = "  [руна из уникального предмета, цены нет]"
                 else:
                     note = "  цены нет" if prices else ""
                 print(f"      → {o.name}: {' / '.join(o.lines)}  {o.score:+.1f}  ({effect(o.changes)}){note}")

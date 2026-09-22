@@ -11,7 +11,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from poe2lab.engine import PobEngine, decode_pob_code
+from poe2lab.engine import decode_pob_code
+from poe2lab.pobfiles import resolve_build
+from poe2lab.profile import open_build
 
 KEY_STATS = [
     "Life", "EnergyShield", "Mana", "Spirit", "Armour", "Evasion", "DeflectChance",
@@ -38,15 +40,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("build", type=Path)
     ap.add_argument("--group", type=int)
-    ap.add_argument("--skill", type=int, default=1)
+    ap.add_argument("--skill", type=int)
     args = ap.parse_args()
 
-    code = args.build.resolve().read_text()
-    attrs, stored = stored_stats(decode_pob_code(code))
-    engine = PobEngine()
-    engine.load_code(code)
-    if args.group:
-        engine.set_main_skill(args.group, args.skill)
+    path = resolve_build(args.build)
+    text = path.read_text(encoding="utf-8")
+    attrs, stored = stored_stats(text if path.suffix.lower() == ".xml" else decode_pob_code(text))
+    engine, _ = open_build(path, args.group, args.skill, corrections=False)
+    print(f"build: {path}")
 
     print(engine.info(), "| main skill:", engine.main_skill())
     print("export attrs:", {k: attrs.get(k) for k in ("targetVersion", "className", "ascendClassName", "level", "mainSocketGroup")})

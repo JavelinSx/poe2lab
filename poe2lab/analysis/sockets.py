@@ -1,4 +1,4 @@
-"""Best rune / soul core for every socket, including sockets on corrupted items where the augment allows it."""
+"""Best rune / soul core for every socket of items that can still be modified."""
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -6,6 +6,8 @@ from .gradients import metric_changes
 
 # Crafting augments that transform or destroy the item rather than add stats
 NOT_STAT_AUGMENT = ("destroys", "ransform", "additional Crafted", "When socketed")
+# Aldur's Legacy runes ("Legacy of ...") only work for Druids (per the player; PoB's data does not say so)
+CLASS_ONLY = {"Legacy of": "Druid"}
 
 
 @dataclass
@@ -30,8 +32,8 @@ def _score(changes, mode, weights):
     return score(SimpleNamespace(one=changes), mode, weights)
 
 
-def _allowed(opt: dict, info: dict, others: list[str], char_level: int) -> bool:
-    if info["corrupted"] and not opt["corrupted"]:
+def _allowed(opt: dict, info: dict, others: list[str], char_level: int, char_class: str) -> bool:
+    if any(opt["name"].startswith(prefix) and char_class != cls for prefix, cls in CLASS_ONLY.items()):
         return False
     if info["rarity"] == "UNIQUE" and not opt["unique"]:
         return False
@@ -43,11 +45,12 @@ def _allowed(opt: dict, info: dict, others: list[str], char_level: int) -> bool:
 
 
 def plan_sockets(engine, config: dict, mode: str, weights: dict, top: int = 3) -> list[SocketSlot]:
-    char_level = engine.info()["level"]
+    info_ = engine.info()
+    char_level, char_class = info_["level"], info_["class"]
     base = engine.what_if(config=config)
     out = []
     for item in engine.equipped_item_details():
-        if "Swap" in item["slot"]:
+        if "Swap" in item["slot"] or item["corrupted"]:  # corrupted items cannot be modified at all
             continue
         info = engine.socket_info(item["slot"])
         for i in range(info["sockets"]):
@@ -59,7 +62,7 @@ def plan_sockets(engine, config: dict, mode: str, weights: dict, top: int = 3) -
             others = runes[:i] + runes[i + 1:]
             options = []
             for opt in info["options"]:
-                if opt["name"] == runes[i] or not _allowed(opt, info, others, char_level):
+                if opt["name"] == runes[i] or not _allowed(opt, info, others, char_level, char_class):
                     continue
                 names = runes[:i] + [opt["name"]] + runes[i + 1:]
                 changes = metric_changes(engine.what_if(config=config, replace_runes=(item["slot"], names)), base)

@@ -46,10 +46,10 @@ def test_rune_replacement_round_trips(titan):
     assert empty["CombinedDPS"] < base["CombinedDPS"]
 
 
-def test_socket_plan_respects_corruption(titan):
+def test_socket_plan_skips_corrupted_and_druid_only_runes(titan):
     profile = MapProfile()
     plans = plan_sockets(titan, profile.config(), "balanced", defence_weights(survivable_hits(titan, profile)))
-    boots = next(p for p in plans if p.slot == "Boots")
-    allowed = {o["name"] for o in titan.socket_info("Boots")["options"] if o["corrupted"]}
-    assert boots.best and all(o.name in allowed for o in boots.best)  # boots are corrupted
-    assert any("Chaos Resistance" in " ".join(o.lines) for o in boots.best)
+    corrupted = {i["slot"] for i in titan.equipped_item_details() if i["corrupted"]}
+    assert {p.slot for p in plans} == {"Gloves"}  # the only socketed item that is not corrupted
+    assert not corrupted & {p.slot for p in plans}
+    assert all(not o.name.startswith("Legacy of") for p in plans for o in p.best)  # Titan is not a Druid
