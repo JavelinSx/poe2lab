@@ -8,6 +8,7 @@ function h(tag, attrs, ...children) {
     if (k === "class") el.className = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (k === "style") el.setAttribute("style", v);
+    else if (k === "value") el.value = v;
     else el.setAttribute(k, v === true ? "" : v);
   }
   for (const c of children.flat(Infinity)) {
@@ -17,14 +18,15 @@ function h(tag, attrs, ...children) {
   return el;
 }
 const $ = (sel) => document.querySelector(sel);
+const locale = () => (LANG === "ru" ? "ru-RU" : "en-US");
 const fmt = (n, d = 0) => (n === null || n === undefined || Number.isNaN(n)) ? "—"
-  : Number(n).toLocaleString("ru-RU", { maximumFractionDigits: d, minimumFractionDigits: d });
+  : Number(n).toLocaleString(locale(), { maximumFractionDigits: d, minimumFractionDigits: d });
 const pct = (v) => (v > 0 ? "+" : "") + fmt(v, 1) + "%";
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Poe2lab": "1" },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
@@ -36,33 +38,23 @@ async function api(path, opts = {}) {
 }
 
 function toast(msg, ok = false) {
-  const t = $("#toast");
-  t.textContent = msg;
-  t.className = "toast" + (ok ? " ok" : "");
+  const el = $("#toast");
+  el.textContent = msg;
+  el.className = "toast" + (ok ? " ok" : "");
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.add("hidden"), 6000);
+  toast.timer = setTimeout(() => el.classList.add("hidden"), 6000);
 }
 
-function loading(text) {
-  return h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
-}
+const loading = (text) => h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
 
-const DMG = {
-  Physical: { ru: "Физ", color: "var(--phys)" },
-  Fire: { ru: "Огонь", color: "var(--fire)" },
-  Cold: { ru: "Холод", color: "var(--cold)" },
-  Lightning: { ru: "Молния", color: "var(--lightning)" },
-  Chaos: { ru: "Хаос", color: "var(--chaos)" },
-};
-const METRIC = [
-  ["dps", "DPS"], ["phys_hit", "физ-удар"], ["fire_hit", "огонь"], ["cold_hit", "холод"],
-  ["lightning_hit", "молния"], ["chaos_hit", "хаос-удар"], ["recovery", "лечение"],
-];
+const DMG_COLOR = { Physical: "var(--phys)", Fire: "var(--fire)", Cold: "var(--cold)", Lightning: "var(--lightning)", Chaos: "var(--chaos)" };
+const METRIC = [["dps", "m_dps"], ["phys_hit", "m_phys"], ["fire_hit", "m_fire"], ["cold_hit", "m_cold"],
+  ["lightning_hit", "m_lightning"], ["chaos_hit", "m_chaos"], ["recovery", "m_recovery"]];
 
 function deltas(changes, keys = METRIC, min = 0.3) {
   const items = keys.filter(([k]) => Math.abs(changes[k] || 0) >= min)
-    .map(([k, label]) => h("span", { class: "delta " + (changes[k] > 0 ? "pos" : "neg") }, `${label} ${pct(changes[k])}`));
-  return h("div", { class: "deltas" }, items.length ? items : h("span", { class: "muted small" }, "почти без эффекта"));
+    .map(([k, label]) => h("span", { class: "delta " + (changes[k] > 0 ? "pos" : "neg") }, `${t(label)} ${pct(changes[k])}`));
+  return h("div", { class: "deltas" }, items.length ? items : h("span", { class: "muted small" }, t("noEffect")));
 }
 
 function scoreBar(score, max) {
@@ -70,14 +62,36 @@ function scoreBar(score, max) {
   return h("div", { class: "score" }, h("div", { class: "bar" }, h("span", { style: `width:${w}%` })), fmt(score, 1));
 }
 
+const chip = (cls, text) => h("span", { class: "chip " + cls }, text);
+
 // ---------- state ----------
 const state = { build: null, mode: "balanced", tab: "overview", cache: {}, chat: [] };
-
-function resetCache() { state.cache = {}; }
-
+const resetCache = () => { state.cache = {}; };
 async function cached(key, fn) {
   if (!(key in state.cache)) state.cache[key] = await fn();
   return state.cache[key];
+}
+
+// ---------- language ----------
+function applyStaticTexts() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === LANG));
+}
+
+$("#lang").addEventListener("click", (e) => {
+  const l = e.target.dataset.lang;
+  if (!l || l === LANG) return;
+  LANG = l;
+  try { localStorage.setItem("poe2lab.lang", l); } catch (_) { /* storage blocked */ }
+  applyStaticTexts();
+  loadStatus();
+  loadBuildList();
+  if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
+});
+
+function renderEmpty() {
+  $("#view").replaceChildren(h("div", { class: "empty" }, h("h2", {}, t("pickBuild")), h("p", { class: "muted" }, t("pickBuildHint"))));
 }
 
 // ---------- sidebar ----------
@@ -86,27 +100,27 @@ async function loadBuildList() {
   try {
     const builds = await api("/api/builds");
     box.replaceChildren();
-    if (!builds.length) box.append(h("div", { class: "muted small" }, "билдов нет"));
+    if (!builds.length) box.append(h("div", { class: "muted small" }, t("noBuilds")));
     for (const b of builds) {
       box.append(h("button", {
         class: "build-item" + (state.build && state.build.name === b.name ? " active" : ""),
         onclick: () => openBuild(b.name),
       },
       h("div", { class: "bi-name" }, b.name),
-      h("div", { class: "bi-kind" }, (b.kind === "pob" ? "сохранён в PoB" : "PoB-код") + (b.hasProfile ? " · профиль" : ""))));
+      h("div", { class: "bi-kind" }, (b.kind === "pob" ? t("savedInPob") : t("pobCode")) + (b.hasProfile ? " · " + t("withProfile") : ""))));
     }
   } catch (e) { box.replaceChildren(h("div", { class: "muted small" }, e.message)); }
 }
 
 async function loadStatus() {
   const s = await api("/api/status");
-  $("#llm-status").textContent = s.llm.configured ? `ИИ: ${s.llm.model}` : "ИИ не настроен";
+  $("#llm-status").textContent = s.llm.configured ? t("aiOn", s.llm.model) : t("aiOff");
   return s;
 }
 
 // ---------- build ----------
 async function openBuild(name, group, skill) {
-  $("#view").replaceChildren(loading("Открываю билд в Path of Building…"));
+  $("#view").replaceChildren(loading(t("opening")));
   try {
     state.build = await api("/api/load", { method: "POST", body: { name, group, skill } });
     state.chat = [];
@@ -115,7 +129,7 @@ async function openBuild(name, group, skill) {
     loadBuildList();
     switchTab(state.tab);
   } catch (e) {
-    $("#view").replaceChildren(h("div", { class: "empty" }, h("h2", {}, "Не удалось открыть билд"), h("p", { class: "muted" }, e.message)));
+    $("#view").replaceChildren(h("div", { class: "empty" }, h("h2", {}, t("openFailed")), h("p", { class: "muted" }, e.message)));
   }
 }
 
@@ -124,7 +138,7 @@ function renderHeader() {
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
-  $("#bh-sub").textContent = `${b.info.class} / ${b.info.ascendancy} · ${b.info.level} уровень`;
+  $("#bh-sub").textContent = `${b.info.class} / ${b.info.ascendancy} · ${t("level", b.info.level)}`;
   const sel = $("#main-skill");
   sel.replaceChildren();
   for (const g of b.groups) {
@@ -165,7 +179,7 @@ async function switchTab(tab) {
     const content = await TABS[tab](view);
     if (switchTab.token === token && content) view.replaceChildren(content);
   } catch (e) {
-    if (switchTab.token === token) view.replaceChildren(h("div", { class: "card" }, h("h3", {}, "Ошибка"), h("p", { class: "muted" }, e.message)));
+    if (switchTab.token === token) view.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("error")), h("p", { class: "muted" }, e.message)));
   }
 }
 
@@ -173,7 +187,7 @@ const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=
 
 // ---------- overview ----------
 TABS.overview = async (view) => {
-  view.replaceChildren(loading("Считаю отчёт (~5 с)…"));
+  view.replaceChildren(loading(t("calcReport")));
   const r = await report();
   const b = r.baseline;
   const rng = r.damageRange;
@@ -181,45 +195,41 @@ TABS.overview = async (view) => {
   const maxHit = Math.max(...hits.map(([, v]) => v.normal));
 
   const kpi = h("div", { class: "grid kpi" },
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, "DPS"),
+    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("dps")),
       h("div", { class: "value" }, fmt(rng.low), rng.high > rng.low ? h("span", { class: "to" }, ` … ${fmt(rng.high)}`) : null),
-      h("div", { class: "note" }, rng.high > rng.low ? "без дебаффов на враге … со всеми" : r.build.mainSkill)),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, "Жизнь"), h("div", { class: "value" }, fmt(b.life))),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, "Попадание"), h("div", { class: "value" }, fmt(b.hitChance) + "%")),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, "Лечение"), h("div", { class: "value" }, fmt(b.recoveryPerSecond), h("span", { class: "to" }, " /с")),
-      h("div", { class: "note" }, "пока атакуешь")));
+      h("div", { class: "note" }, rng.high > rng.low ? t("dpsRangeNote") : r.build.mainSkill)),
+    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("life")), h("div", { class: "value" }, fmt(b.life))),
+    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("hitChance")), h("div", { class: "value" }, fmt(b.hitChance) + "%")),
+    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("recovery")),
+      h("div", { class: "value" }, fmt(b.recoveryPerSecond), h("span", { class: "to" }, t("perSec"))),
+      h("div", { class: "note" }, t("whileAttacking"))));
 
   const hitCard = h("div", { class: "card" },
-    h("h3", {}, "Какой удар монстра ты переживёшь"),
-    h("div", { class: "sub" }, `С полной жизни. Моб ${r.profile.enemy_level} ур.; «сочная» карта: +${r.profile.damage_pct}% урона и +${r.profile.crit_bonus}% к криту монстров.`),
+    h("h3", {}, t("hitsTitle")), h("div", { class: "sub" }, t("hitsSub", r.profile)),
     h("div", { class: "hits" }, hits.map(([type, v]) => {
-      const c = DMG[type].color;
+      const c = DMG_COLOR[type];
       const seg = (cls, val) => h("div", { class: "seg " + cls, style: `width:${(val / maxHit) * 100}%;background:${c}` });
       return h("div", { class: "hit-row" },
-        h("div", { class: "hit-name", style: `color:${c}` }, DMG[type].ru),
+        h("div", { class: "hit-name", style: `color:${c}` }, t("dmg_" + type)),
         h("div", { class: "hit-bar" }, seg("normal", v.normal), seg("crit", v.crit), seg("juiced", v.juiced)),
         h("div", { class: "hit-vals" }, `${fmt(v.normal)} · ${fmt(v.crit)} · ${fmt(v.juiced)}`));
     })),
-    h("div", { class: "legend" }, h("span", {}, h("i", { style: "opacity:.35" }), "обычный"),
-      h("span", {}, h("i", { style: "opacity:.6" }), "крит"), h("span", {}, h("i", {}), "крит на сочной карте")));
+    h("div", { class: "legend" }, h("span", {}, h("i", { style: "opacity:.35" }), t("hitNormal")),
+      h("span", {}, h("i", { style: "opacity:.6" }), t("hitCrit")), h("span", {}, h("i", {}), t("hitJuiced"))));
 
   const order = { must: 0, priority: 1, warn: 2 };
-  const label = { must: "сломано", priority: "главное", warn: "учесть" };
-  const issues = h("div", { class: "card" }, h("h3", {}, "Что сломано и где дыры"),
-    h("div", { class: "sub" }, "«Сломано» — в игре не работает, хотя PoB считает."),
+  const issues = h("div", { class: "card" }, h("h3", {}, t("issuesTitle")), h("div", { class: "sub" }, t("issuesSub")),
     h("div", { class: "issues" }, [...r.gates].sort((a, c) => order[a.level] - order[c.level]).map((g) =>
-      h("div", { class: "issue" }, h("div", {}, h("span", { class: "chip " + g.level }, label[g.level])),
+      h("div", { class: "issue" }, h("div", {}, chip(g.level, t("lvl_" + g.level))),
         h("div", {}, h("div", { class: "t" }, g.title), h("div", { class: "d" }, g.detail))))));
 
-  const supports = r.attributes.supportsAtRisk || {};
-  for (const [, list] of Object.entries(supports)) {
-    issues.append(h("div", { class: "sub", style: "margin-top:12px" }, "Один из этих саппортов в игре выключен — цена, если это он:"),
+  for (const list of Object.values(r.attributes.supportsAtRisk || {})) {
+    issues.append(h("div", { class: "sub", style: "margin-top:12px" }, t("supportsAtRisk")),
       h("table", {}, h("tbody", {}, list.map((s) => h("tr", {}, h("td", {}, s.name), h("td", { class: "muted" }, s.skill),
         h("td", { class: "num" }, pct(s.skill_dps_pct)))))));
   }
 
-  const path = h("div", { class: "card" }, h("h3", {}, "Путь апгрейда"),
-    h("div", { class: "sub" }, "Каждый шаг пересчитан с учётом предыдущих. Один мод ≈ один средний аффикс."),
+  const path = h("div", { class: "card" }, h("h3", {}, t("pathTitle")), h("div", { class: "sub" }, t("pathSub")),
     h("div", { class: "steps" }, r.path.map((s) => h("div", { class: "step" }, h("div", {},
       h("div", { class: "what mod" }, s.mod),
       deltas({ dps: s.dps, phys_hit: s.defence.Physical, chaos_hit: s.defence.Chaos, recovery: s.recovery }))))));
@@ -229,35 +239,36 @@ TABS.overview = async (view) => {
 
 // ---------- damage ----------
 TABS.damage = async (view) => {
-  view.replaceChildren(loading("Считаю отчёт (~5 с)…"));
+  view.replaceChildren(loading(t("calcReport")));
   const r = await report();
   const blocks = [];
-
   const core = r.core;
   if (core.resources.length || core.exchange.length) {
-    const res = core.resources.map((x) => h("p", {}, `Свирепость: считаю ${fmt(x.assumed)} из ${fmt(x.maximum)}. Без неё DPS ${fmt(x.dps_without)}, с ней ${fmt(x.dps_with)} (×${fmt(x.dps_with / x.dps_without, 2)}).`,
-      x.set_in_build ? null : h("span", { class: "muted" }, " В самом PoB поле Rage пустое — его левая панель показывает DPS без свирепости.")));
-    blocks.push(h("div", { class: "card" }, h("h3", {}, "Ядро урона"), res,
-      core.unit ? h("div", { class: "sub" }, `Курс: 1 ед. «${core.unit.name}» = ${pct(core.unit.dps_pct_per_point)} DPS`) : null,
-      h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "мод"), h("th", { class: "num" }, "DPS"), h("th", { class: "num" }, "в единицах"))),
+    const res = core.resources.map((x) => h("p", {},
+      t("rageLine", { assumed: fmt(x.assumed), maximum: fmt(x.maximum), without: fmt(x.dps_without), with: fmt(x.dps_with), mult: fmt(x.dps_with / x.dps_without, 2) }),
+      x.set_in_build ? null : h("span", { class: "muted" }, t("rageEmpty"))));
+    blocks.push(h("div", { class: "card" }, h("h3", {}, t("coreTitle")), res,
+      core.unit ? h("div", { class: "sub" }, t("rate", core.unit.name, pct(core.unit.dps_pct_per_point))) : null,
+      h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", { class: "num" }, "DPS"), h("th", { class: "num" }, t("colUnits")))),
         h("tbody", {}, core.exchange.slice(0, 12).map((x) => h("tr", {}, h("td", { class: "mod" }, x.mod), h("td", { class: "num" }, pct(x.dps)), h("td", { class: "num" }, fmt(x.points, 1))))))));
   }
 
   const rng = r.damageRange;
   const off = r.conditions.filter((c) => !c.checked);
   const on = r.conditions.filter((c) => c.checked);
-  const condRow = (c) => h("tr", {}, h("td", {}, c.label), h("td", {}, deltas({ dps: c.dps_pct, phys_hit: c.phys_hit_pct, chaos_hit: c.chaos_hit_pct, recovery: c.recovery_pct }, METRIC, 0.5)));
-  blocks.push(h("div", { class: "card" }, h("h3", {}, "Условия боя"),
-    rng.conditions.length ? h("p", {}, "Вилка урона: ", h("b", {}, fmt(rng.low)), " без дебаффов на враге … ", h("b", {}, fmt(rng.high)), ` (×${fmt(rng.high / rng.low, 2)}) со всеми сразу.`) : null,
-    off.length ? h("div", { class: "sub" }, "Выключены в PoB — если в игре это обычно правда, урон выше:") : null,
+  const condRow = (c) => h("tr", {}, h("td", { title: c.label }, conditionLabel(c.label)),
+    h("td", {}, deltas({ dps: c.dps_pct, phys_hit: c.phys_hit_pct, chaos_hit: c.chaos_hit_pct, recovery: c.recovery_pct }, METRIC, 0.5)));
+  const [a, lo, b2, hi, c2] = t("range", fmt(rng.low), fmt(rng.high), fmt(rng.high / rng.low, 2));
+  blocks.push(h("div", { class: "card" }, h("h3", {}, t("condTitle")),
+    rng.conditions.length ? h("p", {}, a, h("b", {}, lo), b2, h("b", {}, hi), c2) : null,
+    off.length ? h("div", { class: "sub" }, t("condOff")) : null,
     off.length ? h("table", {}, h("tbody", {}, off.map(condRow))) : null,
-    on.length ? h("div", { class: "sub", style: "margin-top:12px" }, "Включены — PoB считает выполненными:") : null,
+    on.length ? h("div", { class: "sub", style: "margin-top:12px" }, t("condOn")) : null,
     on.length ? h("table", {}, h("tbody", {}, on.map(condRow))) : null));
 
   const max = Math.max(...r.ranking.map((x) => x.score), 1);
-  blocks.push(h("div", { class: "card" }, h("h3", {}, "Куда вкладываться"),
-    h("div", { class: "sub" }, "Ценность одного типичного аффикса для выбранной цели."),
-    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "мод"), h("th", {}, "эффект"), h("th", { class: "num" }, "очки"))),
+  blocks.push(h("div", { class: "card" }, h("h3", {}, t("investTitle")), h("div", { class: "sub" }, t("investSub")),
+    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", {}, t("colEffect")), h("th", { class: "num" }, t("colScore")))),
       h("tbody", {}, r.ranking.map((x) => h("tr", {}, h("td", { class: "mod" }, x.mod),
         h("td", {}, deltas({ dps: x.dps, phys_hit: x.physHit, chaos_hit: x.chaosHit, recovery: x.recovery })),
         h("td", { class: "num" }, scoreBar(x.score, max))))))));
@@ -267,92 +278,90 @@ TABS.damage = async (view) => {
 
 // ---------- gear ----------
 TABS.gear = async (view) => {
-  view.replaceChildren(loading("Разбираю аффиксы, путь крафта и сокеты (~20 с, дальше из кэша)…"));
+  view.replaceChildren(loading(t("calcGear")));
   const g = await cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}`));
 
-  const path = h("div", { class: "card" }, h("h3", {}, "Путь крафта по всем слотам"),
-    h("div", { class: "sub" }, "Только предметы без порчи. Целевой набор аффиксов, не процедура крафта."),
+  const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
     g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", {},
-      h("div", { class: "what" }, h("span", { class: "chip tag" }, s.slot), " ",
-        s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, s.removed.join(" / ")), " → ") : "докрафтить ",
+      h("div", { class: "what" }, chip("tag", slotName(s.slot)), " ",
+        s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, s.removed.join(" / ")), " → ") : t("craftAdd"),
         h("span", { class: "mod" }, s.added.join(" / "))),
       deltas(s.changes),
-      s.sources.length ? h("div", { class: "src" }, "откуда: " + s.sources.join(" · ")) : null)))) : h("p", { class: "muted" }, "Улучшать крафтом нечего."));
+      s.sources.length ? h("div", { class: "src" }, t("from") + s.sources.join(" · ")) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
 
-  const socketCard = h("div", { class: "card" }, h("h3", {}, "Руны и соул-коры"),
-    h("div", { class: "sub" }, "Предметы с порчей пропущены." + (g.prices ? ` Цены: poe.ninja, ${g.prices.league}.` : "")),
+  const socketCard = h("div", { class: "card" }, h("h3", {}, t("socketsTitle")),
+    h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", g.prices.league) : "")),
     g.sockets.length ? g.sockets.map((s) => h("div", { style: "margin-bottom:12px" },
-      h("div", {}, h("span", { class: "chip tag" }, s.slot), ` сокет ${s.index}: сейчас `, h("b", {}, s.current), h("span", { class: "muted" }, ` (даёт ${fmt(s.current_score, 1)})`)),
+      h("div", {}, chip("tag", slotName(s.slot)), t("socketNow", s.index), h("b", {}, s.current), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
       s.best.length ? h("table", {}, h("tbody", {}, s.best.map((o) => h("tr", {},
         h("td", {}, h("div", {}, o.name), h("div", { class: "mod muted" }, o.lines.join(" / "))),
         h("td", {}, deltas(o.changes)), h("td", { class: "num" }, o.price || "")))))
-        : h("div", { class: "muted small" }, "лучше текущей вставки ничего нет")))
-      : h("p", { class: "muted" }, "Сокетов на предметах, которые можно менять, нет."));
+        : h("div", { class: "muted small" }, t("nothingBetter"))))
+      : h("p", { class: "muted" }, t("noSockets")));
 
   const cards = g.slots.map((p) => {
     const max = Math.max(...p.affixes.map((a) => a.score), 1);
     return h("div", { class: "card" },
-      h("div", { class: "slot-head" }, h("div", {}, h("div", { class: "slot" }, p.slot), h("h3", {}, p.item)),
-        h("span", { class: "chip " + (p.corrupted ? "must" : "tag") }, p.corrupted ? "с порчей" : "можно крафтить")),
-      h("div", { class: "sub" }, `${p.base}, ур. ${p.item_level} · префиксы ${p.prefixes}/${p.limit}, суффиксы ${p.suffixes}/${p.limit}` + (p.uncertain ? " (приблизительно)" : "")),
+      h("div", { class: "slot-head" }, h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", {}, p.item)),
+        chip(p.corrupted ? "must" : "tag", p.corrupted ? t("corrupted") : t("craftable"))),
+      h("div", { class: "sub" }, t("affixCount", p) + (p.uncertain ? t("approx") : "")),
       p.affixes.map((a) => h("div", { class: "affix" },
-        h("div", { class: "kind" }, a.type === "Prefix" ? "преф" : "суфф"),
+        h("div", { class: "kind" }, a.type === "Prefix" ? t("prefix") : t("suffix")),
         h("div", {}, h("span", { class: "mod" }, a.lines.join(" / ")), h("span", { class: "tier" }, `T${a.tier}/${a.tiers}`),
-          a.holds.length ? h("div", {}, h("span", { class: "chip hold" }, "держит: " + a.holds.join(", "))) : null,
-          a.utility ? h("div", {}, h("span", { class: "chip util" }, "утилити — PoB не оценивает")) : null),
+          a.holds.length ? h("div", {}, chip("hold", t("holds") + a.holds.join(", "))) : null,
+          a.utility ? h("div", {}, chip("util", t("utility"))) : null),
         scoreBar(a.score, max))),
       p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, x))) : null);
   });
 
   return h("div", { class: "stack" }, h("div", { class: "grid two" }, path, socketCard),
-    h("div", { class: "section-title" }, "Слоты"), h("div", { class: "grid cards" }, cards));
+    h("div", { class: "section-title" }, t("slots")), h("div", { class: "grid cards" }, cards));
 };
 
 // ---------- compare ----------
 TABS.compare = async () => {
   const slots = state.build.items.filter((i) => !["Flask", "Charm", "Jewel"].includes(i.type)).map((i) => i.slot);
-  const slotSel = h("select", {}, slots.map((s) => h("option", { value: s }, s)));
-  const text = h("textarea", { rows: 16, placeholder: "Вставьте предмет из игры (Ctrl+C на предмете) или отредактируйте текущий…" });
-  const be = h("input", { type: "text", placeholder: "строка мода кандидата, например: Adds 26 to 42 Physical Damage", style: "width:100%" });
+  const slotSel = h("select", {}, slots.map((s) => h("option", { value: s }, slotName(s))));
+  const text = h("textarea", { rows: 16, placeholder: t("candidatePh") });
+  const be = h("input", { type: "text", placeholder: t("breakevenPh"), style: "width:100%" });
   const out = h("div", {});
   const run = h("button", { class: "primary", onclick: async () => {
     run.disabled = true;
-    out.replaceChildren(loading("Считаю…"));
+    out.replaceChildren(loading(t("counting")));
     try {
       const r = await api("/api/compare", { method: "POST", body: { slot: slotSel.value, text: text.value, breakeven: be.value.trim() || null } });
       const ch = { dps: r.dps_pct, phys_hit: r.hit_pct.Physical, fire_hit: r.hit_pct.Fire, cold_hit: r.hit_pct.Cold, lightning_hit: r.hit_pct.Lightning, chaos_hit: r.hit_pct.Chaos, recovery: r.recovery_pct };
-      const verdict = r.dps_pct > 0.5 ? "лучше по урону" : r.dps_pct < -0.5 ? "хуже по урону" : "по урону примерно так же";
-      out.replaceChildren(h("div", { class: "card" }, h("h3", {}, `Кандидат против надетого: ${verdict}`),
-        deltas(ch, METRIC, 0.05), r.life_pct ? h("p", {}, `Жизнь ${pct(r.life_pct)}`) : null,
-        Object.entries(r.unmet_requirements).map(([a, [have, need]]) => h("p", { class: "chip must" }, `не хватит ${a}: ${have} из ${need}`)),
-        r.breakeven !== undefined ? h("p", {}, r.breakeven ? `Не хуже надетого, пока строка не ниже «${r.breakeven.line}» (${fmt(r.breakeven.factor * 100)}% от указанной).` : "Хуже надетого даже с полной строкой.") : null));
+      const verdict = r.dps_pct > 0.5 ? t("better") : r.dps_pct < -0.5 ? t("worse") : t("same");
+      out.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("verdict", verdict)),
+        deltas(ch, METRIC, 0.05), r.life_pct ? h("p", {}, t("lifeDelta", pct(r.life_pct))) : null,
+        Object.entries(r.unmet_requirements).map(([a, [have, need]]) => h("p", {}, chip("must", t("reqShort", a, have, need)))),
+        r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", r.breakeven.line, fmt(r.breakeven.factor * 100)) : t("beBad")) : null));
     } catch (e) { out.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
     run.disabled = false;
-  } }, "Сравнить");
-  const current = h("button", { class: "ghost", onclick: async () => { text.value = (await api(`/api/item/${encodeURIComponent(slotSel.value)}`)).text; } }, "Вставить надетый для правки");
+  } }, t("compare"));
+  const current = h("button", { class: "ghost", onclick: async () => { text.value = (await api(`/api/item/${encodeURIComponent(slotSel.value)}`)).text; } }, t("insertCurrent"));
   return h("div", { class: "grid two" },
-    h("div", { class: "card stack" }, h("h3", {}, "Предмет-кандидат"),
-      h("label", { class: "field" }, h("span", {}, "Слот"), slotSel), text,
-      h("label", { class: "field" }, h("span", {}, "Точка безубыточности (необязательно)"), be),
+    h("div", { class: "card stack" }, h("h3", {}, t("candidate")),
+      h("label", { class: "field" }, h("span", {}, t("slot")), slotSel), text,
+      h("label", { class: "field" }, h("span", {}, t("breakeven")), be),
       h("div", { class: "row" }, run, current)),
     out);
 };
 
 // ---------- mechanics ----------
 TABS.mechanics = async (view) => {
-  view.replaceChildren(loading("Собираю механики из данных игры…"));
+  view.replaceChildren(loading(t("collecting")));
   const m = await cached("mechanics", () => api("/api/mechanics"));
+  const where = (w) => w.replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`)
+    .replace(/\(([^()]+)\)$/, (all, s) => (SLOT_RU[s] !== undefined ? `(${slotName(s)})` : all));
+  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, where(g.where)), h("div", {}, g.text),
+    g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
   const impact = m.gaps.filter((g) => g.likely_impact);
   const rest = m.gaps.filter((g) => !g.likely_impact);
-  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, g.where), h("div", {}, g.text),
-    g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
   return h("div", { class: "grid two" },
-    h("div", { class: "card" }, h("h3", {}, "Что PoB не считает"),
-      h("div", { class: "sub" }, "Статы и строки есть в данных игры, но в расчёт PoB не попадают. Важное — учесть поправкой в профиле."),
-      impact.map(gap),
-      rest.length ? h("details", {}, h("summary", {}, `Прочее (${rest.length})`), rest.map(gap)) : null),
-    h("div", { class: "card" }, h("h3", {}, "Скиллы и уникальные предметы"),
-      h("div", { class: "sub" }, "Описания из данных игры — то, что получает ИИ-ассистент."),
+    h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
+      impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
+    h("div", { class: "card" }, h("h3", {}, t("skillsTitle")), h("div", { class: "sub" }, t("skillsSub")),
       m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, `${s.group}. ${s.name}`),
         s.description ? h("p", { class: "muted small" }, s.description) : null, h("ul", {}, s.lines.map((l) => h("li", {}, l))))),
       m.uniques.map((u) => h("details", {}, h("summary", {}, u.name), h("ul", {}, u.lines.map((l) => h("li", {}, l)))))));
@@ -370,8 +379,8 @@ TABS.profile = async () => {
   const drawCorr = () => corrBox.replaceChildren(...raw.corrections.map((c, i) => h("div", { class: "corr" },
     h("input", { type: "text", value: c.mod, oninput: (e) => { c.mod = e.target.value; }, title: c.source || "" }),
     h("input", { type: "number", value: c.uptime ?? 1, step: 0.05, min: 0, max: 1, oninput: (e) => { c.uptime = Number(e.target.value); } }),
-    h("label", { class: "small" }, h("input", { type: "checkbox", checked: !!c.confirmed, onchange: (e) => { c.confirmed = e.target.checked; } }), " подтверждено"),
-    h("button", { class: "x", title: "убрать", onclick: () => { raw.corrections.splice(i, 1); drawCorr(); } }, "×"))));
+    h("label", { class: "small" }, h("input", { type: "checkbox", checked: !!c.confirmed, onchange: (e) => { c.confirmed = e.target.checked; } }), t("confirmed")),
+    h("button", { class: "x", title: t("remove"), onclick: () => { raw.corrections.splice(i, 1); drawCorr(); } }, "×"))));
   drawCorr();
   const notes = h("textarea", { rows: 6 }, raw.notes.join("\n"));
   const save = h("button", { class: "primary", onclick: async () => {
@@ -385,44 +394,101 @@ TABS.profile = async () => {
       resetCache();
       renderHeader();
       loadBuildList();
-      toast("Профиль сохранён, билд пересчитан", true);
+      toast(t("saved"), true);
       switchTab("profile");
     } catch (e) { toast(e.message); }
     save.disabled = false;
-  } }, "Сохранить и пересчитать");
+  } }, t("save"));
 
   return h("div", { class: "grid two" },
-    h("div", { class: "card stack" }, h("h3", {}, "Факты об игре"),
-      h("div", { class: "sub" }, "То, что игрок знает, а PoB — нет. Применяется ко всем расчётам."),
-      h("div", { class: "row" }, h("label", {}, rageMax, " свирепость всегда в максимуме"), h("span", { class: "muted" }, "иначе:"), rageVal),
-      h("label", {}, mana, " мана держится в игре (не проверять дефицит маны)"),
-      h("div", { class: "section-title", style: "margin-top:10px" }, "Поправки на механики, которых нет в PoB"),
-      h("div", { class: "corr small muted" }, h("span", {}, "строка мода (как в PoB)"), h("span", {}, "аптайм 0…1"), h("span", {}), h("span", {})),
+    h("div", { class: "card stack" }, h("h3", {}, t("factsTitle")), h("div", { class: "sub" }, t("factsSub")),
+      h("div", { class: "row" }, h("label", {}, rageMax, t("rageMax")), h("span", { class: "muted" }, t("otherwise")), rageVal),
+      h("label", {}, mana, t("manaOk")),
+      h("div", { class: "section-title", style: "margin-top:10px" }, t("correctionsTitle")),
+      h("div", { class: "corr small muted" }, h("span", {}, t("corrMod")), h("span", {}, t("corrUptime")), h("span", {}), h("span", {})),
       corrBox,
-      h("button", { class: "ghost small", onclick: () => { raw.corrections.push({ mod: "", source: "добавлено вручную", uptime: 1, confirmed: false }); drawCorr(); } }, "+ поправка"),
-      h("div", { class: "section-title" }, "Заметки"), notes, h("div", {}, save)),
-    h("div", { class: "card" }, h("h3", {}, "Как сейчас считается"),
+      h("button", { class: "ghost small", onclick: () => { raw.corrections.push({ mod: "", source: "manual", uptime: 1, confirmed: false }); drawCorr(); } }, t("addCorrection")),
+      h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
+    h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, l))));
 };
 
 // ---------- assistant ----------
+function aiSettingsCard(settings, onSaved) {
+  let current = settings.providers.find((p) => p.id === settings.provider) || settings.providers[0];
+  const provSel = h("select", {}, settings.providers.map((p) => h("option", { value: p.id }, p.name)));
+  provSel.value = current.id;
+  const modelInput = h("input", { type: "text", list: "ai-models", placeholder: t("modelPh"), style: "width:100%" });
+  const modelList = h("datalist", { id: "ai-models" });
+  const urlInput = h("input", { type: "text", placeholder: "https://…/v1", style: "width:100%" });
+  const keyInput = h("input", { type: "password", autocomplete: "off", style: "width:100%" });
+  const note = h("div", { class: "hint" });
+  const urlField = h("label", { class: "field full" }, h("span", {}, t("apiUrl")), urlInput);
+  const keyField = h("label", { class: "field full" }, h("span", {}, t("apiKey")), keyInput);
+  const modelsInfo = h("span", { class: "hint" });
+
+  const sync = () => {
+    current = settings.providers.find((p) => p.id === provSel.value);
+    const same = current.id === settings.provider;
+    modelInput.value = same && settings.model ? settings.model : current.defaultModel;
+    urlField.classList.toggle("hidden", current.id !== "custom");
+    urlInput.value = same && settings.baseUrl ? settings.baseUrl : "";
+    keyField.classList.toggle("hidden", !current.needsKey);
+    keyInput.value = "";
+    keyInput.placeholder = current.keyHint ? t("keySaved", current.keyHint) : t("keyPh");
+    note.textContent = current.note || "";
+    modelList.replaceChildren();
+    modelsInfo.textContent = "";
+  };
+  provSel.addEventListener("change", sync);
+  sync();
+
+  const body = () => ({ provider: provSel.value, model: modelInput.value.trim() || null, base_url: urlInput.value.trim() || null,
+    api_key: keyInput.value.trim() || null });
+  const save = h("button", { class: "primary", onclick: async () => {
+    try { onSaved(await api("/api/llm", { method: "PUT", body: body() })); toast(t("aiSaved"), true); } catch (e) { toast(e.message); }
+  } }, t("saveAi"));
+  const loadModels = h("button", { class: "ghost", onclick: async () => {
+    try {
+      await api("/api/llm", { method: "PUT", body: body() });
+      const r = await api("/api/llm/models");
+      modelList.replaceChildren(...r.models.map((m) => h("option", { value: m })));
+      modelsInfo.textContent = t("modelsLoaded", r.models.length);
+    } catch (e) { toast(e.message); }
+  } }, t("loadModels"));
+  const clear = h("button", { class: "ghost", onclick: async () => {
+    try { onSaved(await api("/api/llm", { method: "PUT", body: { ...body(), api_key: null, clear_key: true } })); } catch (e) { toast(e.message); }
+  } }, t("clearKey"));
+
+  return h("div", { class: "card stack" }, h("h3", {}, t("aiTitle")), h("div", { class: "sub" }, t("aiSub")),
+    h("div", { class: "ai-grid" },
+      h("label", { class: "field" }, h("span", {}, t("provider")), provSel),
+      h("label", { class: "field" }, h("span", {}, t("model")), modelInput, modelList),
+      h("div", { class: "full" }, note), urlField, keyField,
+      h("div", { class: "full hint" }, t("modelsHint"), " ", modelsInfo)),
+    h("div", { class: "row" }, save, loadModels, current.keyHint ? clear : null),
+    h("div", { class: "hint" }, t("keyStorage"), " ", t("dataLeaves")));
+}
+
 TABS.assistant = async () => {
-  const status = await loadStatus();
-  if (!status.llm.configured) {
-    return h("div", { class: "card", style: "max-width:760px" }, h("h3", {}, "ИИ-ассистент не настроен"),
-      h("p", {}, "Ассистент работает через API в формате OpenAI, по умолчанию DeepSeek. Ключ хранится только у вас в переменной окружения:"),
-      h("p", {}, h("code", {}, "setx DEEPSEEK_API_KEY \"ваш-ключ\""), " — затем перезапустите интерфейс."),
-      h("p", { class: "muted small" }, "Другой провайдер: POE2LAB_LLM_BASE_URL, POE2LAB_LLM_MODEL, POE2LAB_LLM_API_KEY. Все цифры ассистент берёт из движка PoB; механики — из вкладки «Механики» и профиля."));
-  }
+  const settings = await api("/api/llm");
+  const wrap = h("div", { class: "stack" });
+  const redraw = (s) => { wrap.replaceChildren(aiSettingsCard(s, redraw), chatCard(s.active.configured)); loadStatus(); };
+  redraw(settings);
+  return wrap;
+};
+
+function chatCard(configured) {
+  if (!configured) return h("div", { class: "card muted" }, t("configureFirst"));
   const log = h("div", { class: "chat-log" });
   const draw = () => {
     log.replaceChildren(...state.chat.map((m) => h("div", { class: "msg " + m.role }, m.text,
-      m.tools && m.tools.length ? h("div", { class: "tools" }, "посчитано: " + m.tools.map((t) => t.tool).join(", ")) : null)));
+      m.tools && m.tools.length ? h("div", { class: "tools" }, t("computed") + m.tools.map((x) => x.tool).join(", ")) : null)));
     log.scrollTop = log.scrollHeight;
   };
-  if (!state.chat.length) state.chat.push({ role: "bot", text: "Спросите о билде: что улучшить, стоит ли брать предмет, почему умираете. Механику билда я уже знаю из данных игры и вашего профиля." });
+  if (!state.chat.length) state.chat.push({ role: "bot", text: t("chatHello") });
   draw();
-  const input = h("textarea", { rows: 3, placeholder: "Например: что даст больше урона за дешёво?" });
+  const input = h("textarea", { rows: 3, placeholder: t("chatPh") });
   const send = h("button", { class: "primary", onclick: async () => {
     const q = input.value.trim();
     if (!q) return;
@@ -430,21 +496,24 @@ TABS.assistant = async () => {
     input.value = "";
     draw();
     send.disabled = true;
-    log.append(loading("Думаю и считаю…"));
+    log.append(loading(t("thinking")));
     try {
       const r = await api("/api/chat", { method: "POST", body: { message: q } });
       state.chat.push({ role: "bot", text: r.answer, tools: r.tools });
-      if (r.proposals.length) toast("Ассистент предложил поправку профиля — посмотрите вкладку «Профиль»", true);
-    } catch (e) { state.chat.push({ role: "bot", text: "Ошибка: " + e.message }); }
+      if (r.proposals.length) toast(t("proposal"), true);
+    } catch (e) { state.chat.push({ role: "bot", text: `${t("error")}: ${e.message}` }); }
     send.disabled = false;
     draw();
-  } }, "Спросить");
+  } }, t("ask"));
+  const reset = h("button", { class: "ghost", onclick: async () => { await api("/api/chat/reset", { method: "POST" }); state.chat = []; draw(); } }, t("resetChat"));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send.click(); });
-  return h("div", { class: "card chat" }, log, h("div", { class: "chat-input" }, input, send));
-};
+  return h("div", { class: "card chat" }, log, h("div", { class: "chat-input" }, input, h("div", { class: "stack" }, send, reset)));
+}
 
 // ---------- start ----------
 (async function start() {
+  applyStaticTexts();
+  renderEmpty();
   const s = await loadStatus();
   if (s.loaded) {
     try { state.build = await api("/api/build"); renderHeader(); switchTab("overview"); } catch (_) { /* reopen from the list */ }

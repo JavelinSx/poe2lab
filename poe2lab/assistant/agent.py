@@ -65,6 +65,8 @@ class Assistant:
         for _ in range(MAX_TOOL_ROUNDS):
             reply = self.client.complete(self.messages, SPECS)
             message = {"role": "assistant", "content": reply.get("content") or ""}
+            if reply.get("_raw") is not None:  # provider-native blocks (Claude thinking/tool_use) replayed as-is
+                message["_raw"] = reply["_raw"]
             calls = reply.get("tool_calls") or []
             if calls:
                 message["tool_calls"] = calls
@@ -79,4 +81,5 @@ class Assistant:
         return "Не удалось получить ответ за разумное число шагов — уточни вопрос."
 
     def transcript(self) -> str:
-        return json.dumps(self.messages, ensure_ascii=False, indent=2)
+        return json.dumps([{k: v for k, v in m.items() if not k.startswith("_")} for m in self.messages],
+                          ensure_ascii=False, indent=2)

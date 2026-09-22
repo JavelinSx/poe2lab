@@ -6,6 +6,7 @@ dependencies = ["psutil", "fastapi", "uvicorn"]
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]
+anthropic = ["anthropic"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

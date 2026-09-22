@@ -4,8 +4,8 @@ import threading
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -15,7 +15,8 @@ from ..analysis.slots import craft_path, plan_all
 from ..analysis.sockets import plan_sockets
 from ..analysis.sources import describe as describe_sources
 from ..analysis.threats import MapProfile, survivable_hits
-from ..assistant import Assistant, ChatClient, LLMConfig, LLMError, Toolbox, build_context
+from ..assistant import Assistant, LLMConfig, LLMError, Toolbox, build_context, list_models, make_client
+from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
@@ -74,6 +75,26 @@ class Session:
 session = Session()
 app = FastAPI(title="poe2lab")
 
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "testserver"}
+CSRF_HEADER = "x-poe2lab"
+
+
+@app.middleware("http")
+async def local_only(request: Request, call_next):
+    """The server holds API keys and drives the engine: answer only to this machine's page.
+    Host check blocks DNS rebinding; the custom header on state-changing calls forces a CORS preflight,
+    which other sites fail, so a web page elsewhere cannot change settings or send the key anywhere."""
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+    if host not in ALLOWED_HOSTS:
+        return JSONResponse({"detail": "forbidden host"}, status_code=403)
+    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD") \
+            and request.headers.get(CSRF_HEADER) != "1":
+        return JSONResponse({"detail": "missing X-Poe2lab header"}, status_code=403)
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"  # a local app: always pick up the current page and scripts
+    return response
+
 
 def _json(obj):
     """Round floats and make dataclasses/NaN JSON-safe."""
@@ -106,10 +127,65 @@ class ChatRequest(BaseModel):
 
 @app.get("/api/status")
 def status():
-    cfg = LLMConfig.from_env()
+    cfg = LLMConfig.current()
     return {"loaded": session.engine is not None, "build": session.path.stem if session.path else None,
             "llm": {"configured": cfg is not None, "model": cfg.model if cfg else None,
-                    "baseUrl": cfg.base_url if cfg else None}}
+                    "provider": cfg.provider if cfg else None}}
+
+
+class LLMSettings(BaseModel):
+    provider: str
+    model: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None  # None/"" keeps the stored key
+    clear_key: bool = False
+
+
+def _llm_view() -> dict:
+    s = load_settings()
+    keys = s.get("keys") or {}
+    return {
+        "provider": s.get("provider"), "model": s.get("model"), "baseUrl": s.get("base_url"),
+        "providers": [{"id": p.id, "name": p.name, "baseUrl": p.base_url, "defaultModel": p.default_model,
+                       "needsKey": p.needs_key, "note": p.note, "keyHint": key_hint(keys.get(p.id))}
+                      for p in PROVIDERS],
+        "active": status()["llm"],
+    }
+
+
+@app.get("/api/llm")
+def llm_settings():
+    return _llm_view()
+
+
+@app.put("/api/llm")
+def save_llm(req: LLMSettings):
+    if req.provider not in BY_ID:
+        raise HTTPException(400, "неизвестный провайдер")
+    if req.provider == "custom" and not (req.base_url or "").startswith(("http://", "https://")):
+        raise HTTPException(400, "для своего провайдера нужен адрес API (http:// или https://)")
+    s = load_settings()
+    keys = dict(s.get("keys") or {})
+    if req.clear_key:
+        keys.pop(req.provider, None)
+    elif req.api_key:
+        keys[req.provider] = req.api_key.strip()
+    s.update({"provider": req.provider, "model": (req.model or "").strip() or BY_ID[req.provider].default_model,
+              "base_url": (req.base_url or "").strip() or None, "keys": keys})
+    save_settings(s)
+    session.assistant = session.toolbox = None  # next question uses the new model
+    return _llm_view()
+
+
+@app.get("/api/llm/models")
+def llm_models():
+    cfg = LLMConfig.from_settings()
+    if cfg is None:
+        raise HTTPException(400, "сначала выберите провайдера и сохраните ключ")
+    try:
+        return {"models": list_models(cfg)}
+    except LLMError as err:
+        raise HTTPException(502, str(err))
 
 
 @app.get("/api/builds")
@@ -234,14 +310,14 @@ def save_profile(raw: dict):
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    cfg = LLMConfig.from_env()
+    cfg = LLMConfig.current()
     if cfg is None:
-        raise HTTPException(400, "ИИ не настроен: задайте переменную окружения DEEPSEEK_API_KEY и перезапустите")
+        raise HTTPException(400, "ИИ не настроен: выберите провайдера и введите ключ на вкладке «Ассистент»")
     with session.lock:
         session.require()
         if session.assistant is None:
             session.toolbox = Toolbox(session.engine, session.profile, session.db())
-            session.assistant = Assistant(ChatClient(cfg), session.toolbox, build_context(session.engine, session.bp))
+            session.assistant = Assistant(make_client(cfg), session.toolbox, build_context(session.engine, session.bp))
         start = len(session.assistant.tool_log)
         try:
             answer = session.assistant.ask(req.message)
@@ -261,4 +337,8 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    # version static URLs by modification time so browsers never run a stale script
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "i18n.js", "app.css"):
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={int((STATIC / name).stat().st_mtime)}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

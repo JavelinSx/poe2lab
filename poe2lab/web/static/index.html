@@ -9,15 +9,22 @@
 <body>
   <aside class="sidebar">
     <div class="brand">poe2<span>lab</span></div>
-    <div class="side-title">Билды</div>
-    <div id="builds" class="build-list"><div class="muted small">загрузка…</div></div>
+    <div class="side-title" data-i18n="builds"></div>
+    <div id="builds" class="build-list"></div>
     <div class="side-foot">
       <div id="llm-status" class="small muted"></div>
-      <button id="refresh-builds" class="ghost small">обновить список</button>
+      <button id="refresh-builds" class="ghost small" data-i18n="refresh"></button>
     </div>
   </aside>
 
   <main>
+    <div class="topbar">
+      <div class="segmented small-seg" id="lang">
+        <button data-lang="ru">RU</button>
+        <button data-lang="en">EN</button>
+      </div>
+    </div>
+
     <header id="build-header" class="build-header hidden">
       <div class="bh-main">
         <h1 id="bh-name"></h1>
@@ -25,40 +32,35 @@
       </div>
       <div class="bh-controls">
         <label class="field">
-          <span>Основной скилл</span>
+          <span data-i18n="mainSkill"></span>
           <select id="main-skill"></select>
         </label>
         <div class="field">
-          <span>Цель</span>
+          <span data-i18n="goal"></span>
           <div class="segmented" id="mode">
-            <button data-mode="damage">урон</button>
-            <button data-mode="balanced" class="active">баланс</button>
-            <button data-mode="defence">защита</button>
+            <button data-mode="damage" data-i18n="mode_damage"></button>
+            <button data-mode="balanced" class="active" data-i18n="mode_balanced"></button>
+            <button data-mode="defence" data-i18n="mode_defence"></button>
           </div>
         </div>
       </div>
     </header>
 
     <nav id="tabs" class="tabs hidden">
-      <button data-tab="overview" class="active">Обзор</button>
-      <button data-tab="damage">Урон</button>
-      <button data-tab="gear">Снаряжение</button>
-      <button data-tab="compare">Сравнить предмет</button>
-      <button data-tab="mechanics">Механики</button>
-      <button data-tab="profile">Профиль</button>
-      <button data-tab="assistant">Ассистент</button>
+      <button data-tab="overview" class="active" data-i18n="tab_overview"></button>
+      <button data-tab="damage" data-i18n="tab_damage"></button>
+      <button data-tab="gear" data-i18n="tab_gear"></button>
+      <button data-tab="compare" data-i18n="tab_compare"></button>
+      <button data-tab="mechanics" data-i18n="tab_mechanics"></button>
+      <button data-tab="profile" data-i18n="tab_profile"></button>
+      <button data-tab="assistant" data-i18n="tab_assistant"></button>
     </nav>
 
-    <section id="view" class="view">
-      <div class="empty">
-        <h2>Выберите билд слева</h2>
-        <p class="muted">Импортируйте персонажа в Path of Building (Import/Export Build → Authorize with Path of Exile →
-          импорт → <b>Save</b>) — он появится в списке. Или положите PoB-код в <code>builds/имя.txt</code>.</p>
-      </div>
-    </section>
+    <section id="view" class="view"></section>
   </main>
 
   <div id="toast" class="toast hidden"></div>
+  <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
