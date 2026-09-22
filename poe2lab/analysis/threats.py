@@ -14,9 +14,11 @@ class MapProfile:
     boss: str = "None"  # PoB enemyIsBoss: None / Boss / Pinnacle / Uber
     damage_pct: float = 50  # map/juice "monsters deal increased damage"
     crit_bonus: float = 50  # map/juice extra monster critical damage bonus
+    rage: int | None = None  # current Rage in combat; None = maximum (PoB caps it). No effect on builds without Rage
 
     def config(self, crit: bool = False, crit_bonus: float = 0) -> dict:
-        cfg = {"enemyLevel": self.enemy_level, "enemyIsBoss": self.boss}
+        cfg = {"enemyLevel": self.enemy_level, "enemyIsBoss": self.boss,
+               "multiplierRage": 9999 if self.rage is None else self.rage}
         if crit:
             cfg |= {"enemyCritChance": 100, "enemyCritDamage": BASE_MONSTER_CRIT_BONUS + crit_bonus}
         return cfg

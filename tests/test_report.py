@@ -58,6 +58,19 @@ def test_conditional_support_is_valued_with_its_condition(titan):
     assert titan.config().get("momentumDamage") is None
 
 
+def test_conditions_audit_flips_each_box_and_restores(titan):
+    from poe2lab.analysis.conditions import audit
+    cfg = MapProfile().config()
+    before = titan.what_if(config=cfg)
+    found = {c.label: c for c in audit(titan, cfg)}
+    heavy = found["Is the enemy Heavy Stunned?"]
+    assert not heavy.checked and heavy.dps_pct > 0
+    quest = found["Interlude 2: Khari Crossing"]
+    assert quest.checked and quest.life_pct < 0
+    after = titan.what_if(config=cfg)
+    assert after["CombinedDPS"] == pytest.approx(before["CombinedDPS"]) and after["Life"] == before["Life"]
+
+
 def test_item_dependency_detects_break():
     # Strip Strength so that the amulet alone holds the 126 Strength gem requirement.
     e = PobEngine()

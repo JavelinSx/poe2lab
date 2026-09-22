@@ -56,6 +56,35 @@ def print_report(r: dict):
             print(f"      {s['name']:22} на {s['skill']:16} DPS этого скилла {s['skill_dps_pct']:+6.1f}%, "
                   f"основного {s['main_dps_pct']:+6.1f}%{cond}")
 
+    core = r["core"]
+    print("\nЯДРО УРОНА")
+    for res in core["resources"]:
+        note = "" if res["set_in_build"] else " — в самом PoB поле Rage пустое, его левая панель показывает DPS без свирепости"
+        print(f"  Свирепость: считаю {res['assumed']:.0f} из {res['maximum']:.0f}. Без неё DPS {res['dps_without']:,.0f}, "
+              f"с ней {res['dps_with']:,.0f} (×{res['dps_with'] / res['dps_without']:.2f}){note}")
+    if core["unit"]:
+        u = core["unit"]
+        print(f"  Курс в единицах «{u['name']}» (1 ед. = {u['dps_pct_per_point']:+.2f}% DPS):")
+        for x in core["exchange"][:10]:
+            print(f"    {x['mod']:48} DPS {x['dps']:+5.1f}%  ≈ {x['points']:.1f} ед.")
+
+    def effect(c):
+        parts = [(c["dps_pct"], "DPS"), (c["phys_hit_pct"], "физ-удар"), (c["chaos_hit_pct"], "хаос-удар"),
+                 (c["ele_hit_pct"], "элем-удар"), (c["recovery_pct"], "лечение"), (c["life_pct"], "жизнь")]
+        return ", ".join(f"{name} {v:+.1f}%" for v, name in parts if abs(v) >= 0.5)
+
+    off = [c for c in r["conditions"] if not c["checked"]]
+    on = [c for c in r["conditions"] if c["checked"]]
+    print("\nУСЛОВИЯ ВО ВКЛАДКЕ CONFIGURATION (PoB считает их так, как отмечено)")
+    if off:
+        print("  Выключены — если в игре это обычно правда, PoB недооценивает билд:")
+        for c in off:
+            print(f"    [ ] {c['label']:42} {effect(c)}")
+    if on:
+        print("  Включены — PoB считает выполненными, проверь, что так и в игре (цена, если нет):")
+        for c in on:
+            print(f"    [x] {c['label']:42} {effect(c)}")
+
     print(f"\n2. КУДА ВКЛАДЫВАТЬСЯ (один мод ≈ один средний аффикс; цель — {MODE_NAMES[r['mode']]})")
     for x in r["ranking"]:
         print(f"  {x['mod']:52} DPS {x['dps']:+5.1f}%  физ-удар {x['physHit']:+5.1f}%  "
@@ -84,6 +113,7 @@ def main():
     ap.add_argument("--boss", default="None", choices=["None", "Boss", "Pinnacle", "Uber"])
     ap.add_argument("--map-damage", type=float, default=50)
     ap.add_argument("--map-crit", type=float, default=50)
+    ap.add_argument("--rage", type=int, help="current Rage in combat (default: maximum)")
     ap.add_argument("--json", type=Path, help="also write the report as JSON")
     args = ap.parse_args()
 
@@ -94,7 +124,7 @@ def main():
     if args.group:
         engine.set_main_skill(args.group, args.skill)
 
-    report = build_report(engine, MapProfile(args.level, args.boss, args.map_damage, args.map_crit),
+    report = build_report(engine, MapProfile(args.level, args.boss, args.map_damage, args.map_crit, args.rage),
                           mode=args.mode, steps=args.steps)
     print_report(report)
     if json_path:

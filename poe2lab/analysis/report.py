@@ -2,6 +2,7 @@
 from dataclasses import asdict, dataclass
 
 from . import attributes as attrs
+from .conditions import audit as audit_conditions
 from .gradients import Gradient, compute, recovery_per_second
 from .stats import mod_line
 from .threats import DAMAGE_TYPES, MapProfile, recovery, survivable_hits
@@ -163,6 +164,32 @@ def upgrade_path(engine, profile: MapProfile, mode: str, steps: int, weights: di
     return path
 
 
+def core_damage(engine, profile: MapProfile, grads: list[Gradient]) -> dict:
+    """What the damage stands on: resource stacks (Rage) and every stat's worth in units of that resource."""
+    cfg = profile.config()
+    with_res = engine.what_if(config=cfg)
+    out = {"resources": [], "unit": None, "exchange": []}
+    if with_res.get("MaximumRage", 0) > 0:
+        without = engine.what_if(config=cfg | {"multiplierRage": 0})
+        out["resources"].append({
+            "name": "Rage", "assumed": with_res["Rage"], "maximum": with_res["MaximumRage"],
+            "dps_without": without["CombinedDPS"], "dps_with": with_res["CombinedDPS"],
+            "set_in_build": "multiplierRage" in engine.config(),
+        })
+    rage = next((g for g in grads if g.stat.key == "max_rage"), None)
+    if rage and rage.one["dps"] > 0:
+        unit_name, per_point = "Maximum Rage", rage.one["dps"] / rage.stat.unit
+    else:
+        best = max(grads, key=lambda g: g.one["dps"])
+        unit_name, per_point = mod_line(best.stat), best.one["dps"]
+    out["unit"] = {"name": unit_name, "dps_pct_per_point": per_point}
+    if per_point > 0:
+        for g in sorted(grads, key=lambda g: -g.one["dps"]):
+            if g.one["dps"] >= 0.5:
+                out["exchange"].append({"mod": mod_line(g.stat), "dps": g.one["dps"], "points": g.one["dps"] / per_point})
+    return out
+
+
 def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int = 6, top: int = 10) -> dict:
     stats = engine.what_if(config=profile.config())
     hits = survivable_hits(engine, profile)
@@ -191,6 +218,8 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
             "recoveryPerSecond": rec.total,
         },
         "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps) + gates(stats, hits, rec)],
+        "conditions": [asdict(c) for c in audit_conditions(engine, profile.config())],
+        "core": core_damage(engine, profile, grads),
         "attributes": {
             "status": [asdict(s) | {"margin": s.margin} for s in statuses],
             "nodeSwaps": [asdict(s) for s in swaps],

@@ -39,6 +39,7 @@ STATS: list[Stat] = [
     _s("gain_fire", "% of Damage as extra Fire", "Gain {v}% of Damage as Extra Fire Damage", 8, "offence"),
     _s("melee_levels", "+ Level of all Melee Skills", "+{v} to Level of all Melee Skills", 1, "offence"),
     _s("aoe", "% increased Area of Effect", "{v}% increased Area of Effect", 15, "offence"),
+    _s("max_rage", "+ Maximum Rage", "+{v} to Maximum Rage", 5, "offence"),
     _s("str", "+ Strength", "+{v} to Strength", 20, "attributes"),
     _s("dex", "+ Dexterity", "+{v} to Dexterity", 20, "attributes"),
     _s("int", "+ Intelligence", "+{v} to Intelligence", 20, "attributes"),

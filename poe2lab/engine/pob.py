@@ -50,6 +50,13 @@ local function extendModList(base, lines)
   return modList
 end
 
+function _poe2lab_item(text)
+  local item = new("Item"):Item(text)
+  if not item.base then error("PoB could not read the item (unknown base?)", 0) end
+  item:NormaliseQuality()
+  return item
+end
+
 function _poe2lab_with_gems_disabled(pairsList, fn)
   if #pairsList == 0 then return fn() end
   local saved = {}
@@ -207,7 +214,8 @@ end
 return _poe2lab_json(out)""")
 
     def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
-                remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None) -> dict[str, float]:
+                remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None,
+                replace_item: tuple[str, str] | None = None) -> dict[str, float]:
         """Recalculate without changing the build, as if:
         - passive nodes were added/removed,
         - extra player mod lines were present (e.g. "10% increased Attack Speed"),
@@ -215,15 +223,21 @@ return _poe2lab_json(out)""")
         - Configuration tab values were set (e.g. {"enemyLevel": 79, "enemyCritChance": 100}),
         - the item in remove_slot (e.g. "Ring 1") was taken off,
         - gems given as (socket group, gem index) pairs were disabled,
-        - offence was reported for main_socket_group instead of the build's main skill."""
+        - offence was reported for main_socket_group instead of the build's main skill,
+        - replace_item = (slot, item text) was equipped instead (PoB format or text copied from the game)."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
         lines = ", ".join(lua_string(m) for m in mods)
         enemy_lines = ", ".join(lua_string(m) for m in enemy_mods)
         cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
         extra = ""
+        if remove_slot and replace_item:
+            raise PobError("use either remove_slot or replace_item")
         if remove_slot:
             extra += f", repSlotName = {lua_string(remove_slot)}"
+        if replace_item:
+            slot_name, text = replace_item
+            extra += f", repSlotName = {lua_string(slot_name)}, repItem = _poe2lab_item({lua_string(text)})"
         if main_socket_group:
             extra += f", mainSocketGroup = {int(main_socket_group)}"
         gems = ", ".join(f"{{ {int(g)}, {int(i)} }}" for g, i in disable_gems)
@@ -263,6 +277,16 @@ for _, slot in ipairs(build.itemsTab.orderedSlots) do
 end
 return _poe2lab_json(out)""")
 
+    def item_text(self, slot: str) -> str:
+        """The equipped item in PoB's text format - edit it and pass it back via what_if(replace_item=...)."""
+        text = self._lua(f"""
+local slot = build.itemsTab.slots[ {lua_string(slot)} ]
+local item = slot and build.itemsTab.items[slot.selItemId]
+return item and item.raw""")
+        if text is None:
+            raise PobError(f"no item in slot {slot!r}")
+        return text
+
     def requirement_sources(self) -> list[dict]:
         """Every attribute requirement PoB checks: items, gems and grouped support gems (PoB's 'Req' breakdowns)."""
         return self._json("""
@@ -300,6 +324,26 @@ for _, opt in ipairs(require("Modules.ConfigOptions")) do
   end
   if match and opt.type == "check" and opt.var then
     out[#out + 1] = {{ var = opt.var, label = StripEscapes(opt.label or opt.var) }}
+  end
+end
+return _poe2lab_json(out)""")
+
+    def config_checkboxes(self) -> list[dict]:
+        """Configuration checkboxes PoB shows for this build (its own relevance rules), with their current state."""
+        return self._json("""
+local out = _poe2lab_array({})
+local configTab = build.configTab
+for _, opt in ipairs(require("Modules.ConfigOptions")) do
+  local control = opt.var and opt.type == "check" and configTab.varControls[opt.var]
+  if control then
+    local ok, shown = pcall(function() return control:GetProperty("shown") end)
+    if ok and shown then
+      local skills = _poe2lab_array({})
+      if type(opt.ifSkill) == "string" then skills[1] = opt.ifSkill
+      elseif type(opt.ifSkill) == "table" then for i, s in ipairs(opt.ifSkill) do skills[i] = s end end
+      out[#out + 1] = { var = opt.var, label = StripEscapes(opt.label or opt.var),
+                        checked = configTab.input[opt.var] and true or false, skills = skills }
+    end
   end
 end
 return _poe2lab_json(out)""")
