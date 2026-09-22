@@ -108,8 +108,8 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
         out.append(Gate("warn", "Нет регенерации жизни",
                         f"{rec.total:,.0f}/с только пока атакуешь; половина жизни за {rec.half_life_refill_seconds:.1f} с"))
     if rec.leech_capped_per_hit:
-        out.append(Gate("warn", "Лич упёрся в лимит на удар",
-                        "«+% лича» не поможет; помогут скорость восстановления, больше жизни, чаще удары"))
+        out.append(Gate("warn", "Похищение упёрлось в лимит на удар",
+                        "«+% похищения» не поможет; помогут скорость восстановления, больше здоровья, чаще удары"))
     return out
 
 

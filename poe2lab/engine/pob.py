@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 from .luahost import DEFAULT_POB_ROOT, LuaError, LuaHost, lua_string
@@ -506,6 +507,51 @@ local item = _poe2lab_item({lua_string(item_text)})
 itemsTab:AddItem(item, true)
 itemsTab.slots[ {lua_string(slot)} ]:SetSelItemId(item.id)
 itemsTab:PopulateSlots()
+build.calcsTab:BuildOutput()""")
+
+    @contextmanager
+    def swapped_items(self, items: dict[str, str | None]):
+        """Temporarily wear several items at once (slot -> item text, None = empty slot), recalculated; everything
+        is put back on exit. what_if(replace_item=...) changes one slot only."""
+        entries = ", ".join(f"[ {lua_string(slot)} ] = {lua_string(text) if text else 'false'}"
+                            for slot, text in items.items())
+        self._lua(f"""
+local itemsTab = build.itemsTab
+_poe2lab_swap = {{ saved = {{}}, temp = {{}}, sets = {{}}, main = build.mainSocketGroup }}
+-- a weapon the skills cannot use makes PoB move socket groups to the other weapon set; remember the assignment
+for i, g in ipairs(build.skillsTab.socketGroupList) do _poe2lab_swap.sets[i] = {{ g.set1, g.set2 }} end
+for slotName, text in pairs({{ {entries} }}) do
+  local slot = itemsTab.slots[slotName]
+  if slot then
+    _poe2lab_swap.saved[slotName] = slot.selItemId
+    if text then
+      local item = _poe2lab_item(text)
+      itemsTab:AddItem(item, true)
+      table.insert(_poe2lab_swap.temp, item)
+      slot:SetSelItemId(item.id)
+    else
+      slot:SetSelItemId(0)
+    end
+  end
+end
+itemsTab:PopulateSlots()
+build.calcsTab:BuildOutput()""")
+        try:
+            yield self
+        finally:
+            self._lua("""
+local itemsTab = build.itemsTab
+for slotName, id in pairs(_poe2lab_swap.saved) do itemsTab.slots[slotName]:SetSelItemId(id) end
+for _, item in ipairs(_poe2lab_swap.temp) do itemsTab:DeleteItem(item, true) end
+for i, g in ipairs(build.skillsTab.socketGroupList) do
+  local saved = _poe2lab_swap.sets[i]
+  if saved then g.set1, g.set2 = saved[1], saved[2] end
+end
+build.skillsTab.weaponSetValidityCache = {}
+build.mainSocketGroup = _poe2lab_swap.main
+_poe2lab_swap = nil
+itemsTab:PopulateSlots()
+wipeGlobalCache()
 build.calcsTab:BuildOutput()""")
 
     def item_text(self, slot: str) -> str:

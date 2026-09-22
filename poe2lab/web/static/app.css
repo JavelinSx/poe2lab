@@ -266,3 +266,47 @@ input.mod-num { width: 64px; padding: 3px 6px; text-align: center; }
   .sidebar { position: static; height: auto; }
   .grid.two, .grid.cards { grid-template-columns: 1fr; }
 }
+
+/* survivable hits: table with one row per damage type */
+.hits-table { width: 100%; border-collapse: collapse; }
+.hits-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.hits-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.hits-table tbody tr:nth-child(even) td { background: rgba(255, 255, 255, .02); }
+.hits-table tr.weak td { background: rgba(226, 106, 95, .08); }
+.dmg-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.hit-cell { min-width: 110px; }
+.hit-num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.hit-track { height: 5px; background: var(--panel-2); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+.hit-track span { display: block; height: 100%; border-radius: 3px; }
+
+/* comparisons */
+table.versus, table.versus-items { width: 100%; border-collapse: collapse; }
+table.versus th, table.versus-items th { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+table.versus th.num { text-align: right; }
+table.versus td, table.versus-items td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.versus td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.versus td.pos, .num.pos { color: var(--good); }
+table.versus td.neg, .num.neg { color: var(--bad); }
+table.versus tr.group td { color: var(--gold); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; padding-top: 14px; border-bottom: 1px solid var(--line); }
+.verdict { font-size: 18px; font-weight: 700; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; }
+.verdict.better { background: rgba(110, 196, 125, .14); color: var(--good); }
+.verdict.worse { background: rgba(226, 106, 95, .14); color: var(--bad); }
+.verdict.mixed { background: rgba(228, 180, 81, .14); color: var(--warn); }
+.verdict.same { background: var(--panel-2); color: var(--muted); }
+.item-card { background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+.item-card .item-name { font-weight: 600; margin-bottom: 6px; }
+.item-lines { margin: 0; padding-left: 18px; }
+.item-lines li { margin: 2px 0; }
+.item-lines li.crafted { color: var(--cold); }
+.item-lines li.desecrated { color: var(--chaos); }
+
+/* mechanics: "+" to add to the calculation */
+.gap { position: relative; padding-right: 40px; }
+.gap-add { position: absolute; right: 8px; top: 8px; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--gold); cursor: pointer; font-size: 16px; line-height: 1; }
+.gap-add:hover { background: var(--gold); color: #1a1406; }
+.add-panel { margin-top: 10px; padding: 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+/* a plain list inside the panel (the class .suggest-list is the search dropdown) */
+.pick-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.pick-list .suggest-item { cursor: pointer; padding: 5px 8px; border-radius: 6px; border-bottom: 0; }
+.pick-list .suggest-item:hover { background: var(--panel-2); }

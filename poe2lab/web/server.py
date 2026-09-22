@@ -1,5 +1,6 @@
 """Local web interface: one loaded build, heavy analyses cached, everything served as JSON to a static page."""
 import json
+import re
 import threading
 from dataclasses import asdict
 from pathlib import Path
@@ -16,6 +17,7 @@ from ..analysis.slots import craft_path, plan_all
 from ..analysis.sockets import plan_sockets
 from ..analysis.sources import describe as describe_sources
 from ..analysis.threats import MapProfile, survivable_hits
+from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
                          make_client)
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
@@ -45,6 +47,7 @@ class Session:
         self.assistant: Assistant | None = None
         self.toolbox: Toolbox | None = None
         self._prices: PriceBook | None | bool = False
+        self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
 
     def require(self, build: str | None = None):
         if self.engine is None:
@@ -232,6 +235,67 @@ def mods_search(q: str, lang: str = "ru", limit: int = 25):
     return {"results": [{"en": t["en"], "text": t.get(lang, t["en"]), "line": t["line"]} for _, t in hits[:limit]]}
 
 
+# Game wordings of skill effects that become a PoB mod line once the skill-side framing is dropped.
+_REWRITES = [
+    (re.compile(r"^(?:Buff grants |Grants )?(\d+(?:\.\d+)?)% of damage Gained as (\w+) damage$", re.I),
+     r"Gain \1% of Damage as Extra \2 Damage"),
+    (re.compile(r"^Buff grants (\d+(?:\.\d+)?) (\w+) regenerated per second$", re.I), r"Regenerate \1 \2 per second"),
+]
+_FRAMES = re.compile(r"^(?:Buff grants |Grants |Supported Skills (?:have |deal |grant )?|Skill (?:has |deals )?|"
+                     r"You and Allies in your Presence (?:have |gain )?)", re.I)
+_STOP = {"with", "your", "have", "from", "that", "this", "skills", "supported", "skill", "while", "when", "for",
+         "each", "grants", "buff", "gain", "gained", "seconds", "second", "enemies", "enemy", "increased", "more",
+         "less", "reduced", "used", "using"}
+_NUM = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _suggest(text: str, lang: str, limit: int = 8) -> dict:
+    """A PoB line for a game line PoB does not calculate: the line itself or a known rewrite if PoB parses it,
+    else the closest parseable mods by shared words, with the line's numbers filled in where they fit."""
+    engine = session.engine
+    text = " ".join(text.split())
+    tries = [text]
+    for pattern, repl in _REWRITES:
+        if pattern.match(text):
+            tries.append(pattern.sub(repl, text))
+    stripped = _FRAMES.sub("", text)
+    if stripped != text and stripped:
+        tries.append(stripped[0].upper() + stripped[1:])
+    direct = next((t for t in tries if engine.can_parse_mod(t)), None)
+    words = {w for w in re.findall(r"[a-z]{4,}", text.lower()) if w not in _STOP}
+    numbers = _NUM.findall(text)
+    scored = []
+    for t in _catalog(lang):
+        en = t["en"].lower()
+        if en.startswith("allocates "):  # passive-notable allocation mods: never an equivalent of an effect
+            continue
+        score = sum(1 for w in words if w in en)
+        if score:
+            scored.append((-score, len(en), t))
+    scored.sort(key=lambda x: (x[0], x[1]))
+    out, seen = [], set()
+    for _, _, t in scored:
+        if len(out) >= limit:
+            break
+        shown = t.get(lang, t["en"])
+        if shown in seen:  # "Gain 5 Rage on Hit" and "Grants 5 Rage on Hit" read the same to the player
+            continue
+        seen.add(shown)
+        slots = t["en"].count("#")
+        line = pob_line(t["en"], numbers[:slots]) if slots and len(numbers) >= slots else t["line"]
+        if not engine.can_parse_mod(line):
+            line = t["line"]
+        out.append({"en": t["en"], "text": t.get(lang, t["en"]), "line": line})
+    return {"direct": direct, "suggestions": out}
+
+
+@app.get("/api/mods/suggest")
+def mods_suggest(text: str, lang: str = "ru"):
+    with session.lock:
+        session.require()
+        return _suggest(text, lang)
+
+
 @app.get("/api/llm")
 def llm_settings():
     return _llm_view()
@@ -307,6 +371,8 @@ def remove_build(name: str):
             result = library.remove(name)
         except library.LibraryError as err:
             raise HTTPException(404, str(err))
+        if session.ref is not None and session.ref[0] == name:
+            session.ref = None
         if session.path is not None and session.path.stem == name:  # the open build is gone: close it
             session.path = session.engine = session.bp = None
             session.cache.clear()
@@ -406,6 +472,34 @@ def mechanics(build: str | None = None):
         session.require(build)
         m = session.cached("mechanics", lambda: collect_mechanics(session.engine, _game_texts("ru")))
         return _json({"gaps": m.gaps, "skills": m.skills, "uniques": m.uniques})
+
+
+def _reference(name: str):
+    """The reference build (a guide to compare against), kept loaded in its own engine while it is in use."""
+    if name == session.path.stem:
+        raise HTTPException(400, "эталон — это другой билд, не открытый")
+    if session.ref is None or session.ref[0] != name:
+        session.ref = None  # free the previous reference first
+        engine, bp = _errors(lambda: open_build(resolve_build(name)))
+        session.ref = (name, engine, bp)
+    return session.ref
+
+
+@app.get("/api/versus")
+def versus_view(ref: str, build: str | None = None):
+    with session.lock:
+        session.require(build)
+        _, engine, bp = _reference(ref)
+        return _json(session.cached(("versus", ref), lambda: versus(
+            session.engine, session.profile, engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))))
+
+
+@app.get("/api/versus/item")
+def versus_item(ref: str, slot: str):
+    with session.lock:
+        session.require()
+        _, engine, _ = _reference(ref)
+        return {"text": _errors(lambda: engine.item_text(slot))}
 
 
 @app.get("/api/item/{slot}")

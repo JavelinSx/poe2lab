@@ -17,6 +17,17 @@ class Comparison:
     recovery_pct: float
     # attr -> (have, need): shortfalls the candidate creates or deepens (an existing shortfall alone is not listed)
     unmet_requirements: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # absolute values with the current item and with the candidate, for a side-by-side view
+    before: dict[str, float] = field(default_factory=dict)
+    after: dict[str, float] = field(default_factory=dict)
+
+
+def _values(out: dict) -> dict[str, float]:
+    v = {"dps": out["CombinedDPS"], "life": out["Life"], "es": out.get("EnergyShield", 0.0),
+         "ehp": out.get("TotalEHP", 0.0), "recovery": recovery_per_second(out)}
+    v |= {f"hit_{t}": out[f"{t}MaximumHitTaken"] for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")}
+    v |= {f"res_{t}": out.get(f"{t}Resist", 0.0) for t in ("Fire", "Cold", "Lightning", "Chaos")}
+    return v
 
 
 def _pct(new: float, old: float) -> float:
@@ -37,6 +48,7 @@ def compare(engine, config: dict, slot: str, item_text: str) -> Comparison:
             a: (new[a], new[f"Req{a}"]) for a in ATTRS
             if new[f"Req{a}"] - new[a] > max(base[f"Req{a}"] - base[a], 0)
         },
+        before=_values(base), after=_values(new),
     )
 
 

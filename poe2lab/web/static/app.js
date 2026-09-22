@@ -280,18 +280,21 @@ TABS.overview = async (view) => {
       h("div", { class: "value" }, fmt(b.recoveryPerSecond), h("span", { class: "to" }, t("perSec"))),
       h("div", { class: "note" }, t("whileAttacking"))));
 
+  // a table, not overlapping bars: one row per damage type, one column per situation, the weakest type marked
+  const weakest = hits.reduce((w, cur) => (cur[1].normal < w[1].normal ? cur : w));
+  const hitCell = (type, val) => h("td", { class: "num hit-cell" },
+    h("div", { class: "hit-num" }, fmt(val)),
+    h("div", { class: "hit-track" }, h("span", { style: `width:${Math.max(2, (val / maxHit) * 100)}%;background:${DMG_COLOR[type]}` })));
   const hitCard = h("div", { class: "card" },
     h("h3", {}, t("hitsTitle")), h("div", { class: "sub" }, t("hitsSub", r.profile)),
-    h("div", { class: "hits" }, hits.map(([type, v]) => {
-      const c = DMG_COLOR[type];
-      const seg = (cls, val) => h("div", { class: "seg " + cls, style: `width:${(val / maxHit) * 100}%;background:${c}` });
-      return h("div", { class: "hit-row" },
-        h("div", { class: "hit-name", style: `color:${c}` }, t("dmg_" + type)),
-        h("div", { class: "hit-bar" }, seg("normal", v.normal), seg("crit", v.crit), seg("juiced", v.juiced)),
-        h("div", { class: "hit-vals" }, `${fmt(v.normal)} · ${fmt(v.crit)} · ${fmt(v.juiced)}`));
-    })),
-    h("div", { class: "legend" }, h("span", {}, h("i", { style: "opacity:.35" }), t("hitNormal")),
-      h("span", {}, h("i", { style: "opacity:.6" }), t("hitCrit")), h("span", {}, h("i", {}), t("hitJuiced"))));
+    h("table", { class: "hits-table" },
+      h("thead", {}, h("tr", {}, h("th", {}, t("dmgType")), h("th", { class: "num" }, t("hitNormal")),
+        h("th", { class: "num" }, t("hitCrit")), h("th", { class: "num" }, t("hitJuiced")))),
+      h("tbody", {}, hits.map(([type, v]) => h("tr", { class: type === weakest[0] ? "weak" : "" },
+        h("td", {}, h("span", { class: "dmg-dot", style: `background:${DMG_COLOR[type]}` }), t("dmgFull_" + type),
+          type === weakest[0] ? h("span", { class: "chip must", style: "margin-left:8px" }, t("weakest")) : null),
+        hitCell(type, v.normal), hitCell(type, v.crit), hitCell(type, v.juiced))))),
+    h("div", { class: "note small muted", style: "margin-top:8px" }, t("hitsNote")));
 
   const order = { must: 0, priority: 1, warn: 2 };
   const issues = h("div", { class: "card" }, h("h3", {}, t("issuesTitle")), h("div", { class: "sub" }, t("issuesSub")),
@@ -397,34 +400,187 @@ TABS.gear = async (view) => {
 };
 
 // ---------- compare ----------
-TABS.compare = async () => {
-  const slots = state.build.items.filter((i) => !["Flask", "Charm", "Jewel"].includes(i.type)).map((i) => i.slot);
-  const slotSel = h("select", {}, slots.map((s) => h("option", { value: s }, slotName(s))));
-  const text = h("textarea", { rows: 16, placeholder: t("candidatePh") });
+const refKey = () => `poe2lab.ref.${state.build.name}`;
+function savedRef() { try { return localStorage.getItem(refKey()) || ""; } catch (_) { return ""; } }
+function saveRef(name) { try { localStorage.setItem(refKey(), name); } catch (_) { /* storage blocked */ } }
+
+TABS.compare = async (view) => {
+  state.compareMode = state.compareMode || "versus";
+  const body = h("div", {});
+  const seg = h("div", { class: "segmented" }, [["versus", t("cmpVersus")], ["item", t("cmpItem")]].map(([m, label]) =>
+    h("button", { class: state.compareMode === m ? "active" : "", onclick: () => { state.compareMode = m; switchTab("compare"); } }, label)));
+  body.append(await (state.compareMode === "versus" ? versusView() : itemView()));
+  return h("div", { class: "stack" }, h("div", {}, seg), body);
+};
+
+// ---- my build against a reference (a guide with its gear) ----
+async function versusView() {
+  const builds = (await api("/api/builds")).filter((b) => b.name !== state.build.name);
+  const sel = h("select", {}, h("option", { value: "" }, t("pickRef")), builds.map((b) => h("option", { value: b.name }, b.name)));
+  sel.value = builds.some((b) => b.name === savedRef()) ? savedRef() : "";
+  const out = h("div", { class: "stack" });
+  const run = async () => {
+    if (!sel.value) { out.replaceChildren(); return; }
+    saveRef(sel.value);
+    out.replaceChildren(loading(t("refLoading")));
+    try {
+      const v = await cached("versus:" + sel.value, () => api(`/api/versus?ref=${encodeURIComponent(sel.value)}&${buildQuery()}`));
+      out.replaceChildren(...renderVersus(v, sel.value));
+    } catch (e) { out.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+  };
+  sel.addEventListener("change", run);
+  const head = h("div", { class: "card" }, h("h3", {}, t("refTitle")), h("div", { class: "sub" }, t("refSub")),
+    h("label", { class: "field", style: "max-width:420px" }, h("span", {}, t("refBuild")), sel),
+    builds.length ? null : h("p", { class: "muted small" }, t("refNone")));
+  if (sel.value) run();
+  return h("div", { class: "stack" }, head, out);
+}
+
+const STAT_FMT = {
+  dps: (v) => fmt(v), hitChance: (v) => fmt(v) + "%", critChance: (v) => fmt(v, 1) + "%", speed: (v) => fmt(v, 2),
+  moveSpeed: (v) => pct((v - 1) * 100),
+};
+const statText = (key, v) => (STAT_FMT[key] ? STAT_FMT[key](v) : key.startsWith("res_") ? fmt(v) + "%" : fmt(v));
+
+// difference cell: from my side (+ means I have more); green when that is the better direction
+function diffCell(key, mine, ref, higherBetter = true) {
+  const d = mine - ref;
+  if (Math.abs(d) < 1e-9 || (Math.abs(ref) > 0 && Math.abs(d / ref) < 0.005)) return h("td", { class: "num muted" }, "=");
+  const good = (d > 0) === higherBetter;
+  const rel = ref ? ` (${pct((d / Math.abs(ref)) * 100)})` : "";
+  const digits = key === "speed" ? 2 : key.startsWith("res_") || key === "hitChance" || key === "critChance" ? 1 : 0;
+  const abs = `${d > 0 ? "+" : ""}${fmt(d, digits)}`;
+  return h("td", { class: "num " + (good ? "pos" : "neg") }, key === "moveSpeed" ? pct(d * 100) : abs + (key.startsWith("res_") ? "" : rel));
+}
+
+function renderVersus(v, refName) {
+  const groups = ["offence", "defence", "resist", "hits", "attributes", "other"];
+  const rows = [];
+  for (const g of groups) {
+    const list = v.rows.filter((r) => r.group === g && !(r.mine === 0 && r.ref === 0));
+    if (!list.length) continue;
+    rows.push(h("tr", { class: "group" }, h("td", { colspan: 4 }, t("grp_" + g))));
+    for (const r of list) rows.push(h("tr", {}, h("td", {}, t("st_" + r.key)),
+      h("td", { class: "num" }, statText(r.key, r.mine)), h("td", { class: "num" }, statText(r.key, r.ref)),
+      diffCell(r.key, r.mine, r.ref, r.higherBetter)));
+  }
+  const sameSkill = v.mineSkill === v.refSkill;
+  const stats = h("div", { class: "card" }, h("h3", {}, t("refStats")),
+    h("div", { class: "sub" }, t("refStatsSub", trName(v.mineSkill), trName(v.refSkill))),
+    sameSkill ? null : h("div", { class: "action" }, t("refSkillDiffers")),
+    h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("mine")),
+      h("th", { class: "num" }, refName), h("th", { class: "num" }, t("diffMine")))), h("tbody", {}, rows)));
+
+  const swapCell = (s) => {
+    if (s.error) return h("td", {}, chip("must", t("cannotEquip")));
+    if (!s.swap) return h("td", { class: "muted small" }, t("refEmpty"));
+    if (s.swap.dps_pct <= -99) return h("td", {}, chip("must", t("wrongWeapon")));
+    const c = s.swap;
+    return h("td", {}, deltas({ dps: c.dps_pct, phys_hit: c.hit_pct.Physical, fire_hit: c.hit_pct.Fire, cold_hit: c.hit_pct.Cold,
+      lightning_hit: c.hit_pct.Lightning, chaos_hit: c.hit_pct.Chaos, recovery: c.recovery_pct }, METRIC, 0.5),
+      Object.entries(c.unmet_requirements).map(([a, [have, need]]) => chip("must", t("reqShort", attrName(a), fmt(have), fmt(need)))));
+  };
+  const itemName = (it) => (it ? h("span", { title: it.name }, trItem(it.name)) : h("span", { class: "muted" }, "—"));
+  const slots = h("div", { class: "card" }, h("h3", {}, t("refItems")), h("div", { class: "sub" }, t("refItemsSub")),
+    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", {}, t("slot")), h("th", {}, t("mine")),
+      h("th", {}, refName), h("th", {}, t("ifWear")), h("th", {}, ""))),
+    h("tbody", {}, v.slots.map((s) => h("tr", {}, h("td", {}, slotName(s.slot)), h("td", {}, itemName(s.mine)),
+      h("td", {}, itemName(s.ref)), swapCell(s),
+      h("td", {}, s.ref && !s.error ? h("button", { class: "ghost small", onclick: () => openInItemCompare(refName, s.slot) }, t("details")) : null))))));
+
+  let all = null;
+  if (v.allGear) {
+    const mine = Object.fromEntries(v.rows.map((r) => [r.key, r.mine]));
+    const keys = ["dps", "life", "es", "ehp", "hit_Physical", "hit_Chaos", "res_Fire", "res_Cold", "res_Lightning", "res_Chaos", "spiritFree"]
+      .filter((k) => mine[k] || v.allGear[k]);
+    all = h("div", { class: "card" }, h("h3", {}, t("refAllGear")), h("div", { class: "sub" }, t("refAllGearSub")),
+      h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("now")),
+        h("th", { class: "num" }, t("withTheirGear")), h("th", { class: "num" }, t("change")))),
+      h("tbody", {}, keys.map((k) => h("tr", {}, h("td", {}, t("st_" + k)), h("td", { class: "num" }, statText(k, mine[k])),
+        h("td", { class: "num" }, statText(k, v.allGear[k])), diffCell(k, v.allGear[k], mine[k]))))));
+  }
+  return [stats, slots, all].filter(Boolean);
+}
+
+async function openInItemCompare(ref, slot) {
+  try {
+    const r = await api(`/api/versus/item?ref=${encodeURIComponent(ref)}&slot=${encodeURIComponent(slot)}`);
+    state.compareMode = "item";
+    state.itemCompare = { slot, text: r.text, from: ref };
+    switchTab("compare");
+  } catch (e) { toast(e.message); }
+}
+
+// ---- one candidate item against the equipped one ----
+async function itemView() {
+  const pre = state.itemCompare || {};
+  state.itemCompare = null;
+  const items = state.build.items.filter((i) => !["Flask", "Charm", "Jewel"].includes(i.type));
+  const slotSel = h("select", {}, items.map((i) => h("option", { value: i.slot }, slotName(i.slot))));
+  if (pre.slot) slotSel.value = pre.slot;
+  const current = h("div", { class: "item-card" });
+  const showCurrent = () => {
+    const it = items.find((i) => i.slot === slotSel.value);
+    current.replaceChildren(it ? h("div", {}, h("div", { class: "item-name", title: it.name }, trItem(it.name)),
+      h("ul", { class: "item-lines" }, it.explicit.map((l) => h("li", { class: l.desecrated ? "desecrated" : l.crafted ? "crafted" : "" }, trMod(l.line)))))
+      : h("p", { class: "muted" }, t("slotEmpty")));
+  };
+  slotSel.addEventListener("change", showCurrent);
+  showCurrent();
+
+  const text = h("textarea", { rows: 14, placeholder: t("candidatePh"), spellcheck: "false" }, pre.text || "");
   const be = h("input", { type: "text", placeholder: t("breakevenPh"), style: "width:100%" });
   const out = h("div", {});
+  const ref = savedRef();
+  const fillFromRef = ref ? h("button", { class: "ghost small", onclick: async () => {
+    try { text.value = (await api(`/api/versus/item?ref=${encodeURIComponent(ref)}&slot=${encodeURIComponent(slotSel.value)}`)).text; }
+    catch (e) { toast(e.message); }
+  } }, t("fromRef", ref)) : null;
+  const fillCurrent = h("button", { class: "ghost small", onclick: async () => {
+    text.value = (await api(`/api/item/${encodeURIComponent(slotSel.value)}`)).text;
+  } }, t("insertCurrent"));
   const run = h("button", { class: "primary", onclick: async () => {
+    if (!text.value.trim()) { text.focus(); return; }
     run.disabled = true;
     out.replaceChildren(loading(t("counting")));
     try {
       const r = await api("/api/compare", { method: "POST", body: { slot: slotSel.value, text: text.value, breakeven: be.value.trim() || null } });
-      const ch = { dps: r.dps_pct, phys_hit: r.hit_pct.Physical, fire_hit: r.hit_pct.Fire, cold_hit: r.hit_pct.Cold, lightning_hit: r.hit_pct.Lightning, chaos_hit: r.hit_pct.Chaos, recovery: r.recovery_pct };
-      const verdict = r.dps_pct > 0.5 ? t("better") : r.dps_pct < -0.5 ? t("worse") : t("same");
-      out.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("verdict", verdict)),
-        deltas(ch, METRIC, 0.05), r.life_pct ? h("p", {}, t("lifeDelta", pct(r.life_pct))) : null,
-        Object.entries(r.unmet_requirements).map(([a, [have, need]]) => h("p", {}, chip("must", t("reqShort", attrName(a), have, need)))),
-        r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", trMod(r.breakeven.line), fmt(r.breakeven.factor * 100)) : t("beBad")) : null));
+      out.replaceChildren(renderItemResult(r));
     } catch (e) { out.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
     run.disabled = false;
   } }, t("compare"));
-  const current = h("button", { class: "ghost", onclick: async () => { text.value = (await api(`/api/item/${encodeURIComponent(slotSel.value)}`)).text; } }, t("insertCurrent"));
-  return h("div", { class: "grid two" },
-    h("div", { class: "card stack" }, h("h3", {}, t("candidate")),
-      h("label", { class: "field" }, h("span", {}, t("slot")), slotSel), text,
-      h("label", { class: "field" }, h("span", {}, t("breakeven")), be),
-      h("div", { class: "row" }, run, current)),
-    out);
-};
+
+  const left = h("div", { class: "card stack" }, h("h3", {}, t("step1")),
+    h("label", { class: "field" }, h("span", {}, t("slot")), slotSel), h("div", { class: "sub" }, t("equippedNow")), current);
+  const right = h("div", { class: "card stack" }, h("h3", {}, t("step2")),
+    pre.from ? h("div", { class: "action" }, t("loadedFromRef", pre.from)) : null,
+    h("div", { class: "row" }, fillFromRef, fillCurrent), text,
+    h("details", {}, h("summary", {}, t("breakeven")), h("div", { class: "sub" }, t("breakevenHelp")), be),
+    h("div", {}, run));
+  if (pre.text) setTimeout(() => run.click(), 0);
+  return h("div", { class: "stack" }, h("div", { class: "grid two" }, left, right), out);
+}
+
+function renderItemResult(r) {
+  const hitVals = Object.values(r.hit_pct);
+  const minHit = Math.min(...hitVals), maxHit = Math.max(...hitVals);
+  let cls, title;
+  if (Math.abs(r.dps_pct) <= 0.5 && Math.abs(minHit) <= 0.5 && Math.abs(maxHit) <= 0.5) { cls = "same"; title = t("vSame"); }
+  else if (r.dps_pct >= -0.5 && minHit >= -0.5) { cls = "better"; title = t("vBetter"); }
+  else if (r.dps_pct <= 0.5 && maxHit <= 0.5) { cls = "worse"; title = t("vWorse"); }
+  else { cls = "mixed"; title = t("vMixed", pct(r.dps_pct), pct(minHit)); }
+  const b = r.before, a = r.after;
+  const keys = ["dps", "life", "es", "ehp", "recovery", "hit_Physical", "hit_Fire", "hit_Cold", "hit_Lightning", "hit_Chaos",
+    "res_Fire", "res_Cold", "res_Lightning", "res_Chaos"].filter((k) => b[k] || a[k]);
+  return h("div", { class: "card" },
+    h("div", { class: "verdict " + cls }, title),
+    Object.entries(r.unmet_requirements).map(([at, [have, need]]) => h("p", {}, chip("must", t("reqShort", attrName(at), fmt(have), fmt(need))))),
+    h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("now")),
+      h("th", { class: "num" }, t("withCandidate")), h("th", { class: "num" }, t("change")))),
+    h("tbody", {}, keys.map((k) => h("tr", {}, h("td", {}, t("st_" + k)), h("td", { class: "num" }, statText(k, b[k])),
+      h("td", { class: "num" }, statText(k, a[k])), diffCell(k, a[k], b[k]))))),
+    r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", trMod(r.breakeven.line), fmt(r.breakeven.factor * 100)) : t("beBad")) : null);
+}
 
 // ---------- mechanics ----------
 TABS.mechanics = async (view) => {
@@ -442,7 +598,9 @@ TABS.mechanics = async (view) => {
   const line = (text) => h("div", { title: text }, trMod(text));
   // the game's own text in the player's language (from the installed game) beats any translation of ours
   const gapText = (g) => (LANG !== "en" && g.text_local ? h("div", { title: g.text }, g.text_local) : line(g.text));
-  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, where(g.where)), gapText(g),
+  const gap = (g) => h("div", { class: "gap" },
+    h("button", { class: "gap-add", title: t("addToPob"), onclick: (e) => toggleAddPanel(e.currentTarget.parentElement, g) }, "+"),
+    h("div", { class: "where" }, where(g.where)), gapText(g),
     LANG === "en" && g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
   // raw internal stat ids ("stat_name = 20") mean nothing to a player; the English view keeps them
   const shown = m.gaps.filter((g) => LANG === "en" || g.text_local || !/^[A-Za-z0-9_%+]+ = /.test(g.text));
@@ -511,6 +669,43 @@ TABS.profile = async () => {
     h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))));
 };
+
+// "+" on a mechanic PoB ignores: turn it into a correction of the profile. PoB cannot read the game line itself
+// (that is why it is listed), so offer the line when it parses after all, the closest mods PoB does read with the
+// line's numbers filled in, and a free search.
+async function toggleAddPanel(box, g) {
+  const open = box.querySelector(".add-panel");
+  if (open) { open.remove(); return; }
+  const panel = h("div", { class: "add-panel" }, loading(t("searching")));
+  box.append(panel);
+  const add = async (line) => {
+    const raw = JSON.parse(JSON.stringify(state.build.profileRaw));
+    raw.corrections = raw.corrections || [];
+    raw.notes = raw.notes || [];
+    raw.corrections.push({ mod: line, source: `${g.where}: ${g.text}`, uptime: 1, confirmed: false });
+    raw.main_skill = { group: state.build.info.mainSocketGroup, skill: 1, name: state.build.mainSkill };
+    panel.replaceChildren(loading(t("counting")));
+    try {
+      state.build = await api("/api/profile", { method: "PUT", body: raw });
+      resetCache();
+      renderHeader();
+      loadBuildList();
+      toast(t("corrAdded", trMod(line)), true);
+      switchTab("mechanics");
+    } catch (e) { toast(e.message); panel.remove(); }
+  };
+  try {
+    const r = await api(`/api/mods/suggest?text=${encodeURIComponent(g.text)}&lang=${LANG}`);
+    const pick = (m) => h("div", { class: "suggest-item", title: LANG !== "en" ? m.line : null, onclick: () => add(m.line) }, trMod(m.line));
+    panel.replaceChildren(
+      r.direct ? h("div", { class: "stack" }, h("div", { class: "sub" }, t("pobReads")),
+        h("div", { class: "row" }, h("b", {}, trMod(r.direct)), h("button", { class: "primary small", onclick: () => add(r.direct) }, t("addThis")))) : null,
+      r.suggestions.length ? h("div", {}, h("div", { class: "sub" }, r.direct ? t("orSimilar") : t("similarMods")),
+        h("div", { class: "pick-list" }, r.suggestions.map(pick))) : null,
+      h("div", { class: "sub", style: "margin-top:8px" }, t("orSearch")), modSearch(add),
+      h("div", { class: "hint" }, t("addHint")));
+  } catch (e) { panel.replaceChildren(h("p", { class: "muted" }, e.message)); }
+}
 
 // ---------- mod picker (like the in-game trade filter) ----------
 // A chosen mod is shown in the player's language with an input per number; the PoB line is rebuilt from it,
