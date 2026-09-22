@@ -5,7 +5,7 @@ from ..knowledge import collect as collect_mechanics
 from . import attributes as attrs
 from .conditions import audit as audit_conditions
 from .conditions import damage_range
-from .gradients import Gradient, compute, recovery_per_second
+from .gradients import Gradient, compute, hit_change, recovery_per_second
 from .stats import mod_line
 from .threats import DAMAGE_TYPES, MapProfile, recovery, survivable_hits
 
@@ -165,7 +165,7 @@ def _metric_totals(original: dict, current: dict) -> tuple[float, dict, float]:
     pct = lambda new, old: (new - old) / old * 100 if old else 0.0
     return (
         pct(current["CombinedDPS"], original["CombinedDPS"]),
-        {t: pct(current[f"{t}MaximumHitTaken"], original[f"{t}MaximumHitTaken"]) for t in DAMAGE_TYPES},
+        {t: hit_change(current, original, t) for t in DAMAGE_TYPES},
         pct(recovery_per_second(current), recovery_per_second(original)),
     )
 

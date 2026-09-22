@@ -48,9 +48,25 @@ class Gradient:
         return (self.two[metric] - first) / first
 
 
+IMMUNE_HIT = 1e9  # the engine's value for an infinite survivable hit, see analysis.threats
+IMMUNITY_PCT = 100.0  # gaining (losing) immunity to a damage type counts as +100% (-100%) for that type
+
+
 def _pct(new: dict, base: dict, metric: str) -> float:
-    b = metric_value(base, metric)
-    return (metric_value(new, metric) - b) / b * 100 if b else 0.0
+    b, n = metric_value(base, metric), metric_value(new, metric)
+    if metric.endswith("_hit") and (b >= IMMUNE_HIT or n >= IMMUNE_HIT):
+        # a percentage against infinity means nothing and would swamp every ranking: count it as a big, finite step
+        return 0.0 if (b >= IMMUNE_HIT) == (n >= IMMUNE_HIT) else (IMMUNITY_PCT if n >= IMMUNE_HIT else -IMMUNITY_PCT)
+    return (n - b) / b * 100 if b else 0.0
+
+
+def hit_change(new: dict, base: dict, damage_type: str) -> float:
+    """% change of the survivable hit of one damage type, immunity counted as a finite step."""
+    return _pct(new, base, HIT_METRICS[damage_type])
+
+
+HIT_METRICS = {"Physical": "phys_hit", "Fire": "fire_hit", "Cold": "cold_hit", "Lightning": "lightning_hit",
+               "Chaos": "chaos_hit"}
 
 
 def metric_changes(new: dict, base: dict) -> dict[str, float]:
