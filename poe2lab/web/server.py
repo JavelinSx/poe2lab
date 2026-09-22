@@ -255,12 +255,29 @@ def builds():
     return out
 
 
+def _profile_questions() -> dict:
+    """Which profile questions this build can even answer: Rage only when it moves the damage (every character has a
+    Rage cap, but a spell build gains nothing from it), mana only when the main skill costs mana."""
+    def compute():
+        e, prof = session.engine, session.profile
+        stats = e.what_if(config=prof.config())
+        rage = False
+        if stats.get("MaximumRage", 0) > 0:
+            at_max = e.what_if(config=prof.config() | {"multiplierRage": 9999})["CombinedDPS"]
+            none = e.what_if(config=prof.config() | {"multiplierRage": 0})["CombinedDPS"]
+            rage = bool(none) and abs(at_max / none - 1) >= 0.005
+        return {"rage": rage, "mana": stats.get("ManaPerSecondCost", 0) > 0}
+
+    return session.cached("questions", compute)
+
+
 def _summary():
     e = session.engine
+    q = _errors(_profile_questions)
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
             "gems": sorted({g["name"] for g in e.gems()}),
-            "profile": describe_profile(session.bp), "profileRaw": _profile_raw(), "hasProfile": _profile_path().exists(),
-            "items": e.equipped_item_details()}
+            "profile": describe_profile(session.bp, rage=q["rage"]), "profileRaw": _profile_raw(),
+            "hasProfile": _profile_path().exists(), "questions": q, "items": e.equipped_item_details()}
 
 
 @app.post("/api/load")
@@ -352,7 +369,9 @@ def _profile_raw() -> dict:
     p = _profile_path()
     if p.exists():
         return json.loads(p.read_text(encoding="utf-8"))
-    return {"main_skill": {}, "rage": None, "mana_sustained": False, "league": None, "corrections": [], "notes": []}
+    # No profile yet: offer what the build itself says, so a fresh build never inherits another build's answers.
+    return {"main_skill": {}, "rage": session.bp.rage, "mana_sustained": False, "league": None,
+            "corrections": [], "notes": []}
 
 
 @app.put("/api/profile")

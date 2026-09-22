@@ -74,6 +74,9 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
     group = group or profile.group
     if group:
         engine.set_main_skill(group, skill or (profile.skill if group == profile.group else 1))
+    if profile.path is None:
+        # Nobody answered the Rage question for this build yet: assume what its author set in PoB, not the maximum.
+        profile.rage = int(engine.config().get("multiplierRage") or 0)
     if corrections and profile.corrections:
         config = MapProfile(rage=profile.rage).config()  # same enemy as the reports, not the build's saved one
         before = engine.what_if(config=config)["CombinedDPS"]
@@ -83,11 +86,16 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
     return engine, profile
 
 
-def describe(profile: BuildProfile) -> list[str]:
+def describe(profile: BuildProfile, rage: bool = True) -> list[str]:
+    """`rage` is False for builds that cannot gain Rage at all — the answer would only be noise there."""
     if not profile.path:
-        return ["профиль билда не найден — всё считается по данным PoB без поправок"]
+        out = ["профиль билда не найден — всё считается по данным PoB без поправок"]
+        if rage:
+            out.append(f"свирепость: {profile.rage or 0} — как выставлено в самом PoB-коде билда")
+        return out
     lines = [f"профиль: {profile.path.name}"]
-    lines.append("свирепость: максимум" if profile.rage is None else f"свирепость: {profile.rage}")
+    if rage:
+        lines.append("свирепость: максимум" if profile.rage is None else f"свирепость: {profile.rage}")
     if profile.mana_sustained:
         lines.append("мана: держится в игре (подтверждено) — проверки дефицита маны отключены")
     for c in profile.corrections:

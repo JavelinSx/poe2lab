@@ -389,6 +389,8 @@ TABS.profile = async () => {
   const raw = JSON.parse(JSON.stringify(state.build.profileRaw));
   raw.corrections = raw.corrections || [];
   raw.notes = raw.notes || [];
+  // Only ask what this build can answer: a build with no Rage must not show a Rage question.
+  const ask = state.build.questions || { rage: true, mana: true };
   const rageMax = h("input", { type: "checkbox", checked: raw.rage === null || raw.rage === undefined });
   const rageVal = h("input", { type: "number", value: raw.rage ?? 0, min: 0, style: "width:90px" });
   const mana = h("input", { type: "checkbox", checked: !!raw.mana_sustained });
@@ -401,8 +403,8 @@ TABS.profile = async () => {
   drawCorr();
   const notes = h("textarea", { rows: 6 }, raw.notes.join("\n"));
   const save = h("button", { class: "primary", onclick: async () => {
-    raw.rage = rageMax.checked ? null : Number(rageVal.value);
-    raw.mana_sustained = mana.checked;
+    raw.rage = !ask.rage || rageMax.checked ? null : Number(rageVal.value);
+    raw.mana_sustained = ask.mana && mana.checked;
     raw.notes = notes.value.split("\n").map((s) => s.trim()).filter(Boolean);
     raw.main_skill = { group: state.build.info.mainSocketGroup, skill: 1, name: state.build.mainSkill };
     save.disabled = true;
@@ -418,10 +420,12 @@ TABS.profile = async () => {
   } }, t("save"));
 
   return h("div", { class: "grid two" },
-    h("div", { class: "card stack" }, h("h3", {}, t("factsTitle")), h("div", { class: "sub" }, t("factsSub")),
+    h("div", { class: "card stack" }, h("h3", {}, `${t("factsTitle")} — ${state.build.name}`),
+      h("div", { class: "sub" }, t("factsSub")),
       state.build.hasProfile ? null : h("div", { class: "action" }, t("noProfileYet", state.build.name)),
-      h("div", { class: "row" }, h("label", {}, rageMax, t("rageMax")), h("span", { class: "muted" }, t("otherwise")), rageVal),
-      h("label", {}, mana, t("manaOk")),
+      ask.rage ? h("div", { class: "row" }, h("label", {}, rageMax, t("rageMax")), h("span", { class: "muted" }, t("otherwise")), rageVal) : null,
+      ask.mana ? h("label", {}, mana, t("manaOk")) : null,
+      ask.rage || ask.mana ? null : h("div", { class: "muted small" }, t("noQuestions")),
       h("div", { class: "section-title", style: "margin-top:10px" }, t("correctionsTitle")),
       h("div", { class: "corr small muted" }, h("span", {}, t("corrMod")), h("span", {}, t("corrUptime")), h("span", {}), h("span", {})),
       corrBox,

@@ -80,6 +80,7 @@ const I18N = {
     noProfileYet: (n) => `У билда «${n}» профиля ещё нет — ниже значения по умолчанию. Профиль создастся при сохранении.`,
     changeMod: "выбрать другой мод", modSearchPh: "начните вводить мод: например «скорость умений» или «skill speed»",
     modSearching: "ищу…", modNothing: "ничего не найдено",
+    noQuestions: "Для этого билда общих вопросов нет — свирепости и трат маны у него нет. Ниже можно добавить поправки на механики.",
   },
   en: {
     builds: "Builds", loadingList: "loading…", noBuilds: "no builds", refresh: "refresh list",
@@ -159,6 +160,7 @@ const I18N = {
     noProfileYet: (n) => `Build “${n}” has no profile yet — defaults below. Saving creates it.`,
     changeMod: "pick another mod", modSearchPh: "start typing a mod, e.g. “skill speed”",
     modSearching: "searching…", modNothing: "nothing found",
+    noQuestions: "No general questions for this build — it has neither Rage nor mana costs. Add mechanic corrections below.",
   },
 };
 
