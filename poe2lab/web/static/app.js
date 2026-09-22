@@ -79,12 +79,14 @@ function applyStaticTexts() {
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === LANG));
 }
 
-$("#lang").addEventListener("click", (e) => {
+$("#lang").addEventListener("click", async (e) => {
   const l = e.target.dataset.lang;
   if (!l || l === LANG) return;
   LANG = l;
   try { localStorage.setItem("poe2lab.lang", l); } catch (_) { /* storage blocked */ }
   applyStaticTexts();
+  await loadGameTexts();
+  if (state.build) setBuildNames(state.build);
   loadStatus();
   loadBuildList();
   if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
@@ -135,15 +137,16 @@ async function openBuild(name, group, skill) {
 
 function renderHeader() {
   const b = state.build;
+  setBuildNames(b);
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
-  $("#bh-sub").textContent = `${b.info.class} / ${b.info.ascendancy} · ${t("level", b.info.level)}`;
+  $("#bh-sub").textContent = `${trName(b.info.class)} / ${trName(b.info.ascendancy)} · ${t("level", b.info.level)}`;
   const sel = $("#main-skill");
   sel.replaceChildren();
   for (const g of b.groups) {
     g.skills.forEach((s, i) => {
-      const opt = h("option", { value: `${g.index}:${i + 1}` }, `${g.index}. ${s}`);
+      const opt = h("option", { value: `${g.index}:${i + 1}` }, `${g.index}. ${trName(s)}`);
       if (b.info.mainSocketGroup === g.index && b.mainSkill === s) opt.selected = true;
       sel.append(opt);
     });
@@ -184,6 +187,8 @@ async function switchTab(tab) {
 }
 
 const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}`));
+// the "unit" is either the Rage stat or a probe mod line
+const unitName = (name) => (LANG === "ru" && name === "Maximum Rage" ? "максимум ярости" : trMod(name));
 
 // ---------- overview ----------
 TABS.overview = async (view) => {
@@ -197,7 +202,7 @@ TABS.overview = async (view) => {
   const kpi = h("div", { class: "grid kpi" },
     h("div", { class: "card kpi" }, h("div", { class: "label" }, t("dps")),
       h("div", { class: "value" }, fmt(rng.low), rng.high > rng.low ? h("span", { class: "to" }, ` … ${fmt(rng.high)}`) : null),
-      h("div", { class: "note" }, rng.high > rng.low ? t("dpsRangeNote") : r.build.mainSkill)),
+      h("div", { class: "note" }, rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill))),
     h("div", { class: "card kpi" }, h("div", { class: "label" }, t("life")), h("div", { class: "value" }, fmt(b.life))),
     h("div", { class: "card kpi" }, h("div", { class: "label" }, t("hitChance")), h("div", { class: "value" }, fmt(b.hitChance) + "%")),
     h("div", { class: "card kpi" }, h("div", { class: "label" }, t("recovery")),
@@ -221,17 +226,17 @@ TABS.overview = async (view) => {
   const issues = h("div", { class: "card" }, h("h3", {}, t("issuesTitle")), h("div", { class: "sub" }, t("issuesSub")),
     h("div", { class: "issues" }, [...r.gates].sort((a, c) => order[a.level] - order[c.level]).map((g) =>
       h("div", { class: "issue" }, h("div", {}, chip(g.level, t("lvl_" + g.level))),
-        h("div", {}, h("div", { class: "t" }, g.title), h("div", { class: "d" }, g.detail))))));
+        h("div", {}, h("div", { class: "t" }, trFree(g.title)), h("div", { class: "d" }, trFree(g.detail)))))));
 
   for (const list of Object.values(r.attributes.supportsAtRisk || {})) {
     issues.append(h("div", { class: "sub", style: "margin-top:12px" }, t("supportsAtRisk")),
-      h("table", {}, h("tbody", {}, list.map((s) => h("tr", {}, h("td", {}, s.name), h("td", { class: "muted" }, s.skill),
+      h("table", {}, h("tbody", {}, list.map((s) => h("tr", {}, h("td", {}, trName(s.name)), h("td", { class: "muted" }, trName(s.skill)),
         h("td", { class: "num" }, pct(s.skill_dps_pct)))))));
   }
 
   const path = h("div", { class: "card" }, h("h3", {}, t("pathTitle")), h("div", { class: "sub" }, t("pathSub")),
     h("div", { class: "steps" }, r.path.map((s) => h("div", { class: "step" }, h("div", {},
-      h("div", { class: "what mod" }, s.mod),
+      h("div", { class: "what mod" }, trMod(s.mod)),
       deltas({ dps: s.dps, phys_hit: s.defence.Physical, chaos_hit: s.defence.Chaos, recovery: s.recovery }))))));
 
   return h("div", { class: "stack" }, kpi, h("div", { class: "grid two" }, hitCard, issues), path);
@@ -248,9 +253,9 @@ TABS.damage = async (view) => {
       t("rageLine", { assumed: fmt(x.assumed), maximum: fmt(x.maximum), without: fmt(x.dps_without), with: fmt(x.dps_with), mult: fmt(x.dps_with / x.dps_without, 2) }),
       x.set_in_build ? null : h("span", { class: "muted" }, t("rageEmpty"))));
     blocks.push(h("div", { class: "card" }, h("h3", {}, t("coreTitle")), res,
-      core.unit ? h("div", { class: "sub" }, t("rate", core.unit.name, pct(core.unit.dps_pct_per_point))) : null,
+      core.unit ? h("div", { class: "sub" }, t("rate", unitName(core.unit.name), pct(core.unit.dps_pct_per_point))) : null,
       h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", { class: "num" }, "DPS"), h("th", { class: "num" }, t("colUnits")))),
-        h("tbody", {}, core.exchange.slice(0, 12).map((x) => h("tr", {}, h("td", { class: "mod" }, x.mod), h("td", { class: "num" }, pct(x.dps)), h("td", { class: "num" }, fmt(x.points, 1))))))));
+        h("tbody", {}, core.exchange.slice(0, 12).map((x) => h("tr", {}, h("td", { class: "mod", title: x.mod }, trMod(x.mod)), h("td", { class: "num" }, pct(x.dps)), h("td", { class: "num" }, fmt(x.points, 1))))))));
   }
 
   const rng = r.damageRange;
@@ -269,7 +274,7 @@ TABS.damage = async (view) => {
   const max = Math.max(...r.ranking.map((x) => x.score), 1);
   blocks.push(h("div", { class: "card" }, h("h3", {}, t("investTitle")), h("div", { class: "sub" }, t("investSub")),
     h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", {}, t("colEffect")), h("th", { class: "num" }, t("colScore")))),
-      h("tbody", {}, r.ranking.map((x) => h("tr", {}, h("td", { class: "mod" }, x.mod),
+      h("tbody", {}, r.ranking.map((x) => h("tr", {}, h("td", { class: "mod", title: x.mod }, trMod(x.mod)),
         h("td", {}, deltas({ dps: x.dps, phys_hit: x.physHit, chaos_hit: x.chaosHit, recovery: x.recovery })),
         h("td", { class: "num" }, scoreBar(x.score, max))))))));
 
@@ -284,17 +289,17 @@ TABS.gear = async (view) => {
   const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
     g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", {},
       h("div", { class: "what" }, chip("tag", slotName(s.slot)), " ",
-        s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, s.removed.join(" / ")), " → ") : t("craftAdd"),
-        h("span", { class: "mod" }, s.added.join(" / "))),
+        s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, trMod(s.removed.join(" / "))), " → ") : t("craftAdd"),
+        h("span", { class: "mod" }, trMod(s.added.join(" / ")))),
       deltas(s.changes),
-      s.sources.length ? h("div", { class: "src" }, t("from") + s.sources.join(" · ")) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
+      s.sources.length ? h("div", { class: "src" }, t("from") + s.sources.map(trSource).join(" · ")) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
 
   const socketCard = h("div", { class: "card" }, h("h3", {}, t("socketsTitle")),
     h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", g.prices.league) : "")),
     g.sockets.length ? g.sockets.map((s) => h("div", { style: "margin-bottom:12px" },
-      h("div", {}, chip("tag", slotName(s.slot)), t("socketNow", s.index), h("b", {}, s.current), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
+      h("div", {}, chip("tag", slotName(s.slot)), t("socketNow", s.index), h("b", {}, trName(s.current)), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
       s.best.length ? h("table", {}, h("tbody", {}, s.best.map((o) => h("tr", {},
-        h("td", {}, h("div", {}, o.name), h("div", { class: "mod muted" }, o.lines.join(" / "))),
+        h("td", {}, h("div", {}, trName(o.name)), h("div", { class: "mod muted" }, trMod(o.lines.join(" / ")))),
         h("td", {}, deltas(o.changes)), h("td", { class: "num" }, o.price || "")))))
         : h("div", { class: "muted small" }, t("nothingBetter"))))
       : h("p", { class: "muted" }, t("noSockets")));
@@ -302,16 +307,16 @@ TABS.gear = async (view) => {
   const cards = g.slots.map((p) => {
     const max = Math.max(...p.affixes.map((a) => a.score), 1);
     return h("div", { class: "card" },
-      h("div", { class: "slot-head" }, h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", {}, p.item)),
+      h("div", { class: "slot-head" }, h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", { title: p.item }, trItem(p.item))),
         chip(p.corrupted ? "must" : "tag", p.corrupted ? t("corrupted") : t("craftable"))),
-      h("div", { class: "sub" }, t("affixCount", p) + (p.uncertain ? t("approx") : "")),
+      h("div", { class: "sub" }, t("affixCount", { ...p, base: trName(p.base) }) + (p.uncertain ? t("approx") : "")),
       p.affixes.map((a) => h("div", { class: "affix" },
         h("div", { class: "kind" }, a.type === "Prefix" ? t("prefix") : t("suffix")),
-        h("div", {}, h("span", { class: "mod" }, a.lines.join(" / ")), h("span", { class: "tier" }, `T${a.tier}/${a.tiers}`),
-          a.holds.length ? h("div", {}, chip("hold", t("holds") + a.holds.join(", "))) : null,
+        h("div", {}, h("span", { class: "mod", title: a.lines.join(" / ") }, trMod(a.lines.join(" / "))), h("span", { class: "tier" }, `${LANG === "ru" ? "тир " : "T"}${a.tier}/${a.tiers}`),
+          a.holds.length ? h("div", {}, chip("hold", t("holds") + a.holds.map(trFree).join(", "))) : null,
           a.utility ? h("div", {}, chip("util", t("utility"))) : null),
         scoreBar(a.score, max))),
-      p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, x))) : null);
+      p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null);
   });
 
   return h("div", { class: "stack" }, h("div", { class: "grid two" }, path, socketCard),
@@ -334,8 +339,8 @@ TABS.compare = async () => {
       const verdict = r.dps_pct > 0.5 ? t("better") : r.dps_pct < -0.5 ? t("worse") : t("same");
       out.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("verdict", verdict)),
         deltas(ch, METRIC, 0.05), r.life_pct ? h("p", {}, t("lifeDelta", pct(r.life_pct))) : null,
-        Object.entries(r.unmet_requirements).map(([a, [have, need]]) => h("p", {}, chip("must", t("reqShort", a, have, need)))),
-        r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", r.breakeven.line, fmt(r.breakeven.factor * 100)) : t("beBad")) : null));
+        Object.entries(r.unmet_requirements).map(([a, [have, need]]) => h("p", {}, chip("must", t("reqShort", attrName(a), have, need)))),
+        r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", trMod(r.breakeven.line), fmt(r.breakeven.factor * 100)) : t("beBad")) : null));
     } catch (e) { out.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
     run.disabled = false;
   } }, t("compare"));
@@ -352,19 +357,24 @@ TABS.compare = async () => {
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));
   const m = await cached("mechanics", () => api("/api/mechanics"));
-  const where = (w) => w.replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`)
+  const where = (w) => trFree(w.replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`))
     .replace(/\(([^()]+)\)$/, (all, s) => (SLOT_RU[s] !== undefined ? `(${slotName(s)})` : all));
-  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, where(g.where)), h("div", {}, g.text),
-    g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
-  const impact = m.gaps.filter((g) => g.likely_impact);
-  const rest = m.gaps.filter((g) => !g.likely_impact);
+  // in Russian mode show only what has an official translation; the English original stays in the tooltip
+  const line = (text) => h("div", { title: text }, trMod(text));
+  const gap = (g) => h("div", { class: "gap" }, h("div", { class: "where" }, where(g.where)), line(g.text),
+    LANG === "en" && g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
+  // raw internal stat ids ("stat_name = 20") mean nothing to a player; the English view keeps them
+  const shown = m.gaps.filter((g) => LANG === "en" || !/^[a-z0-9_%+]+ = /.test(g.text));
+  const impact = shown.filter((g) => g.likely_impact);
+  const rest = shown.filter((g) => !g.likely_impact);
   return h("div", { class: "grid two" },
     h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
       impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
     h("div", { class: "card" }, h("h3", {}, t("skillsTitle")), h("div", { class: "sub" }, t("skillsSub")),
-      m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, `${s.group}. ${s.name}`),
-        s.description ? h("p", { class: "muted small" }, s.description) : null, h("ul", {}, s.lines.map((l) => h("li", {}, l))))),
-      m.uniques.map((u) => h("details", {}, h("summary", {}, u.name), h("ul", {}, u.lines.map((l) => h("li", {}, l)))))));
+      m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, `${s.group}. ${trName(s.name)}`),
+        s.description && LANG === "en" ? h("p", { class: "muted small" }, s.description) : null,
+        h("ul", {}, s.lines.map((l) => h("li", { title: l }, trMod(l)))))),
+      m.uniques.map((u) => h("details", {}, h("summary", {}, trItem(u.name)), h("ul", {}, u.lines.map((l) => h("li", { title: l }, trMod(l))))))));
 };
 
 // ---------- profile ----------
@@ -377,7 +387,9 @@ TABS.profile = async () => {
   const mana = h("input", { type: "checkbox", checked: !!raw.mana_sustained });
   const corrBox = h("div", {});
   const drawCorr = () => corrBox.replaceChildren(...raw.corrections.map((c, i) => h("div", { class: "corr" },
-    h("input", { type: "text", value: c.mod, oninput: (e) => { c.mod = e.target.value; }, title: c.source || "" }),
+    h("div", {},
+      h("input", { type: "text", value: c.mod, style: "width:100%", oninput: (e) => { c.mod = e.target.value; }, title: c.source || "" }),
+      LANG !== "en" && trMod(c.mod) !== c.mod ? h("div", { class: "hint" }, trMod(c.mod)) : null),
     h("input", { type: "number", value: c.uptime ?? 1, step: 0.05, min: 0, max: 1, oninput: (e) => { c.uptime = Number(e.target.value); } }),
     h("label", { class: "small" }, h("input", { type: "checkbox", checked: !!c.confirmed, onchange: (e) => { c.confirmed = e.target.checked; } }), t("confirmed")),
     h("button", { class: "x", title: t("remove"), onclick: () => { raw.corrections.splice(i, 1); drawCorr(); } }, "×"))));
@@ -410,7 +422,7 @@ TABS.profile = async () => {
       h("button", { class: "ghost small", onclick: () => { raw.corrections.push({ mod: "", source: "manual", uptime: 1, confirmed: false }); drawCorr(); } }, t("addCorrection")),
       h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
     h("div", { class: "card" }, h("h3", {}, t("howCounted")),
-      state.build.profile.map((l) => h("div", { class: "profile-line" }, l))));
+      state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))));
 };
 
 // ---------- assistant ----------
@@ -498,7 +510,7 @@ function chatCard(configured) {
     send.disabled = true;
     log.append(loading(t("thinking")));
     try {
-      const r = await api("/api/chat", { method: "POST", body: { message: q } });
+      const r = await api("/api/chat", { method: "POST", body: { message: q, lang: LANG } });
       state.chat.push({ role: "bot", text: r.answer, tools: r.tools });
       if (r.proposals.length) toast(t("proposal"), true);
     } catch (e) { state.chat.push({ role: "bot", text: `${t("error")}: ${e.message}` }); }
@@ -510,10 +522,14 @@ function chatCard(configured) {
   return h("div", { class: "card chat" }, log, h("div", { class: "chat-input" }, input, h("div", { class: "stack" }, send, reset)));
 }
 
+const ATTR_RU = { Str: "силы", Dex: "ловкости", Int: "интеллекта" };
+const attrName = (a) => (LANG === "ru" ? ATTR_RU[a] || a : a);
+
 // ---------- start ----------
 (async function start() {
   applyStaticTexts();
   renderEmpty();
+  await loadGameTexts();
   const s = await loadStatus();
   if (s.loaded) {
     try { state.build = await api("/api/build"); renderHeader(); switchTab("overview"); } catch (_) { /* reopen from the list */ }

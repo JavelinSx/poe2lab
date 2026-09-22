@@ -15,11 +15,13 @@ from ..analysis.slots import craft_path, plan_all
 from ..analysis.sockets import plan_sockets
 from ..analysis.sources import describe as describe_sources
 from ..analysis.threats import MapProfile, survivable_hits
-from ..assistant import Assistant, LLMConfig, LLMError, Toolbox, build_context, list_models, make_client
+from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
+                         make_client)
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
+from ..i18n import dictionary as translation_dictionary
 from ..knowledge import collect as collect_mechanics
 from ..pobfiles import PROJECT_BUILDS, list_pob_builds, resolve_build
 from ..profile import BuildProfile, describe as describe_profile, open_build
@@ -123,6 +125,7 @@ class CompareRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    lang: str = "ru"
 
 
 @app.get("/api/status")
@@ -151,6 +154,22 @@ def _llm_view() -> dict:
                       for p in PROVIDERS],
         "active": status()["llm"],
     }
+
+
+_dictionaries: dict = {}
+
+
+@app.get("/api/i18n/{lang}")
+def i18n(lang: str):
+    """Official game texts for the UI language (stat templates, names); empty if GGG's data is unreachable."""
+    if lang not in _dictionaries:
+        try:
+            _dictionaries[lang] = {"available": True, **translation_dictionary(lang)}
+        except ValueError as err:
+            raise HTTPException(400, str(err))
+        except OSError:
+            return {"available": False, "stats": {}, "names": {}}
+    return _dictionaries[lang]
 
 
 @app.get("/api/llm")
@@ -200,6 +219,7 @@ def builds():
 def _summary():
     e = session.engine
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
+            "gems": sorted({g["name"] for g in e.gems()}),
             "profile": describe_profile(session.bp), "profileRaw": _profile_raw(),
             "items": e.equipped_item_details()}
 
@@ -317,7 +337,10 @@ def chat(req: ChatRequest):
         session.require()
         if session.assistant is None:
             session.toolbox = Toolbox(session.engine, session.profile, session.db())
-            session.assistant = Assistant(make_client(cfg), session.toolbox, build_context(session.engine, session.bp))
+            names = i18n(req.lang)["names"] if req.lang != "en" else {}
+            glossary = build_glossary(session.engine, names) if names else None
+            session.assistant = Assistant(make_client(cfg), session.toolbox,
+                                          build_context(session.engine, session.bp, glossary))
         start = len(session.assistant.tool_log)
         try:
             answer = session.assistant.ask(req.message)

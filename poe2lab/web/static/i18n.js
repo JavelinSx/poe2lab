@@ -27,8 +27,8 @@ const I18N = {
     m_dps: "DPS", m_phys: "физ-удар", m_fire: "огонь", m_cold: "холод", m_lightning: "молния", m_chaos: "хаос-удар", m_recovery: "лечение",
     dmg_Physical: "Физ", dmg_Fire: "Огонь", dmg_Cold: "Холод", dmg_Lightning: "Молния", dmg_Chaos: "Хаос",
     coreTitle: "Ядро урона",
-    rageLine: (x) => `Свирепость: считаю ${x.assumed} из ${x.maximum}. Без неё DPS ${x.without}, с ней ${x.with} (×${x.mult}).`,
-    rageEmpty: " В самом PoB поле Rage пустое — его левая панель показывает DPS без свирепости.",
+    rageLine: (x) => `Ярость: считаю ${x.assumed} из ${x.maximum}. Без неё DPS ${x.without}, с ней ${x.with} (×${x.mult}).`,
+    rageEmpty: " В самом PoB поле ярости пустое — его левая панель показывает DPS без ярости.",
     rate: (u, v) => `Курс: 1 ед. «${u}» = ${v} DPS`, colMod: "мод", colUnits: "в единицах", colEffect: "эффект", colScore: "очки",
     condTitle: "Условия боя",
     range: (lo, hi, x) => ["Вилка урона: ", lo, " без дебаффов на враге … ", hi, ` (×${x}) со всеми сразу.`],
@@ -58,7 +58,7 @@ const I18N = {
     other: (n) => `Прочее (${n})`, skillsTitle: "Скиллы и уникальные предметы",
     skillsSub: "Описания из данных игры — то, что получает ИИ-ассистент.", group: "группа",
     factsTitle: "Факты об игре", factsSub: "То, что игрок знает, а PoB — нет. Применяется ко всем расчётам.",
-    rageMax: " свирепость всегда в максимуме", otherwise: "иначе:", manaOk: " мана держится в игре (не проверять дефицит маны)",
+    rageMax: " ярость всегда в максимуме", otherwise: "иначе:", manaOk: " мана держится в игре (не проверять дефицит маны)",
     correctionsTitle: "Поправки на механики, которых нет в PoB", corrMod: "строка мода (как в PoB)", corrUptime: "аптайм 0…1",
     confirmed: " подтверждено", remove: "убрать", addCorrection: "+ поправка", notes: "Заметки",
     save: "Сохранить и пересчитать", saved: "Профиль сохранён, билд пересчитан", howCounted: "Как сейчас считается",
@@ -188,6 +188,112 @@ const PHRASE_RU = {
   "Do you use Frenzy Charges?": "Используешь заряды ярости?",
   "Do you use Endurance Charges?": "Используешь заряды выносливости?",
 };
+
+const CLASS_RU = {
+  "Warrior": "Воин", "Monk": "Монах", "Ranger": "Следопыт", "Huntress": "Охотница", "Sorceress": "Волшебница",
+  "Witch": "Ведьма", "Mercenary": "Наёмник", "Druid": "Друид", "Titan": "Титан", "Warbringer": "Вестник войны",
+  "Smith of Kitava": "Кузнец Китавы", "Invoker": "Заклинатель", "Martial Artist": "Мастер боевых искусств",
+  "Acolyte of Chayula": "Послушник Чаюлы", "Deadeye": "Меткий стрелок", "Pathfinder": "Следопыт",
+  "Stormweaver": "Повелитель бурь", "Chronomancer": "Хрономант", "Infernalist": "Инферналист",
+  "Blood Mage": "Маг крови", "Lich": "Лич", "Tactician": "Тактик", "Witchhunter": "Охотник на ведьм",
+  "Gemling Legionnaire": "Легионер-самоцвет", "Amazon": "Амазонка", "Ritualist": "Ритуалист",
+  "Shaman": "Шаман", "Oracle": "Оракул",
+};
+
+// ---------- official game texts (stat templates and names from GGG's trade data) ----------
+let GAME = { stats: {}, names: {} };
+let BUILD_NAMES = [];  // names occurring in the open build, longest first, for free-text replacement
+
+const TOKEN_RE = /[+-]?\(\s*-?\d+(?:\.\d+)?\s*-\s*-?\d+(?:\.\d+)?\s*\)|[+-]?\d+(?:\.\d+)?/g;
+const statKey = (s) => s.replace(TOKEN_RE, "#").replace(/\+#/g, "#").replace(/\s+/g, " ").trim().toLowerCase();
+
+function fillTemplate(tpl, line) {
+  const tokens = line.match(TOKEN_RE) || [];
+  if ((tpl.match(/#/g) || []).length !== tokens.length) return null;
+  let i = 0;
+  let out = "";
+  for (let p = 0; p < tpl.length; p++) {
+    if (tpl[p] !== "#") { out += tpl[p]; continue; }
+    const tok = tokens[i++];
+    out += p > 0 && (tpl[p - 1] === "+" || tpl[p - 1] === "-") ? tok.replace(/^[+-]/, "") : tok;
+  }
+  return out;
+}
+
+async function loadGameTexts() {
+  GAME = { stats: {}, names: {} };
+  if (LANG === "en") return;
+  try { GAME = await (await fetch(`/api/i18n/${LANG}`)).json(); } catch (_) { /* offline: English game text */ }
+}
+
+// a mod line, or several joined with " / "
+function trMod(line) {
+  if (LANG === "en" || !line) return line;
+  return line.split(" / ").map((part) => {
+    const tpl = GAME.stats[statKey(part)];
+    return (tpl && fillTemplate(tpl, part)) || part;
+  }).join(" / ");
+}
+
+function trName(name) {
+  if (LANG === "en" || !name) return name;
+  return GAME.names[name] || CLASS_RU[name] || name;
+}
+
+// "Random Name, Base Type" for rares / "Unique Name, Base Type" for uniques
+function trItem(name) {
+  if (LANG === "en" || !name) return name;
+  const parts = name.split(", ");
+  if (parts.length !== 2) return trName(name);
+  const [first, base] = parts;
+  return GAME.names[first] ? `${GAME.names[first]}, ${trName(base)}` : trName(base);
+}
+
+function setBuildNames(build) {
+  const names = new Set();
+  for (const g of build.groups || []) g.skills.forEach((s) => names.add(s));
+  for (const g of build.gems || []) names.add(g);
+  for (const it of build.items || []) { it.name.split(", ").forEach((p) => names.add(p)); names.add(it.baseName); }
+  BUILD_NAMES = [...names].filter((n) => n && GAME.names[n]).sort((a, b) => b.length - a.length);
+}
+
+const SUPPORT_COLOR_RU = { Strength: "красных", Dexterity: "зелёных", Intelligence: "синих" };
+
+// server-made sentences: translate «quoted mods», support-gem counts and names from the open build
+function trFree(text) {
+  if (LANG === "en" || !text) return text;
+  let s = text.replace(/«([^»]+)»/g, (_, inner) => `«${GAME.names[inner] ? GAME.names[inner] : trMod(inner)}»`);
+  s = s.replace(/(\d+) (Strength|Dexterity|Intelligence) Support Gems/g, (_, n, c) => `${n} ${SUPPORT_COLOR_RU[c]} камней поддержки`);
+  for (const n of BUILD_NAMES) s = s.split(n).join(GAME.names[n]);
+  for (const [en, ru] of Object.entries(SLOT_RU)) s = s.split(`(${en})`).join(`(${ru})`);
+  for (const [re, ru] of FREE_RU) s = s.replace(re, ru);
+  return s;
+}
+
+const RES_RU = { Fire: "огню", Cold: "холоду", Lightning: "молнии" };
+const ATTR_GEN_RU = { Str: "силы", Dex: "ловкости", Int: "интеллекта" };
+const FREE_RU = [
+  [/кап резиста (Fire|Cold|Lightning)/g, (_, r) => `кап сопротивления ${RES_RU[r]}`],
+  [/требования (Str|Dex|Int)\b/g, (_, a) => `требования ${ATTR_GEN_RU[a]}`],
+  [/Не хватает spirit/g, "Не хватает духа"],
+  [/spirit на резервы/g, "дух на резервы"],
+  [/\bspirit\b/gi, "дух"],
+  [/Druidic Prowess/g, "друидическая доблесть"],
+  [/ ?(?:стат )?[a-z0-9%+]+(?:_[a-z0-9%+]+){2,}/g, ""],  // internal stat ids: no use to a player
+  [/Custom Modifiers/g, "пользовательские модификаторы"],
+];
+
+// "обычный ролл: MOD (нужен уровень предмета N+)" / "эссенция NAME: MOD — price" / "desecration: MOD"
+function trSource(src) {
+  if (LANG === "en") return src;
+  let m = src.match(/^обычный ролл: (.+?)( \(нужен уровень предмета \d+\+\))?$/);
+  if (m) return `обычный ролл: ${trMod(m[1])}${m[2] || ""}`;
+  m = src.match(/^эссенция (.+?): (.+?)( — .+)?$/);
+  if (m) return `эссенция ${trName(m[1])}: ${trMod(m[2])}${m[3] || ""}`;
+  m = src.match(/^desecration: (.+)$/);
+  if (m) return `осквернение: ${trMod(m[1])}`;
+  return trFree(src);
+}
 
 let LANG = "ru";
 try { LANG = localStorage.getItem("poe2lab.lang") || "ru"; } catch (_) { /* storage blocked */ }

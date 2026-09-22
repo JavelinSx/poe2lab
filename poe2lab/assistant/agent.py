@@ -30,8 +30,9 @@ SYSTEM_RULES = """Ты — аналитик билдов Path of Exile 2 (пат
    улучшить». Испорченные (corrupted) предметы менять нельзя — для них только «что искать в замене»."""
 
 
-def build_context(engine, bp: BuildProfile) -> str:
-    """Everything the model should know before the first question; stable, so the API can cache it."""
+def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = None) -> str:
+    """Everything the model should know before the first question; stable, so the API can cache it.
+    glossary: official localized names (English -> player's language) to use in answers."""
     info = engine.info()
     mech = collect_mechanics(engine)
     parts = [f"Билд: {info['class']} / {info['ascendancy']}, {info['level']} ур., основной скилл: {engine.main_skill()}."]
@@ -50,7 +51,20 @@ def build_context(engine, bp: BuildProfile) -> str:
     parts.append("Надетые предметы: " + ", ".join(f"{i['slot']}: {i['name']}"
                                                  + (" [испорчен]" if i["corrupted"] else "")
                                                  for i in engine.equipped_item_details()))
+    if glossary:
+        parts.append("Игрок играет на русском клиенте. В ответах называй скиллы, предметы и моды так, как в русском "
+                     "клиенте; официальные названия для этого билда:\n"
+                     + "\n".join(f"- {en} = {ru}" for en, ru in sorted(glossary.items())))
     return "\n\n".join(parts)
+
+
+def build_glossary(engine, names: dict[str, str]) -> dict[str, str]:
+    """Official translations of the skill, gem and item names that occur in this build."""
+    wanted = {g["name"] for g in engine.gems()}
+    for item in engine.equipped_item_details():
+        wanted.update(p.strip() for p in item["name"].split(","))
+        wanted.add(item["baseName"])
+    return {n: names[n] for n in wanted if n in names}
 
 
 class Assistant:
