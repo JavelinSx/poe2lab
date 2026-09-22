@@ -105,19 +105,85 @@ function renderEmpty() {
 async function loadBuildList() {
   const box = $("#builds");
   try {
-    const builds = await api("/api/builds");
+    const [builds, hidden] = await Promise.all([api("/api/builds"), api("/api/builds/hidden")]);
     box.replaceChildren();
     if (!builds.length) box.append(h("div", { class: "muted small" }, t("noBuilds")));
     for (const b of builds) {
-      box.append(h("button", {
-        class: "build-item" + (state.build && state.build.name === b.name ? " active" : ""),
-        onclick: () => openBuild(b.name),
+      // a div, not a button: the star and the cross inside are buttons of their own
+      box.append(h("div", {
+        class: "build-item" + (state.build && state.build.name === b.name ? " active" : "") + (b.favorite ? " fav" : ""),
+        role: "button", tabindex: "0", onclick: () => openBuild(b.name),
+        onkeydown: (e) => { if (e.key === "Enter") openBuild(b.name); },
       },
-      h("div", { class: "bi-name" }, b.name),
-      h("div", { class: "bi-kind" }, (b.kind === "pob" ? t("savedInPob") : t("pobCode")) + (b.hasProfile ? " · " + t("withProfile") : ""))));
+      h("div", { class: "bi-text" },
+        h("div", { class: "bi-name" }, b.name),
+        h("div", { class: "bi-kind" }, (b.kind === "pob" ? t("savedInPob") : t("pobCode")) + (b.hasProfile ? " · " + t("withProfile") : ""))),
+      h("button", { class: "bi-act star" + (b.favorite ? " on" : ""), title: b.favorite ? t("favOff") : t("favOn"),
+        onclick: (e) => { e.stopPropagation(); toggleFavorite(b); } }, b.favorite ? "★" : "☆"),
+      h("button", { class: "bi-act del", title: t("removeBuild"),
+        onclick: (e) => { e.stopPropagation(); removeBuild(b); } }, "×")));
+    }
+    if (hidden.count) {
+      box.append(h("button", { class: "link small", onclick: async () => {
+        await api("/api/builds/unhide", { method: "POST" }); loadBuildList();
+      } }, t("showHidden", hidden.count)));
     }
   } catch (e) { box.replaceChildren(h("div", { class: "muted small" }, e.message)); }
 }
+
+async function toggleFavorite(b) {
+  try {
+    await api(`/api/builds/${encodeURIComponent(b.name)}/favorite`, { method: "PUT", body: { favorite: !b.favorite } });
+    loadBuildList();
+  } catch (e) { toast(e.message); }
+}
+
+async function removeBuild(b) {
+  if (!confirm(b.kind === "pob" ? t("confirmHide", b.name) : t("confirmTrash", b.name))) return;
+  try {
+    const r = await api(`/api/builds/${encodeURIComponent(b.name)}`, { method: "DELETE" });
+    toast(r.result === "hidden" ? t("hiddenOne", b.name) : t("trashed", b.name), true);
+    if (state.build && state.build.name === b.name) {
+      switchTab.token = Symbol();  // a late answer for the removed build must not render
+      state.build = null;
+      state.chat = [];
+      resetCache();
+      $("#build-header").classList.add("hidden");
+      $("#tabs").classList.add("hidden");
+      renderEmpty();
+    }
+    loadBuildList();
+  } catch (e) { toast(e.message); }
+}
+
+function renderAddBuild() {
+  const name = h("input", { type: "text", placeholder: t("addName") });
+  const code = h("textarea", { rows: 8, placeholder: t("addCode"), spellcheck: "false" });
+  const go = h("button", { class: "primary", onclick: async () => {
+    if (!code.value.trim()) { code.focus(); return; }
+    go.disabled = true;
+    go.textContent = t("adding");
+    try {
+      const r = await api("/api/builds", { method: "POST", body: { name: name.value, code: code.value } });
+      toast(t("added", r.name), true);
+      await openBuild(r.name);
+    } catch (e) {
+      toast(e.message);
+      go.disabled = false;
+      go.textContent = t("addGo");
+    }
+  } }, t("addGo"));
+  $("#build-header").classList.add("hidden");
+  $("#tabs").classList.add("hidden");
+  $("#view").replaceChildren(h("div", { class: "card stack add-build" },
+    h("h3", {}, t("addTitle")), h("div", { class: "sub" }, t("addSub")),
+    name, code,
+    h("div", { class: "row" }, go, state.build
+      ? h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")) : null)));
+  code.focus();
+}
+
+$("#add-build").addEventListener("click", renderAddBuild);
 
 async function loadStatus() {
   const s = await api("/api/status");

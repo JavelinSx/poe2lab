@@ -22,11 +22,11 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
-from .. import gamedata
+from .. import gamedata, library
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
-from ..pobfiles import PROJECT_BUILDS, list_pob_builds, resolve_build
+from ..pobfiles import PROJECT_BUILDS, resolve_build
 from ..profile import BuildProfile, describe as describe_profile, open_build
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -269,11 +269,55 @@ def llm_models():
 
 @app.get("/api/builds")
 def builds():
-    out = [{"name": p.stem, "kind": "pob", "file": str(p)} for p in list_pob_builds()]
-    out += [{"name": p.stem, "kind": "code", "file": str(p)} for p in sorted(PROJECT_BUILDS.glob("*.txt"))]
-    for b in out:
-        b["hasProfile"] = (PROJECT_BUILDS / f"{b['name']}.profile.json").exists()
-    return out
+    return library.entries()
+
+
+@app.get("/api/builds/hidden")
+def builds_hidden():
+    return {"count": library.hidden_count()}
+
+
+class AddBuildRequest(BaseModel):
+    name: str = ""
+    code: str  # PoB code or a pobb.in link
+
+
+@app.post("/api/builds")
+def add_build(req: AddBuildRequest):
+    try:
+        return {"name": library.add(req.name, req.code)}
+    except library.LibraryError as err:
+        raise HTTPException(400, str(err))
+
+
+class FavoriteRequest(BaseModel):
+    favorite: bool
+
+
+@app.put("/api/builds/{name}/favorite")
+def favorite_build(name: str, req: FavoriteRequest):
+    library.set_favorite(name, req.favorite)
+    return {"ok": True}
+
+
+@app.delete("/api/builds/{name}")
+def remove_build(name: str):
+    with session.lock:
+        try:
+            result = library.remove(name)
+        except library.LibraryError as err:
+            raise HTTPException(404, str(err))
+        if session.path is not None and session.path.stem == name:  # the open build is gone: close it
+            session.path = session.engine = session.bp = None
+            session.cache.clear()
+            session.assistant = session.toolbox = None
+        return {"result": result}
+
+
+@app.post("/api/builds/unhide")
+def unhide_builds():
+    library.unhide_all()
+    return {"ok": True}
 
 
 def _profile_questions() -> dict:
