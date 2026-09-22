@@ -34,6 +34,20 @@ def _pct(new: float, old: float) -> float:
     return (new - old) / old * 100 if old else 0.0
 
 
+ENEMY_PREFIX = "conditionEnemy"
+
+
+def damage_range(engine, config: dict, impacts: list[ConditionImpact]) -> dict:
+    """DPS with no enemy debuffs assumed vs with every unticked enemy debuff that adds damage at once.
+    For when the player cannot say how often enemies are stunned/crushed/shocked: reality is in between."""
+    base = engine.what_if(config=config)["CombinedDPS"]
+    debuffs = [c for c in impacts if not c.checked and c.var.startswith(ENEMY_PREFIX) and c.dps_pct >= NOISE_PCT]
+    if not debuffs:
+        return {"low": base, "high": base, "conditions": []}
+    high = engine.what_if(config=config | {c.var: True for c in debuffs})["CombinedDPS"]
+    return {"low": base, "high": high, "conditions": [c.label for c in debuffs]}
+
+
 def audit(engine, config: dict) -> list[ConditionImpact]:
     base = engine.what_if(config=config)
     out = []

@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass
 
 from . import attributes as attrs
 from .conditions import audit as audit_conditions
+from .conditions import damage_range
 from .gradients import Gradient, compute, recovery_per_second
 from .stats import mod_line
 from .threats import DAMAGE_TYPES, MapProfile, recovery, survivable_hits
@@ -204,6 +205,7 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
     _, grads = compute(engine, config=profile.config())
     ranked = sorted(grads, key=lambda g: -score(g, mode, weights))
 
+    conditions = audit_conditions(engine, profile.config())
     sources = engine.requirement_sources()
     statuses = attrs.status(stats, sources, engine.attribute_node_counts())
     swaps = attrs.node_swaps(engine, profile.config(), statuses)
@@ -225,7 +227,8 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
         },
         "gates": [asdict(g) for g in attribute_gates(statuses, swaps, deps)
                   + gates(stats, hits, rec, profile.mana_sustained)],
-        "conditions": [asdict(c) for c in audit_conditions(engine, profile.config())],
+        "conditions": [asdict(c) for c in conditions],
+        "damageRange": damage_range(engine, profile.config(), conditions),
         "core": core_damage(engine, profile, grads),
         "attributes": {
             "status": [asdict(s) | {"margin": s.margin} for s in statuses],

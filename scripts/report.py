@@ -73,6 +73,12 @@ def print_report(r: dict):
                  (c["ele_hit_pct"], "элем-удар"), (c["recovery_pct"], "лечение"), (c["life_pct"], "жизнь")]
         return ", ".join(f"{name} {v:+.1f}%" for v, name in parts if abs(v) >= 0.5)
 
+    rng = r["damageRange"]
+    if rng["conditions"]:
+        print(f"\nВИЛКА УРОНА: {rng['low']:,.0f} (враг без дебаффов) … {rng['high']:,.0f} "
+              f"(×{rng['high'] / rng['low']:.2f}, если одновременно: {', '.join(rng['conditions'])})")
+        print("  Реальный урон между ними — зависит от того, как часто эти состояния висят на врагах.")
+
     off = [c for c in r["conditions"] if not c["checked"]]
     on = [c for c in r["conditions"] if c["checked"]]
     print("\nУСЛОВИЯ ВО ВКЛАДКЕ CONFIGURATION (PoB считает их так, как отмечено)")

@@ -71,6 +71,15 @@ def test_conditions_audit_flips_each_box_and_restores(titan):
     assert after["CombinedDPS"] == pytest.approx(before["CombinedDPS"]) and after["Life"] == before["Life"]
 
 
+def test_damage_range_brackets_enemy_debuffs(titan):
+    from poe2lab.analysis.conditions import audit, damage_range
+    cfg = MapProfile().config()
+    rng = damage_range(titan, cfg, audit(titan, cfg))
+    assert rng["high"] > rng["low"] == pytest.approx(titan.what_if(config=cfg)["CombinedDPS"])
+    assert "Is the enemy Heavy Stunned?" in rng["conditions"]
+    assert not any("Adrenaline" in c for c in rng["conditions"])  # player buffs are not enemy debuffs
+
+
 def test_item_dependency_detects_break():
     # Strip Strength so that the amulet alone holds the 126 Strength gem requirement.
     e = PobEngine()

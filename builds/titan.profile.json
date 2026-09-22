@@ -6,15 +6,21 @@
   "corrections": [
     {
       "mod": "Gain 30% of Damage as Extra Fire Damage",
-      "source": "баф Walking Calamity: PoB не применяет стат walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire",
+      "source": "баф Walking Calamity: PoB не применяет стат walking_calamity_non_skill_base_all_damage_%_to_gain_as_fire; используется практически по кулдауну",
       "uptime": 1.0,
-      "confirmed": false
+      "confirmed": true
+    },
+    {
+      "mod": "30% increased Skill Speed",
+      "source": "Druidic Prowess от Amor Mandragora (второй набор оружия): 10% скорости скиллов за стак, максимум 3; PoB механику не знает; держится после смены оружия (подтверждено), считаю 3 стака",
+      "uptime": 1.0,
+      "confirmed": true
     }
   ],
   "notes": [
     "Свирепость всегда в максимуме: Walking Calamity (регенерация свирепости во время действия) + Ferocious Roar (подтверждено в игре).",
     "Мана и жизнь держатся личем (подтверждено в игре); PoB при непрерывных ударах показывает дефицит маны ~110/с.",
-    "Amor Mandragora во втором наборе оружия: 1 Druidic Prowess за каждые 20 потраченной свирепости — PoB эту механику не считает, эффект не учтён.",
+    "Druidic Prowess: 1 стак за каждые 20 потраченной свирепости, стак живёт 10 с (poe2db); число стаков в бою не проверено — взят максимум.",
     "Momentum в группе Rampage выключен в игре из-за нехватки ловкости (22 из 25)."
   ]
 }
