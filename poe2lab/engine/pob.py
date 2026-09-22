@@ -190,23 +190,61 @@ for id, node in pairs(build.spec.allocNodes) do
 end
 return _poe2lab_json(out)""")
 
-    def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None) -> dict[str, float]:
+    def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
+                remove_slot: str | None = None) -> dict[str, float]:
         """Recalculate without changing the build, as if:
         - passive nodes were added/removed,
         - extra player mod lines were present (e.g. "10% increased Attack Speed"),
         - extra enemy mod lines were present (e.g. "50% increased Damage"),
-        - Configuration tab values were set (e.g. {"enemyLevel": 79, "enemyCritChance": 100})."""
+        - Configuration tab values were set (e.g. {"enemyLevel": 79, "enemyCritChance": 100}),
+        - the item in remove_slot (e.g. "Ring 1") was taken off."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
         lines = ", ".join(lua_string(m) for m in mods)
         enemy_lines = ", ".join(lua_string(m) for m in enemy_mods)
         cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
+        slot = f", repSlotName = {lua_string(remove_slot)}" if remove_slot else ""
         return self._json(f"""
 local calcFunc = build.calcsTab:GetMiscCalculator()
-local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}) }}
+local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}){slot} }}
 local out = _poe2lab_with_setup({{ {cfg} }}, {{ {lines} }}, {{ {enemy_lines} }},
   function() return calcFunc(override, false) end)
 return _poe2lab_numbers(out)""")
+
+    def equipped_items(self) -> list[dict]:
+        """Items in gear slots (jewels excluded)."""
+        return self._json("""
+local out = _poe2lab_array({})
+for _, slot in ipairs(build.itemsTab.orderedSlots) do
+  local item = not slot.nodeId and build.itemsTab.items[slot.selItemId]
+  if item then
+    out[#out + 1] = { slot = slot.slotName, name = item.name or "", rarity = item.rarity or "" }
+  end
+end
+return _poe2lab_json(out)""")
+
+    def requirement_sources(self) -> list[dict]:
+        """Every attribute requirement PoB checks: items, gems and grouped support gems (PoB's 'Req' breakdowns)."""
+        return self._json("""
+local out = _poe2lab_array({})
+local breakdown = build.calcsTab.calcsEnv.player.breakdown
+for _, attr in ipairs({ "Str", "Dex", "Int" }) do
+  for _, row in ipairs((breakdown["Req" .. attr] or {}).rowList or {}) do
+    out[#out + 1] = { attr = attr, req = row.reqNum, source = row.source,
+                      name = StripEscapes(tostring(row.sourceName or "")) }
+  end
+end
+return _poe2lab_json(out)""")
+
+    def attribute_node_counts(self) -> dict[str, int]:
+        """Allocated passive attribute nodes (+5 each in PoE2) by chosen attribute."""
+        return self._json("""
+local counts = { Str = 0, Dex = 0, Int = 0 }
+local key = { Strength = "Str", Dexterity = "Dex", Intelligence = "Int" }
+for _, node in pairs(build.spec.allocNodes) do
+  if node.isAttribute and key[node.dn] then counts[key[node.dn]] = counts[key[node.dn]] + 1 end
+end
+return _poe2lab_json(counts)""")
 
     def config(self) -> dict:
         """Current Configuration tab values explicitly set in the build."""

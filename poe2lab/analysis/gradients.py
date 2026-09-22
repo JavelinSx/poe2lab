@@ -44,11 +44,16 @@ def _pct(new: dict, base: dict, metric: str) -> float:
     return (metric_value(new, metric) - b) / b * 100 if b else 0.0
 
 
-def compute(runner, stats: list[Stat] = STATS, config: dict | None = None) -> tuple[dict, list[Gradient]]:
+def compute(runner, stats: list[Stat] = STATS, config: dict | None = None,
+            base_mods: list[str] = ()) -> tuple[dict, list[Gradient]]:
     """runner: a PobEngine or EnginePool with the build loaded and main skill selected.
-    config: Configuration tab overrides (e.g. enemy level/boss) applied to every calculation."""
+    config: Configuration tab overrides (e.g. enemy level/boss) applied to every calculation.
+    base_mods: mod lines treated as already on the character (e.g. earlier steps of an upgrade path)."""
     extra = {"config": config} if config else {}
-    calls = [dict(extra)] + [{"mods": [mod_line(s, m)], **extra} for s in stats for m in (1, 2)]
+    base_mods = list(base_mods)
+    calls = [{"mods": base_mods, **extra}] + [
+        {"mods": base_mods + [mod_line(s, m)], **extra} for s in stats for m in (1, 2)
+    ]
     if hasattr(runner, "map"):
         results = runner.map("what_if", calls)
     else:
