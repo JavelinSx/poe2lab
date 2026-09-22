@@ -836,6 +836,8 @@ function aiSettingsCard(settings, onSaved) {
   const urlField = h("label", { class: "field full" }, h("span", {}, t("apiUrl")), urlInput);
   const keyField = h("label", { class: "field full" }, h("span", {}, t("apiKey")), keyInput);
   const modelsInfo = h("span", { class: "hint" });
+  const styleSel = h("select", {}, h("option", { value: "short" }, t("styleShort")), h("option", { value: "detailed" }, t("styleDetailed")));
+  styleSel.value = settings.style || "short";
 
   const sync = () => {
     current = settings.providers.find((p) => p.id === provSel.value);
@@ -854,7 +856,7 @@ function aiSettingsCard(settings, onSaved) {
   sync();
 
   const body = () => ({ provider: provSel.value, model: modelInput.value.trim() || null, base_url: urlInput.value.trim() || null,
-    api_key: keyInput.value.trim() || null });
+    api_key: keyInput.value.trim() || null, style: styleSel.value });
   const save = h("button", { class: "primary", onclick: async () => {
     try { onSaved(await api("/api/llm", { method: "PUT", body: body() })); toast(t("aiSaved"), true); } catch (e) { toast(e.message); }
   } }, t("saveAi"));
@@ -875,6 +877,8 @@ function aiSettingsCard(settings, onSaved) {
       h("label", { class: "field" }, h("span", {}, t("provider")), provSel),
       h("label", { class: "field" }, h("span", {}, t("model")), modelInput, modelList),
       h("div", { class: "full" }, note), urlField, keyField,
+      h("label", { class: "field full" }, h("span", {}, t("answerStyle")), styleSel,
+        h("span", { class: "hint", style: "text-transform:none;letter-spacing:0" }, t("answerStyleHint"))),
       h("div", { class: "full hint" }, t("modelsHint"), " ", modelsInfo)),
     h("div", { class: "row" }, save, loadModels, current.keyHint ? clear : null),
     h("div", { class: "hint" }, t("keyStorage"), " ", t("dataLeaves")));

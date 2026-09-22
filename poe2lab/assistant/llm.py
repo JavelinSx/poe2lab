@@ -71,6 +71,11 @@ def list_models(config: LLMConfig) -> list[str]:
     return make_client(config).models()
 
 
+# Providers known to accept a low temperature. OpenAI's reasoning models reject it and "custom" can be anything,
+# so those keep the provider default.
+LOW_TEMPERATURE = {"deepseek", "google", "openrouter", "mistral", "xai", "groq", "ollama"}
+
+
 class ChatClient:
     """OpenAI-compatible /chat/completions."""
 
@@ -99,6 +104,8 @@ class ChatClient:
         """One completion; returns the assistant message (content and/or tool_calls)."""
         clean = [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
         body = {"model": self.config.model, "messages": clean}
+        if self.config.provider in LOW_TEMPERATURE:
+            body["temperature"] = 0.2  # numbers and mechanics, not prose: less invention
         if tools:
             body["tools"] = tools
         data = self._request("/chat/completions", body)

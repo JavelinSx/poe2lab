@@ -8,6 +8,7 @@ from ..analysis.report import build_report, defence_weights
 from ..analysis.slots import plan_slot
 from ..analysis.stats import mod_line
 from ..analysis.threats import MapProfile, survivable_hits
+from ..analysis.tree import analyse as analyse_tree
 from ..data.moddb import ModDB
 from ..engine import PobError
 
@@ -45,6 +46,14 @@ SPECS = [
         "description": "Value of one typical affix of each common stat for damage, survivable hits and recovery.",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
+        "name": "tree_options",
+        "description": "Passive tree: notables/keystones within reach priced by their whole path (value per point), "
+                       "allocated branches worth less than the best option (respec candidates), and nodes whose "
+                       "effect PoB does not see.",
+        "parameters": {"type": "object", "properties": {
+            "goal": {"type": "string", "enum": ["damage", "balanced", "defence"]},
+            "points": {"type": "integer", "description": "reach in passive points, 3-10 (default 6)"}}}}},
+    {"type": "function", "function": {
         "name": "propose_profile_change",
         "description": "Suggest recording a fact about real play in the build profile, e.g. a correction for a "
                        "mechanic PoB does not model. Does not change anything: the user confirms it in the UI.",
@@ -67,6 +76,13 @@ class Toolbox:
         if self._db is None:
             self._db = ModDB.from_engine(self.engine)
         return self._db
+
+    def _tree_options(self, goal: str = "balanced", points: int = 6):
+        r = analyse_tree(self.engine, self.profile, mode=goal, max_points=max(1, min(int(points), 10)), top=8)
+        keep = ("name", "type", "points", "via", "stats", "changes", "perPoint", "lossPerPoint")
+        slim = lambda rows: [{k: row[k] for k in keep if k in row} for row in rows]
+        return {"growth": slim(r["growth"]), "respec": slim(r["respec"][:6]),
+                "pobCannotSee": [b["name"] for b in r["unseen"]], "attributeNodes": len(r["attributes"])}
 
     def call(self, name: str, arguments: str | dict) -> str:
         try:

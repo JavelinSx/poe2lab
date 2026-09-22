@@ -21,6 +21,7 @@ from ..analysis.threats import MapProfile, survivable_hits
 from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
                          make_client)
+from ..assistant.agent import STYLES
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
@@ -152,6 +153,7 @@ class LLMSettings(BaseModel):
     base_url: str | None = None
     api_key: str | None = None  # None/"" keeps the stored key
     clear_key: bool = False
+    style: str | None = None  # "short" / "detailed" answers
 
 
 def _llm_view() -> dict:
@@ -159,6 +161,7 @@ def _llm_view() -> dict:
     keys = s.get("keys") or {}
     return {
         "provider": s.get("provider"), "model": s.get("model"), "baseUrl": s.get("base_url"),
+        "style": s.get("style", "short"),
         "providers": [{"id": p.id, "name": p.name, "baseUrl": p.base_url, "defaultModel": p.default_model,
                        "needsKey": p.needs_key, "note": p.note, "keyHint": key_hint(keys.get(p.id))}
                       for p in PROVIDERS],
@@ -316,6 +319,8 @@ def save_llm(req: LLMSettings):
         keys[req.provider] = req.api_key.strip()
     s.update({"provider": req.provider, "model": (req.model or "").strip() or BY_ID[req.provider].default_model,
               "base_url": (req.base_url or "").strip() or None, "keys": keys})
+    if req.style in STYLES:
+        s["style"] = req.style
     save_settings(s)
     session.assistant = session.toolbox = None  # next question uses the new model
     return _llm_view()
@@ -570,7 +575,8 @@ def chat(req: ChatRequest):
             names = i18n(req.lang)["names"] if req.lang != "en" else {}
             glossary = build_glossary(session.engine, names) if names else None
             session.assistant = Assistant(make_client(cfg), session.toolbox,
-                                          build_context(session.engine, session.bp, glossary))
+                                          build_context(session.engine, session.bp, glossary),
+                                          style=load_settings().get("style", "short"))
         start = len(session.assistant.tool_log)
         try:
             answer = session.assistant.ask(req.message)

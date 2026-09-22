@@ -70,3 +70,33 @@ def test_config_reads_environment(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "k")
     cfg = LLMConfig.from_env()
     assert cfg.api_key == "k" and cfg.base_url == "https://api.deepseek.com" and cfg.model == "deepseek-flash"
+
+
+def test_answer_style_goes_into_the_instructions(titan):
+    engine, bp, profile = titan
+    fake = FakeClient([{"content": "ok"}])
+    Assistant(fake, Toolbox(engine, profile), "ctx", style="detailed").ask("?")
+    system = fake.sent[0][0]["content"]
+    assert "Формат ответа (подробно)" in system and "(оценка)" in system
+    fake = FakeClient([{"content": "ok"}])
+    Assistant(fake, Toolbox(engine, profile), "ctx").ask("?")
+    assert "Формат ответа (кратко)" in fake.sent[0][0]["content"]
+
+
+def test_tree_tool_prices_growth_per_point(titan):
+    engine, _, profile = titan
+    r = json.loads(Toolbox(engine, profile).call("tree_options", {"goal": "damage", "points": 4}))
+    assert r["growth"] and all(g["points"] <= 4 for g in r["growth"])
+    assert r["growth"][0]["perPoint"] >= r["growth"][-1]["perPoint"]
+
+
+def test_low_temperature_only_where_the_provider_takes_it(monkeypatch):
+    from poe2lab.assistant.llm import ChatClient
+    sent = {}
+    monkeypatch.setattr(ChatClient, "_request", lambda self, path, body=None: sent.update(body) or
+                        {"choices": [{"message": {"content": "x"}}]})
+    ChatClient(LLMConfig(api_key="k", provider="deepseek")).complete([{"role": "user", "content": "q"}])
+    assert sent["temperature"] == 0.2
+    sent.clear()
+    ChatClient(LLMConfig(api_key="k", provider="openai")).complete([{"role": "user", "content": "q"}])
+    assert "temperature" not in sent  # OpenAI's reasoning models reject it
