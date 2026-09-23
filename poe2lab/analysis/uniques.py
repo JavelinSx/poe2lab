@@ -148,7 +148,9 @@ def suggest(engine, config: dict, view: dict, max_level: int | None = None) -> d
         if not strong and gain <= 2:
             continue  # only a damage type or a common term in common, and PoB sees no gain: not a link
         out.append({"name": u["name"], "base": u["base"], "type": u["type"], "level": u["level"],
-                    "lines": u["lines"], "unread": u["unread"], "source": u["source"], "slot": worth["slot"],
+                    "lines": u["lines"], "unread": u["unread"], "slot": worth["slot"],
+                    # PoB's markup in sources: "Drops from unique{Trialmaster} in normal{The Trial of Chaos}"
+                    "source": re.sub(r"\w+\{([^}]*)\}", r"\1", u["source"]),
                     "changes": worth["changes"], "reasons": reasons, "relevance": weight,
                     "terms": kw.find(u["lines"])})
     # related first (a mechanic link outweighs a stat bump), then what PoB says it is worth

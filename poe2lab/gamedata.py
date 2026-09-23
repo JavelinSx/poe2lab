@@ -31,6 +31,8 @@ TABLES = {  # table -> (key column, text columns)
 }
 # The game's own explanations of its terms (the popups on hover): Id, name and text in English and in `lang`.
 KEYWORDS = "keywordpopups"
+# where item pictures are: an item's visual identity names its texture; uniques have their own (poe2lab.icons)
+ART_TABLES = ["itemvisualidentity", "uniquestashlayout", "words"]
 # Names PoB shows that no table holds under the same English text (PoB's own labels for game things).
 MANUAL_NAMES = {"ru": {"Thorns": "Шипы"}}
 TYPE_SIZE = {"Bool": 1, "Int": 4, "UInt": 4, "UInt16": 2, "Float": 4, "Enum": 4, "Interval": 8, "String": 8,
@@ -147,7 +149,7 @@ def extract(game: Path, lang: str = "ru"):
     if not BUN.is_file():
         raise GameDataError(f"нет {BUN.relative_to(ROOT)} — скачайте bun с github.com/zao/ooz/releases")
     folder = LANG_NAMES[lang].lower()
-    names = "|".join([*TABLES, KEYWORDS])
+    names = "|".join([*TABLES, KEYWORDS, *ART_TABLES])
     patterns = [r"^data/statdescriptions/.*\.csd$", rf"^data/balance/({folder}/)?({names})\.datc64$"]
     RAW.mkdir(parents=True, exist_ok=True)
     res = subprocess.run([str(BUN), "extract-files", "--regex", str(game), str(RAW), *patterns],
@@ -175,7 +177,8 @@ def _read_string(raw: bytes, pos: int) -> str:
 
 
 def read_table(path: Path, columns: list[str]) -> list[dict]:
-    """Rows of a .datc64 file, only the requested String columns."""
+    """Rows of a .datc64 file, only the requested columns: String, Int, or Key (the row number in the table it
+    points to, None for none)."""
     table = path.stem
     offsets, off = {}, 0
     for name, typ, is_list in _spec(table):
@@ -193,11 +196,17 @@ def read_table(path: Path, columns: list[str]) -> list[dict]:
         row = {}
         for c in columns:
             o, typ, is_list = offsets[c]
-            if typ != "String" or is_list:
-                raise GameDataError(f"{table}.{c}: читаю только строки")
-            if o + 8 > size:  # the game has fewer columns than the spec: schema drift
+            if is_list or typ not in ("String", "Int", "Key"):
+                raise GameDataError(f"{table}.{c}: читаю только строки, числа и ключи")
+            if o + TYPE_SIZE[typ] > size:  # the game has fewer columns than the spec: schema drift
                 raise GameDataError(f"{table}: схема spec.lua не совпадает с файлом игры")
-            row[c] = _read_string(raw, data + struct.unpack_from("<Q", raw, base + o)[0])
+            if typ == "String":
+                row[c] = _read_string(raw, data + struct.unpack_from("<Q", raw, base + o)[0])
+            elif typ == "Int":
+                row[c] = struct.unpack_from("<i", raw, base + o)[0]
+            else:
+                key = struct.unpack_from("<Q", raw, base + o)[0]
+                row[c] = None if key == 0xFEFEFEFEFEFEFEFE else key
         out.append(row)
     return out
 
@@ -497,6 +506,8 @@ def stale(lang: str, game: Path | None = None) -> bool:
     """Not unpacked yet, or the game was patched after unpacking (its bundle index is newer)."""
     if not available(lang) or not names_path(lang).is_file() or not keywords_path(lang).is_file():
         return True  # keywords.json: unpacks made before the term popups were added
+    if not (GAME_CACHE / "icons" / "items.ok").is_file():
+        return True  # unpacks made before item pictures were added
     game = game or game_dir()
     index = game / "Bundles2" / "_.index.bin" if game else None
     return bool(index and index.is_file() and index.stat().st_mtime > names_path(lang).stat().st_mtime)

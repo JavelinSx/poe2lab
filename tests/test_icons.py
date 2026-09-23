@@ -29,3 +29,25 @@ def test_unpacked_icons_cover_skills_and_passives():
     index = icons.load_index()
     for name in ("Walking Calamity", "Furious Slam", "Nimble Strength"):
         assert (icons.ICONS / index[name]).is_file()
+
+
+def test_item_art_thumbnails():
+    """Item art is uncompressed RGBA (DXGI 28): read as is and shrunk by a whole factor to fit the thumbnail."""
+    import struct
+    import zlib
+    from poe2lab import icons as ic
+    w, h = 200, 100
+    header = bytearray(148)
+    header[:4] = b"DDS "
+    struct.pack_into("<II", header, 12, h, w)
+    header[84:88] = b"DX10"
+    struct.pack_into("<I", header, 128, 28)
+    pixels = bytes([255, 0, 0, 255]) * (w * h)
+    data = ic.item_png(bytes(header) + pixels)
+    assert data.startswith(b"\x89PNG")
+    width, height = struct.unpack(">II", data[16:24])
+    assert (width, height) == (w // 3, h // 3) and max(width, height) <= ic.ITEM_SIDE
+    first = lambda png: zlib.decompress(png[png.index(b"IDAT") + 4:-16])[1:5]  # first pixel after the filter byte
+    assert first(data) == bytes([255, 0, 0, 255])  # the colour survives averaging
+    header[128] = 87  # BGRA: channels swapped back
+    assert first(ic.item_png(bytes(header) + pixels)) == bytes([0, 0, 255, 255])

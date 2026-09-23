@@ -54,6 +54,8 @@ async function loadIcons() {
 }
 const icon = (name, cls = "ico") => (name && ICONS[name]
   ? h("img", { class: cls, src: `/icons/${ICONS[name]}`, alt: "" }) : null);
+// an item's picture: a unique's own art ("Name, Base" -> Name), else its base's
+const itemIcon = (name, base) => icon((name || "").split(",")[0].trim(), "item-ico") || icon(base, "item-ico");
 
 const loading = (text) => h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
 
@@ -578,7 +580,8 @@ TABS.gear = async (view) => {
   const cards = g.slots.map((p) => {
     const max = Math.max(...p.affixes.map((a) => a.score), 1);
     return h("div", { class: "card" },
-      h("div", { class: "slot-head" }, h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", { title: p.item }, trItem(p.item))),
+      h("div", { class: "slot-head" }, h("div", { class: "row", style: "gap:0;flex-wrap:nowrap" }, itemIcon(p.item, p.base),
+        h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", { title: p.item }, trItem(p.item)))),
         chip(p.corrupted ? "must" : "tag", p.corrupted ? t("corrupted") : t("craftable"))),
       h("div", { class: "sub" }, t("affixCount", { ...p, base: trName(p.base) }) + (p.uncertain ? t("approx") : "")),
       p.affixes.map((a) => h("div", { class: "affix" },
@@ -681,7 +684,7 @@ function renderVersus(v, refName) {
       lightning_hit: c.hit_pct.Lightning, chaos_hit: c.hit_pct.Chaos, recovery: c.recovery_pct }, METRIC, 0.5),
       Object.entries(c.unmet_requirements).map(([a, [have, need]]) => chip("must", t("reqShort", attrName(a), fmt(have), fmt(need)))));
   };
-  const itemName = (it) => (it ? h("span", { title: it.name }, trItem(it.name)) : h("span", { class: "muted" }, "—"));
+  const itemName = (it) => (it ? h("span", { title: it.name, class: "named" }, icon(it.name.split(",")[0].trim()), trItem(it.name)) : h("span", { class: "muted" }, "—"));
   const slots = h("div", { class: "card" }, h("h3", {}, t("refItems")), h("div", { class: "sub" }, t("refItemsSub")),
     h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", {}, t("slot")), h("th", {}, t("mine")),
       h("th", {}, refName), h("th", {}, t("ifWear")), h("th", {}, ""))),
@@ -1076,7 +1079,7 @@ function renderSkillsBuild(r) {
       g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));
   const items = (r.items || []).length ? h("div", { class: "card" }, h("h3", {}, t("skUniques")), h("div", { class: "sub" }, t("skUniquesSub")),
     h("div", { class: "grid two" }, r.items.map((it) => h("div", { class: "sk-item" },
-      h("div", { class: "row" }, icon(it.name.split(",")[0]), h("b", { title: it.name }, trItem(it.name.split(",")[0])),
+      h("div", { class: "row" }, itemIcon(it.name, it.name.split(",")[1]), h("b", { title: it.name }, trItem(it.name.split(",")[0])),
         h("span", { class: "muted small" }, slotName(it.slot))),
       h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", { title: l }, trMod(l)))),
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
@@ -1105,7 +1108,7 @@ function renderUniqueLinks(r) {
   const cards = r.suggestions.map((u) => {
     const pobBlind = Object.values(u.changes).every((v) => Math.abs(v) < 0.5);
     return h("div", { class: "card sk-item" },
-      h("div", { class: "row" }, icon(u.name), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
+      h("div", { class: "row" }, itemIcon(u.name, u.base), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
         u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null),
       h("ul", { class: "un-reasons small" }, u.reasons.map((x) => h("li", {}, reason(x)))),
       h("div", { class: "small" }, h("span", { class: "muted" }, t("unWorth", slotName(u.slot))), " ",

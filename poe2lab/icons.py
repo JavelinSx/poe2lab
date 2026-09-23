@@ -1,8 +1,8 @@
-"""Skill and passive icons from the installed game, as small PNG files the UI can show next to names.
+"""Skill, passive and item pictures from the installed game, as small PNG files the UI can show next to names.
 
-The game stores them as 64x64 DDS textures, BC1-compressed (DXGI 71/72). BC1 is simple enough to decode here,
-and PNG is written with zlib, so no image library is needed. Other formats are skipped (the name just has no
-icon)."""
+Skill and passive icons are 64x64 DDS textures, BC1-compressed (DXGI 71/72); item art (uniques and the bases of
+gear) is uncompressed RGBA (DXGI 28/29), shrunk here to thumbnails. Both are simple enough to decode without an
+image library, and PNG is written with zlib. Other formats are skipped (the name just has no picture)."""
 import json
 import re
 import struct
@@ -17,6 +17,10 @@ INDEX = ICONS / "index.json"
 # table -> (name column, icon column): names are the English display names PoB uses
 SOURCES = {"activeskills": ("DisplayName", "Icon"), "passiveskills": ("Name", "Icon")}
 BC1_FORMATS = {71, 72}  # BC1_UNORM, BC1_UNORM_SRGB
+RGBA_FORMATS = {28: False, 29: False, 87: True, 91: True}  # R8G8B8A8 (UNORM/SRGB); B8G8R8A8: channels swapped
+ITEM_SIDE = 96  # item thumbnails: the longer side at most this many pixels
+# item art of gear worth a picture (not currencies, maps, quest items)
+ITEM_ART = re.compile(r"^art/2ditems/(armours|weapons|rings|amulets|belts|offhand|quivers|jewels|flasks|charms)/")
 
 
 def _rgb565(c: int) -> tuple[int, int, int]:
@@ -79,6 +83,62 @@ def dds_to_png(raw: bytes) -> bytes | None:
     return png(decode_bc1(raw[start:], width, height), width, height)
 
 
+def _shrink(rgba: bytes, width: int, height: int) -> tuple[bytes, int, int]:
+    """Box-average down by a whole factor so the longer side fits ITEM_SIDE."""
+    k = max(1, -(-max(width, height) // ITEM_SIDE))
+    if k == 1:
+        return rgba, width, height
+    w, h = width // k, height // k
+    out = bytearray(w * h * 4)
+    n = k * k
+    for y in range(h):
+        rows = [rgba[((y * k + dy) * width) * 4:((y * k + dy) * width + w * k) * 4] for dy in range(k)]
+        for x in range(w):
+            acc = [0, 0, 0, 0]
+            for row in rows:
+                block = row[x * k * 4:(x * k + k) * 4]
+                for c in range(4):
+                    acc[c] += sum(block[c::4])
+            o = (y * w + x) * 4
+            out[o:o + 4] = bytes(v // n for v in acc)
+    return bytes(out), w, h
+
+
+def item_png(raw: bytes) -> bytes | None:
+    """Item art (an uncompressed RGBA DDS) as a thumbnail PNG; None for other formats."""
+    if raw[:4] != b"DDS " or raw[84:88] != b"DX10":
+        return None
+    fmt = struct.unpack_from("<I", raw, 128)[0]
+    if fmt not in RGBA_FORMATS:
+        return dds_to_png(raw)
+    height, width = struct.unpack_from("<II", raw, 12)
+    rgba = raw[148:148 + width * height * 4]
+    if len(rgba) < width * height * 4:
+        return None
+    if RGBA_FORMATS[fmt]:  # BGRA -> RGBA
+        swapped = bytearray(rgba)
+        swapped[0::4], swapped[2::4] = rgba[2::4], rgba[0::4]
+        rgba = bytes(swapped)
+    return png(*_shrink(rgba, width, height))
+
+
+def item_art() -> dict[str, str]:
+    """English name -> texture path for uniques (their own art) and gear bases, from the unpacked tables."""
+    balance = RAW / "data/balance"
+    vis = [r["DDSFile"] for r in read_table(balance / "itemvisualidentity.datc64", ["DDSFile"])]
+    words = [r["Text"] for r in read_table(balance / "words.datc64", ["Text"])]
+    art = {}
+    for r in read_table(balance / "uniquestashlayout.datc64", ["WordsKey", "ItemVisualIdentity"]):
+        w, v = r["WordsKey"], r["ItemVisualIdentity"]
+        if w is not None and v is not None and w < len(words) and v < len(vis) and words[w].strip():
+            art.setdefault(words[w].strip(), vis[v])
+    for r in read_table(balance / "baseitemtypes.datc64", ["Name", "ItemVisualIdentityKey"]):
+        v = r["ItemVisualIdentityKey"]
+        if v is not None and v < len(vis) and r["Name"].strip() and ITEM_ART.match(vis[v].lower()):
+            art.setdefault(r["Name"].strip(), vis[v])
+    return {name: path for name, path in art.items() if path.lower().endswith(".dds")}
+
+
 def _file_name(icon_path: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", icon_path.lower().removesuffix(".dds")).strip("_") + ".png"
 
@@ -94,6 +154,10 @@ def build(game: Path | None = None) -> dict:
             name, icon = row[name_col].strip(), row[icon_col].strip()
             if name and icon.lower().endswith(".dds"):
                 wanted.setdefault(name, icon)
+    items = item_art() if (RAW / "data/balance/uniquestashlayout.datc64").is_file() else {}
+    for name, path in items.items():
+        wanted.setdefault(name, path)
+    item_paths = {p.lower() for p in items.values()}
     paths = sorted({p.lower() for p in wanted.values()})
     # thousands of paths do not fit a Windows command line: the extractor reads them from stdin instead
     res = subprocess.run([str(BUN), "extract-files", str(game), str(RAW)], input="\n".join(paths) + "\n",
@@ -107,7 +171,8 @@ def build(game: Path | None = None) -> dict:
         key = icon.lower()
         if key not in converted:
             src = RAW / key
-            data = dds_to_png(src.read_bytes()) if src.is_file() else None
+            convert = item_png if key in item_paths else dds_to_png
+            data = convert(src.read_bytes()) if src.is_file() else None
             converted[key] = ""
             if data:
                 converted[key] = _file_name(key)
@@ -117,7 +182,9 @@ def build(game: Path | None = None) -> dict:
         if converted[key]:
             index[name] = converted[key]
     INDEX.write_text(json.dumps(index, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
-    return {"icons": len(set(index.values())), "names": len(index), "skipped": skipped}
+    if items:
+        (ICONS / "items.ok").write_text(str(len(items)), encoding="utf-8")  # see gamedata.stale
+    return {"icons": len(set(index.values())), "names": len(index), "items": len(items), "skipped": skipped}
 
 
 def load_index() -> dict[str, str]:
