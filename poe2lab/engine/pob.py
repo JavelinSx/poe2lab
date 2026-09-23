@@ -528,6 +528,70 @@ for _, slot in ipairs(build.itemsTab.orderedSlots) do
 end
 return _poe2lab_json(out)""")
 
+    def find_mod_text(self, query: str) -> dict:
+        """Everything in PoB's game data whose text contains `query` (any case): item affixes, runes and soul
+        cores, uniques (their raw text, variants included), passive tree nodes of this build's tree, base
+        implicits. For "does this mod exist, and where from"."""
+        return self._json(f"""
+local q = {lua_string(query.lower())}
+local function hit(s) return type(s) == "string" and s:lower():find(q, 1, true) ~= nil end
+local function arr(t) local o = _poe2lab_array({{}}) for i, v in ipairs(t or {{}}) do o[i] = v end return o end
+local out = {{ affixes = _poe2lab_array({{}}), runes = _poe2lab_array({{}}), uniques = _poe2lab_array({{}}),
+  nodes = _poe2lab_array({{}}), bases = _poe2lab_array({{}}) }}
+for _, setName in ipairs({{ "Item", "Desecrated", "Corruption", "Jewel", "Charm", "Flask" }}) do
+  for id, m in pairs(data.itemMods[setName] or {{}}) do
+    for _, line in ipairs(m) do
+      if hit(line) then
+        local kinds = _poe2lab_array({{}})
+        for i, key in ipairs(m.weightKey or {{}}) do
+          if (m.weightVal or {{}})[i] and m.weightVal[i] > 0 then kinds[#kinds + 1] = key end
+        end
+        out.affixes[#out.affixes + 1] = {{ set = setName, id = id, type = m.type or "", affix = m.affix or "",
+          lines = arr(m), level = m.level or 0, group = m.group or id, kinds = kinds }}
+        break
+      end
+    end
+  end
+end
+for name, rune in pairs(data.itemMods.Runes or {{}}) do
+  for slotType, m in pairs(rune) do
+    if type(m) == "table" then
+      for _, line in ipairs(m) do
+        if hit(line) then out.runes[#out.runes + 1] = {{ name = name, slot = slotType, lines = arr(m) }} break end
+      end
+    end
+  end
+end
+for kind, list in pairs(data.uniques or {{}}) do
+  for _, raw in ipairs(list) do
+    if hit(raw) then out.uniques[#out.uniques + 1] = {{ kind = kind, raw = raw }} end
+  end
+end
+-- the build's own tree, and the game's current one when the build was made on an older tree
+local trees = {{ {{ build.spec.treeVersion, build.spec.tree }} }}
+if latestTreeVersion ~= build.spec.treeVersion then
+  trees[2] = {{ latestTreeVersion, main:LoadTree(latestTreeVersion) }}
+  data.setJewelRadiiGlobally(build.spec.treeVersion)  -- LoadTree switched them to the other version
+end
+for _, pair in ipairs(trees) do
+  for id, node in pairs(pair[2].nodes) do
+    for _, line in ipairs(node.sd or {{}}) do
+      if hit(line) then
+        out.nodes[#out.nodes + 1] = {{ name = node.dn or node.name or "", lines = arr(node.sd), tree = pair[1],
+          type = node.type or "", ascendancy = node.ascendancyName or "",
+          allocated = pair[1] == build.spec.treeVersion and build.spec.allocNodes[id] ~= nil }}
+        break
+      end
+    end
+  end
+end
+out.buildTree = build.spec.treeVersion
+out.gameTree = latestTreeVersion
+for name, b in pairs(data.itemBases) do
+  if hit(b.implicit) then out.bases[#out.bases + 1] = {{ name = name, type = b.type or "", implicit = b.implicit }} end
+end
+return _poe2lab_json(out)""")
+
     def export_essences(self) -> list[dict]:
         """Essences: name, tier level and the mod id they guarantee per item class."""
         essences = self._raw_essences()

@@ -9,8 +9,10 @@ from ..analysis.slots import plan_slot
 from ..analysis.stats import mod_line
 from ..analysis.threats import MapProfile, survivable_hits
 from ..analysis.tree import analyse as analyse_tree
+from ..data import modsources
 from ..data.moddb import ModDB
 from ..engine import PobError
+from ..i18n import dictionary as translation_dictionary, load_names
 
 SPECS = [
     {"type": "function", "function": {
@@ -28,6 +30,16 @@ SPECS = [
         "parameters": {"type": "object", "properties": {
             "mods": {"type": "array", "items": {"type": "string"}},
             "enemy_mods": {"type": "array", "items": {"type": "string"}}}, "required": ["mods"]}}},
+    {"type": "function", "function": {
+        "name": "find_mod",
+        "description": "Whether a mod exists in PoE2 and where it comes from, from the game data: item affixes "
+                       "(tiers, item level, item types; also desecrated and corruption), runes and soul cores, "
+                       "uniques (current version), passive tree notables/keystones and ascendancies, base "
+                       "implicits. Give a part of the mod text in English as PoB writes it; numbers are ignored. "
+                       "Call it before saying that a mod does or does not exist or where to get it.",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "e.g. 'of Armour also applies to Chaos Damage'"}},
+            "required": ["text"]}}},
     {"type": "function", "function": {
         "name": "compare_item",
         "description": "Compare a candidate item with the equipped one in a slot. item_text is the item as copied "
@@ -70,6 +82,7 @@ class Toolbox:
         self.profile = profile
         self._db = db
         self.proposals: list[dict] = []
+        self._names: dict | None = None
 
     @property
     def db(self) -> ModDB:
@@ -96,8 +109,20 @@ class Toolbox:
 
     def _build_report(self, goal: str = "balanced"):
         r = build_report(self.engine, self.profile, mode=goal, steps=5, top=8)
+        stats = self.engine.what_if(config=self.profile.config())
+        # resistances as PoB has them (capped and before the cap), so they are read, not inferred from hits
+        resists = {t: {"value": stats.get(f"{t}Resist"), "uncapped": stats.get(f"{t}ResistTotal")}
+                   for t in ("Fire", "Cold", "Lightning", "Chaos")}
         return {k: r[k] for k in ("build", "baseline", "gates", "notModelled", "core", "damageRange", "ranking",
-                                  "path")} | {"conditions": r["conditions"][:10]}
+                                  "path")} | {"conditions": r["conditions"][:10], "resistances": resists}
+
+    def _find_mod(self, text: str):
+        if self._names is None:
+            try:
+                self._names = translation_dictionary("ru")["names"]
+            except Exception:  # no trade data offline: names from the installed game only
+                self._names = load_names("ru")
+        return modsources.find(self.engine, self.db, text, self._names)
 
     def _evaluate_mods(self, mods: list[str], enemy_mods: list[str] | None = None):
         config = self.profile.config()
