@@ -10,7 +10,7 @@ from poe2lab.data.moddb import ModDB
 from poe2lab.engine import PobEngine
 
 TITAN = (Path(__file__).resolve().parent / "fixtures" / "titan.txt").read_text()
-KEYWORDS = {"Identified", "Rarity", "Class", "BaseType", "ItemLevel", "HasExplicitMod", "BaseArmour", "BaseEvasion",
+KEYWORDS = {"AreaLevel", "Identified", "Rarity", "Class", "BaseType", "ItemLevel", "HasExplicitMod", "BaseArmour", "BaseEvasion",
             "BaseEnergyShield", "SetFontSize", "SetTextColor", "SetBorderColor", "SetBackgroundColor",
             "PlayAlertSound", "PlayEffect", "MinimapIcon"}
 
@@ -41,6 +41,9 @@ def test_rules_follow_the_build(rules):
     assert len(swap.affixes) >= 3 and swap.item_level <= lf.MAX_ILVL
     assert by["Weapon 1"].unique and not by["Weapon 1"].affixes  # Amor Mandragora: by base only
     assert by["Boots"].defence == ["BaseArmour > 0"]
+    # levelling: the same families at the tiers the campaign drops, uniques' slots included
+    assert by["Helmet"].unique and by["Helmet"].leveling
+    assert set(by["Boots"].leveling) - set(by["Boots"].affixes)  # lower tiers the endgame list leaves out
 
 
 def test_block_syntax(rules):
@@ -53,6 +56,9 @@ def test_block_syntax(rules):
             assert line.startswith("Show # poe2lab:"), line
     assert 'BaseType == "Fungal Talisman"' in block and "HasExplicitMod >=3" in block
     assert 'Rarity Unique\n\tBaseType == ' in block
+    leveling = [b for b in block.split("\n\n") if "прокачка" in b]
+    assert leveling and all(f"AreaLevel < {lf.LEVELING_AREA}" in b for b in leveling)
+    assert sum('Class == "Rings"' in b and "HasExplicitMod >=3" in b for b in leveling) == 1  # both rings, one rule
 
 
 def test_merge_replaces_an_older_block_and_keeps_the_players_filter(rules):

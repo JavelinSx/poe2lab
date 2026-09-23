@@ -6,7 +6,10 @@ PoE2 filters see an unidentified rare's base, class and item level, and an ident
   "gold" (players identify promising bases in the inventory and drop them again: the filter re-checks them);
 - unidentified rares of the build's own bases at an item level where those tiers roll - "identify";
 - normal/magic items of those bases at that item level - "craft base";
-- the build's unique items (by base: filters cannot match unique names).
+- the build's unique items (by base: filters cannot match unique names);
+- while levelling (areas below the maps' level): any item of the slot's class and defence type with the same
+  mod families at the tiers that drop there, and unidentified rares of that class - uniques' slots included,
+  since the unique is not there yet.
 Which affixes matter comes from the slot plans (PoB what-ifs for the chosen goal); affix names from PoB's mod data.
 Everything else is left to the player's filter below the block."""
 import ctypes
@@ -28,6 +31,7 @@ DEFENCE_CONDITIONS = {"str": "BaseArmour > 0", "dex": "BaseEvasion > 0", "int": 
 MAX_ILVL = 82  # every tier rolls from here
 TOP_TIERS = 3  # affix names counted per mod group: the best tiers the base can roll
 GROUPS_PER_SLOT = 8  # mod groups that matter most for a slot
+LEVELING_AREA = 65  # the campaign's areas are below this level, maps start at it
 BEGIN, END = "# ===== poe2lab: begin =====", "# ===== poe2lab: end ====="
 
 
@@ -41,6 +45,7 @@ class SlotRule:
     affixes: list[str] = field(default_factory=list)  # affix names worth having on this slot
     mods: list[str] = field(default_factory=list)  # the matching mod lines (for the interface)
     unique: bool = False
+    leveling: list[str] = field(default_factory=list)  # affix names of the same families that drop in the campaign
 
 
 def item_class(item: dict) -> str | None:
@@ -69,11 +74,13 @@ def slot_rules(engine, db: ModDB, config: dict, mode: str, weights: dict) -> lis
         rule = SlotRule(item["slot"], item_class(item), item["baseName"], MAX_ILVL, _defence(item),
                         unique=item["rarity"] in ("UNIQUE", "RELIC"))
         rules.append(rule)
-        if item["rarity"] not in AFFIX_LIMIT:
-            continue  # uniques: matched by base only
+        if item["rarity"] not in AFFIX_LIMIT and not rule.unique:
+            continue
         plan = plan_slot(engine, db, config, item, mode, weights, top=GROUPS_PER_SLOT)
-        # the mod families that matter: affixes the item has that carry value, then the best it could roll
-        wanted = [(by_lines.get(tuple(a.template)), a.score) for a in plan.affixes if a.score > 0.5]
+        # the mod families that matter: affixes the item has that carry value, then the best it could roll.
+        # A unique is matched by its base at maps; its slot still gets families for the rare worn while levelling.
+        wanted = [] if rule.unique else [(by_lines.get(tuple(a.template)), a.score) for a in plan.affixes
+                                         if a.score > 0.5]
         wanted += [(by_id.get(c.mod_id), c.score) for c in plan.candidates if c.score > 0.5]
         families, levels = [], []
         for mod, _ in sorted((w for w in wanted if w[0]), key=lambda w: -w[1]):
@@ -81,7 +88,15 @@ def slot_rules(engine, db: ModDB, config: dict, mode: str, weights: dict) -> lis
             if key in families:
                 continue
             families.append(key)
-            tiers = [m for m in db.tiers_of(mod, item["tags"]) if m.level <= MAX_ILVL][:TOP_TIERS]
+            every = db.tiers_of(mod, item["tags"])
+            for m in every:
+                if m.level < LEVELING_AREA and m.affix and m.affix not in rule.leveling:
+                    rule.leveling.append(m.affix)
+            if rule.unique:
+                if len(families) >= GROUPS_PER_SLOT:
+                    break
+                continue
+            tiers = [m for m in every if m.level <= MAX_ILVL][:TOP_TIERS]
             for m in tiers:
                 if m.affix and m.affix not in rule.affixes:
                     rule.affixes.append(m.affix)
@@ -126,6 +141,25 @@ def render(rules: list[SlotRule], build: str) -> str:
                 "Identified True", "Rarity Magic Rare" if need <= 2 else "Rarity Rare", f'Class == "{r.item_class}"',
                 *r.defence, f"HasExplicitMod >={need} {_quote(r.affixes)}"], style))
             blocks.append("")
+    # levelling: one set per item class and defence type (both rings share one), any base of it
+    groups = {}
+    for r in rules:
+        if r.item_class and r.leveling:
+            g = groups.setdefault((r.item_class, tuple(r.defence)), {"slots": [], "affixes": []})
+            g["slots"].append(r.slot)
+            g["affixes"] += [a for a in r.leveling if a not in g["affixes"]]
+    area = f"AreaLevel < {LEVELING_AREA}"
+    for (cls, defence), g in groups.items():
+        slots = ", ".join(g["slots"])
+        for kind, need, rarity, style in (("голда", 3, "Rare", "gold"), ("хорошая вещь", 2, "Magic Rare", "good")):
+            if len(g["affixes"]) >= need:
+                blocks.append(_block(f"прокачка, {slots} — {kind} ({need}+ нужных аффикса)", [
+                    area, "Identified True", f"Rarity {rarity}", f'Class == "{cls}"', *defence,
+                    f"HasExplicitMod >={need} {_quote(g['affixes'])}"], style))
+                blocks.append("")
+        blocks.append(_block(f"прокачка, {slots} — редкая вещь класса билда, опознай", [
+            area, "Identified False", "Rarity Rare", f'Class == "{cls}"', *defence], "identify"))
+        blocks.append("")
     bases = {}
     for r in rules:
         if not r.unique:
