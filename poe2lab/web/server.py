@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.items import breakeven, compare
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.gradients import metric_changes
@@ -53,6 +54,7 @@ class Session:
         self._prices: PriceBook | None | bool = False
         self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
         self.plan: dict | None = None  # passive tree edits on top of the build (see /api/tree/*)
+        self.mtime = 0.0  # the build file's time when it was read: a newer file means PoB saved it again
 
     def require(self, build: str | None = None):
         if self.engine is None:
@@ -66,10 +68,17 @@ class Session:
 
     def load(self, name: str, group: int | None = None, skill: int | None = None):
         self.path = resolve_build(name)
+        self.mtime = self.path.stat().st_mtime
         self.engine, self.bp = open_build(self.path, group, skill)
         self.plan = None
         self.cache.clear()
         self.assistant = self.toolbox = None
+
+    def file_changed(self) -> bool:
+        try:
+            return self.path is not None and self.path.stat().st_mtime > self.mtime
+        except OSError:
+            return False
 
     def cached(self, key, fn):
         if key not in self.cache:
@@ -147,6 +156,7 @@ class ChatRequest(BaseModel):
 def status():
     cfg = LLMConfig.current()
     return {"loaded": session.engine is not None, "build": session.path.stem if session.path else None,
+            "buildChanged": session.engine is not None and session.file_changed(),
             "llm": {"configured": cfg is not None, "model": cfg.model if cfg else None,
                     "provider": cfg.provider if cfg else None}}
 
@@ -462,7 +472,8 @@ def _summary():
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
             "gems": sorted({g["name"] for g in e.gems()}),
             "profile": describe_profile(session.bp, rage=q["rage"]), "profileRaw": _profile_raw(),
-            "hasProfile": _profile_path().exists(), "questions": q, "items": e.equipped_item_details()}
+            "hasProfile": _profile_path().exists(), "questions": q, "items": e.equipped_item_details(),
+            "kind": "pob" if session.path.suffix.lower() == ".xml" else "code"}
 
 
 @app.post("/api/load")
@@ -470,6 +481,41 @@ def load(req: LoadRequest):
     with session.lock:
         _errors(lambda: session.load(req.name, req.group, req.skill))
         return _json(_summary())
+
+
+class ReloadRequest(BaseModel):
+    code: str = ""  # a newer PoB code or pobb.in link for a code build; empty: read the build file again
+
+
+@app.post("/api/reload")
+def reload_build(req: ReloadRequest):
+    """The same build after the player changed gear or tree in the game: a PoB-saved build is read again from PoB's
+    file, a code build takes the new code. Name, profile and main skill stay; the answer says what changed."""
+    with session.lock:
+        session.require()
+        name, e = session.path.stem, session.engine
+        before = capture_build(e, session.profile)
+        skill_name, had_plan = e.main_skill(), session.plan is not None
+        group = e.info()["mainSocketGroup"]
+        if req.code.strip():
+            try:
+                library.replace(name, req.code)
+            except library.LibraryError as err:
+                raise HTTPException(400, str(err))
+        _errors(lambda: session.load(name))
+        # keep the skill the player was looking at if the new build still has it (the picker is not in the profile)
+        groups = session.engine.socket_groups()
+        spots = [(g["index"], i + 1) for g in groups for i, s in enumerate(g["skills"]) if s == skill_name]
+        spots.sort(key=lambda gs: gs[0] != group)
+        if spots and session.engine.main_skill() != skill_name:
+            _errors(lambda: session.load(name, *spots[0]))
+        if session.ref is not None and session.ref[0] == name:
+            session.ref = None
+        changes = build_diff(before, capture_build(session.engine, session.profile))
+        changes["planReset"] = had_plan
+        changes["skillKept"] = session.engine.main_skill() == skill_name
+        changes["skillBefore"] = skill_name
+        return _json(_summary() | {"changes": changes})
 
 
 @app.get("/api/build")

@@ -130,6 +130,20 @@ def remove(name: str) -> str:
     return "trashed"
 
 
+def replace(name: str, text: str):
+    """A newer PoB code (or pobb.in link) for a code build: the name, profile and favourite stay, the old code goes
+    to builds/.trash. PoB-saved builds are updated in PoB itself, so they are refused here."""
+    path = PROJECT_BUILDS / f"{name}.txt"
+    if not path.exists():
+        raise LibraryError(f"«{name}» сохранён в самом PoB: обнови его там (Import → персонаж → Save) и нажми "
+                           "«обновить» ещё раз" if any(b["name"] == name for b in entries()) else f"нет билда «{name}»")
+    code = fetch_code(text)
+    describe_code(code)
+    TRASH.mkdir(parents=True, exist_ok=True)
+    path.replace(TRASH / f"{time.strftime('%Y%m%d-%H%M%S')} {path.name}")
+    path.write_text(code + "\n", encoding="utf-8")
+
+
 def set_favorite(name: str, favorite: bool):
     lib = _load()
     if favorite and name not in lib["favorites"]:

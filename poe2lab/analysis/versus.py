@@ -34,7 +34,7 @@ STATS = [
 ]
 
 
-def _snapshot(engine, profile: MapProfile) -> dict:
+def snapshot(engine, profile: MapProfile) -> dict:
     out = engine.what_if(config=profile.config())
     stats = {key: out.get(pob, 0.0) for _, pob, key, _ in STATS}
     for h in survivable_hits(engine, profile):
@@ -47,7 +47,7 @@ def _items(engine) -> dict[str, dict]:
 
 
 def versus(mine, mine_profile: MapProfile, ref, ref_profile: MapProfile) -> dict:
-    a, b = _snapshot(mine, mine_profile), _snapshot(ref, ref_profile)
+    a, b = snapshot(mine, mine_profile), snapshot(ref, ref_profile)
     rows = [{"group": g, "key": key, "mine": a[key], "ref": b[key], "higherBetter": hb} for g, _, key, hb in STATS]
     rows += [{"group": "hits", "key": f"hit_{t}", "mine": a[f"hit_{t}"], "ref": b[f"hit_{t}"], "higherBetter": True}
              for t in DAMAGE_TYPES]
@@ -75,7 +75,7 @@ def versus(mine, mine_profile: MapProfile, ref, ref_profile: MapProfile) -> dict
         # their full gear at once: slots they leave empty are emptied too
         swap = {s: theirs.get(s) for s in set(theirs) | set(my_items)}
         with mine.swapped_items(swap):
-            worn = _snapshot(mine, mine_profile)
+            worn = snapshot(mine, mine_profile)
         all_gear = {k: worn[k] for k in worn}
     return {"mineSkill": mine.main_skill(), "refSkill": ref.main_skill(), "rows": rows, "slots": slots,
             "allGear": all_gear}

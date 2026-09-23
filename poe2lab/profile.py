@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .analysis.threats import MapProfile
-from .engine import PobEngine
+from .engine import PobEngine, PobError
 from .pobfiles import PROJECT_BUILDS, resolve_build
 
 CORRECTION_BLOCK = "poe2lab corrections"
@@ -71,9 +71,13 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
         engine.load_xml(text, build.stem)
     else:
         engine.load_code(text)
-    group = group or profile.group
     if group:
         engine.set_main_skill(group, skill or (profile.skill if group == profile.group else 1))
+    elif profile.group:
+        try:
+            engine.set_main_skill(profile.group, profile.skill)
+        except PobError:
+            pass  # the build changed since the profile was written (gems moved): keep the build's own main skill
     if profile.path is None:
         # Nobody answered the Rage question for this build yet: assume what its author set in PoB, not the maximum.
         profile.rage = int(engine.config().get("multiplierRage") or 0)

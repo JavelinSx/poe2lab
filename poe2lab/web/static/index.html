@@ -31,7 +31,7 @@
 
     <header id="build-header" class="build-header hidden">
       <div class="bh-main">
-        <h1 id="bh-name"></h1>
+        <div class="bh-title"><h1 id="bh-name"></h1><button id="bh-reload" class="ghost small" data-i18n="reload"></button></div>
         <div id="bh-sub" class="muted"></div>
       </div>
       <div class="bh-controls">
@@ -62,6 +62,8 @@
       <button data-tab="assistant" data-i18n="tab_assistant"></button>
     </nav>
 
+    <div id="build-notice" class="build-notice hidden"></div>
+    <div id="changes" class="hidden"></div>
     <section id="view" class="view"></section>
   </main>
 

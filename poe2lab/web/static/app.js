@@ -182,8 +182,7 @@ function renderAddBuild() {
       go.textContent = t("addGo");
     }
   } }, t("addGo"));
-  $("#build-header").classList.add("hidden");
-  $("#tabs").classList.add("hidden");
+  hideBuildChrome();
   $("#view").replaceChildren(h("div", { class: "card stack add-build" },
     h("h3", {}, t("addTitle")), h("div", { class: "sub" }, t("addSub")),
     name, code,
@@ -206,6 +205,7 @@ async function openBuild(name, group, skill) {
   try {
     state.build = await api("/api/load", { method: "POST", body: { name, group, skill } });
     state.chat = [];
+    if (!state.changes || state.changes.build !== name) state.changes = null;
     resetCache();
     renderHeader();
     loadBuildList();
@@ -221,6 +221,8 @@ function renderHeader() {
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
+  $("#bh-reload").title = t("reloadHint");
+  renderChanges();
   $("#bh-sub").textContent = `${trName(b.info.class)} / ${trName(b.info.ascendancy)} · ${t("level", b.info.level)}`;
   // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
@@ -234,6 +236,116 @@ function renderHeader() {
   const button = h("button", { class: "picker-button", onclick: (ev) => { ev.stopPropagation(); list.classList.toggle("hidden"); } },
     current ? label(current) : null, h("span", { class: "caret" }, "▾"));
   picker.replaceChildren(button, list);
+}
+
+// ---------- build update: the character changed in the game -> a newer PoB file or code -> what changed ----------
+async function applyReload(code) {
+  const { changes, ...build } = await api("/api/reload", { method: "POST", body: { code } });
+  state.build = build;
+  state.chat = [];
+  state.changes = { ...changes, build: build.name };
+  resetCache();
+  $("#build-notice").classList.add("hidden");
+  renderHeader();
+  loadBuildList();
+  switchTab(state.tab);
+}
+
+async function reloadFromFile() {
+  const btn = $("#bh-reload");
+  btn.disabled = true;
+  btn.textContent = t("reloading");
+  try { await applyReload(""); } catch (e) { toast(e.message); }
+  btn.disabled = false;
+  btn.textContent = t("reload");
+}
+
+function renderReloadCode() {
+  const b = state.build;
+  const code = h("textarea", { rows: 8, placeholder: t("addCode"), spellcheck: "false" });
+  const go = h("button", { class: "primary", onclick: async () => {
+    if (!code.value.trim()) { code.focus(); return; }
+    go.disabled = true;
+    go.textContent = t("reloading");
+    try { await applyReload(code.value); } catch (e) { toast(e.message); go.disabled = false; go.textContent = t("reloadGo"); }
+  } }, t("reloadGo"));
+  hideBuildChrome();
+  $("#view").replaceChildren(h("div", { class: "card stack add-build" },
+    h("h3", {}, t("reloadTitle", b.name)), h("div", { class: "sub" }, t("reloadSub")), code,
+    h("div", { class: "row" }, go, h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")))));
+  code.focus();
+}
+
+$("#bh-reload").addEventListener("click", () => (state.build.kind === "pob" ? reloadFromFile() : renderReloadCode()));
+
+// PoB saved the build again (the player re-imported the character): offer the update when they come back here
+async function checkBuildFile() {
+  if (!state.build || document.hidden) return;
+  try {
+    const s = await api("/api/status");
+    const box = $("#build-notice");
+    if (s.buildChanged && s.build === state.build.name && !$("#tabs").classList.contains("hidden")) {
+      box.replaceChildren(h("span", {}, t(state.build.kind === "pob" ? "buildFileChanged" : "buildCodeChanged", state.build.name)),
+        h("button", { class: "primary", onclick: reloadFromFile }, t("reload")));
+      box.classList.remove("hidden");
+    } else {
+      box.classList.add("hidden");
+    }
+  } catch (_) { /* the server is restarting */ }
+}
+window.addEventListener("focus", checkBuildFile);
+document.addEventListener("visibilitychange", checkBuildFile);
+setInterval(checkBuildFile, 15000);
+
+function changedEnough(r) {
+  if (r.key.startsWith("hit_") && (r.before >= IMMUNE_HIT || r.after >= IMMUNE_HIT)) return (r.before >= IMMUNE_HIT) !== (r.after >= IMMUNE_HIT);
+  const d = r.after - r.before;
+  return !(Math.abs(d) < 1e-9 || (Math.abs(r.before) > 0 && Math.abs(d / r.before) < 0.005));
+}
+
+function renderChanges() {
+  const box = $("#changes");
+  const c = state.changes;
+  if (!c || !state.build) { box.classList.add("hidden"); return; }
+  const rows = c.rows.filter(changedEnough);
+  const nodes = c.nodesAdded.length + c.nodesRemoved.length;
+  const gems = c.gemsAdded.length + c.gemsRemoved.length;
+  const nothing = !rows.length && !c.items.length && !nodes && !gems && c.level[0] === c.level[1];
+  const close = h("button", { class: "bi-act", title: t("ruHide"), onclick: () => { state.changes = null; box.classList.add("hidden"); } }, "×");
+  const notes = [
+    c.class[0] !== c.class[1] ? h("div", { class: "action" }, t("classChanged", trName(c.class[0]), trName(c.class[1]))) : null,
+    c.planReset ? h("div", { class: "hint" }, t("planWasReset")) : null,
+    c.skillKept ? null : h("div", { class: "hint" }, t("skillNotKept", trName(c.skillBefore || ""))),
+  ];
+  const itemName = (n) => (n ? trItem(n) : t("chEmpty"));
+  const lists = h("div", { class: "ch-lists" },
+    c.items.length ? h("div", {}, h("b", {}, t("chGear")), h("ul", {}, c.items.map((i) => h("li", {}, `${slotName(i.slot)}: `,
+      i.sameItem ? [itemName(i.after), h("span", { class: "muted" }, ` — ${t("chOtherMods")}`)] : `${itemName(i.before)} → ${itemName(i.after)}`)))) : null,
+    nodes ? h("div", {}, h("b", {}, t("chTree", c.nodesAdded.length, c.nodesRemoved.length)), h("ul", {},
+      c.nodesAdded.map((n) => h("li", { class: "pos" }, "+ ", trName(n))), c.nodesRemoved.map((n) => h("li", { class: "neg" }, "− ", trName(n))))) : null,
+    gems ? h("div", {}, h("b", {}, t("chGems")), h("ul", {},
+      c.gemsAdded.map((n) => h("li", { class: "pos" }, "+ ", trName(n))), c.gemsRemoved.map((n) => h("li", { class: "neg" }, "− ", trName(n))))) : null);
+  box.replaceChildren(h("div", { class: "card" },
+    h("div", { class: "ch-head" }, h("h3", {}, t("changesTitle")), close),
+    notes,
+    nothing ? h("p", { class: "muted" }, state.build.kind === "pob" ? t("noChangesPob") : t("noChangesCode")) : [
+      c.level[0] !== c.level[1] ? h("div", {}, t("chLevel", c.level[0], c.level[1])) : null,
+      rows.length ? h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("chBefore")),
+        h("th", { class: "num" }, t("chAfter")), h("th", { class: "num" }, t("change")))),
+      h("tbody", {}, ["offence", "defence", "resist", "hits", "attributes", "other"].map((g) => {
+        const list = rows.filter((r) => r.group === g);
+        return list.length ? [h("tr", { class: "group" }, h("td", { colspan: 4 }, t("grp_" + g))),
+          list.map((r) => h("tr", {}, h("td", {}, t("st_" + r.key)), h("td", { class: "num" }, statText(r.key, r.before)),
+            h("td", { class: "num" }, statText(r.key, r.after)), diffCell(r.key, r.after, r.before, r.higherBetter)))] : null;
+      })))
+        : h("div", { class: "hint" }, t("chStatsSame")),
+      lists]));
+  box.classList.remove("hidden");
+}
+
+// forms that replace the build view (add, update, feedback) hide everything tied to the open build
+function hideBuildChrome() {
+  for (const id of ["#build-header", "#tabs", "#changes", "#build-notice"]) $(id).classList.add("hidden");
 }
 
 document.addEventListener("click", (e) => {
@@ -1123,8 +1235,7 @@ document.addEventListener("paste", (e) => {
 
 async function renderFeedback() {
   const back = state.build ? () => { renderHeader(); switchTab(state.tab); } : renderEmpty;
-  $("#build-header").classList.add("hidden");
-  $("#tabs").classList.add("hidden");
+  hideBuildChrome();
   $("#view").replaceChildren(loading(""));
   let status = { configured: false, maxImages: 3 };
   // a server started before an update serves the new page but has no /api/feedback: it needs a restart
