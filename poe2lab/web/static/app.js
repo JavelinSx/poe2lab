@@ -1127,7 +1127,8 @@ async function renderFeedback() {
   $("#tabs").classList.add("hidden");
   $("#view").replaceChildren(loading(""));
   let status = { configured: false, maxImages: 3 };
-  try { status = await api("/api/feedback"); } catch (_) { /* shown as not configured */ }
+  // a server started before an update serves the new page but has no /api/feedback: it needs a restart
+  try { status = await api("/api/feedback"); } catch (_) { status.outdated = true; }
 
   const message = h("textarea", { class: "fb-text", rows: 7, placeholder: t("fbMessagePh"), maxlength: 5000 });
   message.value = fbDraft.message;
@@ -1155,7 +1156,7 @@ async function renderFeedback() {
     ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); fbAddFiles([...e.dataTransfer.files]); } },
   h("b", {}, t("fbDrop")), h("div", { class: "hint" }, t("fbDropHint", status.maxImages)));
 
-  const blocked = !state.build ? t("fbNeedBuild") : !status.configured ? t("fbOff") : null;
+  const blocked = status.outdated ? t("fbRestart") : !state.build ? t("fbNeedBuild") : !status.configured ? t("fbOff") : null;
   const send = h("button", { class: "primary", disabled: Boolean(blocked), onclick: async () => {
     if (fbDraft.message.trim().length < 5) { message.focus(); toast(t("fbEmpty")); return; }
     send.disabled = true;
