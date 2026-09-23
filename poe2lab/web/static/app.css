@@ -107,6 +107,10 @@ main { padding: 12px 28px 60px; min-width: 0; }
 .bh-controls { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field > span { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.field-label { display: inline-flex; align-items: center; gap: 4px; }
+.info { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid var(--muted); font-size: 10px; text-transform: none; letter-spacing: 0; cursor: help; }
+.info:hover { color: var(--gold); border-color: var(--gold); }
 select, input[type=text], input[type=number], input[type=password], textarea {
   background: var(--panel);
   border: 1px solid var(--line);

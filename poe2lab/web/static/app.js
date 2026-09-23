@@ -109,6 +109,10 @@ const buildQuery = () => `build=${encodeURIComponent(state.build.name)}`;
 function applyStaticTexts() {
   document.documentElement.lang = LANG;
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.dataset.i18nTitle);
+    el.onclick = () => toast(el.title, true);  // a hover tooltip is easy to miss: a click shows it too
+  });
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === LANG));
 }
 
