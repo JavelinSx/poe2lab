@@ -391,6 +391,23 @@ details > summary .ico { margin-left: 2px; }
 .sk-link.missing b { color: var(--warn); }
 .sk-item { background: var(--panel-2); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .chip.term { background: rgba(181, 102, 220, .14); color: #cfa3ea; border: 0; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
+/* skill types: quiet chips, coloured by meaning */
+.type-chip { --c: #8a93a3; display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; line-height: 16px;
+  color: color-mix(in srgb, var(--c) 75%, var(--text)); background: color-mix(in srgb, var(--c) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 32%, transparent); }
+.type-chip.t-phys { --c: var(--phys); }
+.type-chip.t-fire { --c: var(--fire); }
+.type-chip.t-cold { --c: var(--cold); }
+.type-chip.t-lightning { --c: var(--lightning); }
+.type-chip.t-chaos { --c: var(--chaos); }
+.type-chip.t-attack { --c: #c9a15a; }
+.type-chip.t-spell { --c: #8f86e8; }
+.type-chip.t-minion { --c: #6fbf8f; }
+.type-chip.t-warcry { --c: #d98c5f; }
+.type-chip.t-buff { --c: #b39ddb; }
+.type-chip.t-curse { --c: #c07aa8; }
+.type-chip.t-delivery { --c: #5fa8a8; }
+.type-chip.t-shape { --c: #a88f6b; }
 .un-reasons { margin: 0; padding-left: 18px; }
 .un-reasons li { margin: 2px 0; }
 .term-link { color: #cfa3ea; text-decoration: none; border-bottom: 1px dotted currentColor; }

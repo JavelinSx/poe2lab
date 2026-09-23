@@ -1048,6 +1048,20 @@ function termChips(ids) {
     known.map((id) => h("button", { class: "chip term", title: t("termOpen"), onclick: () => showTerm(id) }, termName(id)))) : null;
 }
 
+// a skill's types as quiet chips coloured by meaning: damage type, kind of skill, how it hits, the rest
+const TYPE_GROUP = {
+  Physical: "phys", Fire: "fire", Cold: "cold", Lightning: "lightning", Chaos: "chaos",
+  Attack: "attack", Spell: "spell", Minion: "minion", CreatesMinion: "minion", Warcry: "warcry",
+  Persistent: "buff", Buff: "buff", Aura: "buff", Herald: "buff", AppliesCurse: "curse", Mark: "curse",
+  Melee: "delivery", MeleeSingleTarget: "delivery", Strike: "delivery", Slam: "delivery", Projectile: "delivery",
+  Area: "delivery", Nova: "delivery", Chains: "delivery", Jumping: "delivery", Barrageable: "delivery",
+  Totem: "minion", Trap: "delivery", Shapeshift: "shape", IceCrystal: "cold",
+};
+function typeChips(tags) {
+  return h("div", { class: "row small", style: "gap:4px;margin:2px 0 6px" }, tags.map((x) =>
+    h("span", { class: "type-chip t-" + (TYPE_GROUP[x.key] || "other") }, LANG === "en" ? x.key : x.ru)));
+}
+
 function mechChips(gem) {
   const out = [];
   for (const k of gem.mechanics.creates) out.push(chip("tag", `${t("skCreates")}: ${MECH_NAMES[k] || k}`));
@@ -1097,7 +1111,7 @@ function renderSkillsBuild(r) {
     h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
       g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
       g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
-    g.actives[0] && g.actives[0].typesRu.length ? h("div", { class: "hint" }, g.actives[0].typesRu.join(" · ")) : null,
+    g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
     g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
     g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
       g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));

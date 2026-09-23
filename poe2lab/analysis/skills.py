@@ -252,6 +252,7 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
                 gem["worth"] = None
         for a in g["actives"]:
             a["typesRu"] = [TYPE_RU[t] for t in a["types"] if t in TYPE_RU]
+            a["typeTags"] = [{"key": t, "ru": TYPE_RU[t]} for t in a["types"] if t in TYPE_RU]
     items = []
     for u in uniques:
         item = {"name": u["name"], "slot": u["slot"], "lines": u["lines"], "description": " ".join(u["lines"]),
