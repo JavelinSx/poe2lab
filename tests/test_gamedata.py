@@ -66,3 +66,33 @@ def test_unpacked_names_cover_item_granted_skills_and_areas():
     assert names["Walking Calamity"] == "Ходячее бедствие"
     assert names["Summon Wolf"] == "Призыв волка"
     assert names["Spires of Deshar"] == "Шпили Дешара"  # PoB drops the article: "The Spires of Deshar"
+
+
+def test_game_is_found_in_any_steam_library(tmp_path, monkeypatch):
+    lib = tmp_path / "SteamLibrary"
+    (lib / "steamapps" / "common" / "Path of Exile 2" / "Bundles2").mkdir(parents=True)
+    steam = tmp_path / "Steam"
+    (steam / "steamapps").mkdir(parents=True)
+    path = str(lib).replace("\\", "\\\\")
+    (steam / "steamapps" / "libraryfolders.vdf").write_text(
+        f'"libraryfolders"\n{{\n\t"0"\n\t{{\n\t\t"path"\t\t"{path}"\n\t}}\n}}\n', encoding="utf-8")
+    monkeypatch.delenv("POE2_DIR", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(gamedata, "STEAM_DIRS", [])
+    monkeypatch.setattr(gamedata, "_steam_libraries", lambda: [lib])
+    assert gamedata.find_game() == (lib / "steamapps" / "common" / "Path of Exile 2", "steam")
+
+
+def test_chosen_game_folder_is_checked_and_remembered(tmp_path, monkeypatch):
+    monkeypatch.delenv("POE2_DIR", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(gamedata, "STEAM_DIRS", [])
+    monkeypatch.setattr(gamedata, "_steam_libraries", lambda: [])
+    with pytest.raises(gamedata.GameDataError):
+        gamedata.save_game_dir(tmp_path)  # no game files there
+    game = tmp_path / "PoE2"
+    (game / "Bundles2").mkdir(parents=True)
+    gamedata.save_game_dir(game)
+    assert gamedata.find_game() == (game, "settings")
+    st = gamedata.status("ru")
+    assert st["game"] == str(game) and st["gameSource"] == "settings"

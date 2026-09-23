@@ -99,6 +99,7 @@ $("#lang").addEventListener("click", async (e) => {
   try { localStorage.setItem("poe2lab.lang", l); } catch (_) { /* storage blocked */ }
   applyStaticTexts();
   await loadGameTexts();
+  renderLangBanner();
   if (state.build) setBuildNames(state.build);
   loadStatus();
   loadBuildList();
@@ -1007,11 +1008,74 @@ function chatCard(configured) {
 const ATTR_RU = { Str: "силы", Dex: "ловкости", Int: "интеллекта" };
 const attrName = (a) => (LANG === "ru" ? ATTR_RU[a] || a : a);
 
+// ---------- Russian texts: why names may be English and how to fix it ----------
+let GAMEDATA = null;
+const bannerKey = "poe2lab.langBanner";
+
+async function loadGameDataStatus() {
+  try { GAMEDATA = await api("/api/gamedata"); } catch (_) { GAMEDATA = null; }
+  renderLangBanner();
+}
+
+function ruReady() { return GAMEDATA && GAMEDATA.unpacked && GAMEDATA.tradeData; }
+
+function renderLangBanner(force = false) {
+  const box = $("#lang-banner");
+  const indicator = $("#ru-status");
+  const st = GAMEDATA;
+  indicator.classList.toggle("hidden", LANG !== "ru" || !st);
+  if (st) {
+    indicator.textContent = ruReady() ? t("ruStatusOk") : t("ruStatusMissing");
+    indicator.onclick = () => renderLangBanner(true);
+  }
+  let dismissed = false;
+  try { dismissed = sessionStorage.getItem(bannerKey) === "off"; } catch (_) { /* storage blocked */ }
+  if (force) { try { sessionStorage.removeItem(bannerKey); } catch (_) { /* storage blocked */ } dismissed = false; }
+  if (LANG !== "ru" || !st || (ruReady() && !force) || dismissed) { box.classList.add("hidden"); return; }
+
+  const reasons = [];
+  if (!st.unpacked) {
+    if (!st.game) reasons.push(t("ruNoGame"));
+    else if (!st.extractor) reasons.push(t("ruNoExtractor", st.game));
+    else reasons.push(t("ruNotUnpacked", st.game));
+  }
+  if (st.error) reasons.push(t("ruError", st.error));
+  if (!st.tradeData) reasons.push(t("ruNoTrade"));
+
+  const dir = h("input", { type: "text", value: st.game || "", placeholder: t("ruDirPh"), style: "flex:1;min-width:260px" });
+  const run = h("button", { class: "primary", onclick: async () => {
+    run.disabled = true;
+    run.textContent = t("ruUnpacking");
+    try {
+      GAMEDATA = await api("/api/gamedata", { method: "POST", body: { game_dir: dir.value.trim() || null } });
+      await Promise.all([loadGameTexts(), loadIcons()]);
+      toast(t("ruDone"), true);
+      renderLangBanner();
+      if (state.build) { renderHeader(); resetCache(); switchTab(state.tab); }
+    } catch (e) {
+      toast(e.message);
+      await loadGameDataStatus();
+    }
+  } }, st.unpacked ? t("ruRebuild") : t("ruUnpack"));
+  const close = h("button", { class: "bi-act", title: t("ruHide"), onclick: () => {
+    try { sessionStorage.setItem(bannerKey, "off"); } catch (_) { /* storage blocked */ }
+    box.classList.add("hidden");
+  } }, "×");
+  box.replaceChildren(
+    h("div", { class: "lb-head" }, h("b", {}, ruReady() ? t("ruTitleOk") : t("ruTitle")), close),
+    h("div", { class: "small" }, t("ruWhy")),
+    reasons.length ? h("ul", { class: "small" }, reasons.map((r) => h("li", {}, r))) : null,
+    h("div", { class: "row", style: "margin-top:8px;flex-wrap:wrap" }, dir, run),
+    h("div", { class: "hint" }, t("ruHint")));
+  box.classList.remove("hidden");
+}
+
 // ---------- start ----------
 (async function start() {
   applyStaticTexts();
   renderEmpty();
   await Promise.all([loadGameTexts(), loadIcons()]);
+  loadGameDataStatus();
   const s = await loadStatus();
   if (s.loaded) {
     try { state.build = await api("/api/build"); renderHeader(); switchTab("overview"); } catch (_) { /* reopen from the list */ }

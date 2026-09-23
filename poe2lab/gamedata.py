@@ -60,13 +60,84 @@ def ensure_bun() -> Path:
     return BUN
 
 
+def _settings_path() -> Path:
+    root = os.environ.get("APPDATA") or str(Path.home() / ".config")
+    return Path(root) / "poe2lab" / "game.json"
+
+
+def saved_game_dir() -> Path | None:
+    """The game folder the player chose in the interface, if any."""
+    try:
+        d = json.loads(_settings_path().read_text(encoding="utf-8")).get("dir")
+    except (OSError, ValueError):
+        return None
+    return Path(d) if d else None
+
+
+def is_game_dir(d: Path) -> bool:
+    return (d / "Bundles2").is_dir() or (d / "Content.ggpk").is_file()
+
+
+def save_game_dir(d: Path):
+    if not is_game_dir(d):
+        raise GameDataError(f"в папке {d} нет файлов игры (ни Bundles2, ни Content.ggpk) — нужна папка, где лежит "
+                            "PathOfExileSteam.exe или PathOfExile.exe")
+    _settings_path().parent.mkdir(parents=True, exist_ok=True)
+    _settings_path().write_text(json.dumps({"dir": str(d)}, ensure_ascii=False), encoding="utf-8")
+
+
+def _steam_libraries() -> list[Path]:
+    """Every Steam library folder: Steam's own list (libraryfolders.vdf), found through the registry."""
+    roots = [Path(r"C:\Program Files (x86)\Steam")]
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            roots.insert(0, Path(winreg.QueryValueEx(key, "SteamPath")[0]))
+    except (ImportError, OSError):
+        pass
+    out = []
+    for root in roots:
+        vdf = root / "steamapps" / "libraryfolders.vdf"
+        try:
+            text = vdf.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in re.finditer(r'"path"\s+"([^"]+)"', text):
+            lib = Path(m.group(1).replace("\\\\", "\\"))
+            if lib not in out:
+                out.append(lib)
+    return out
+
+
+def find_game() -> tuple[Path | None, str | None]:
+    """The PoE2 install and where it was found: POE2_DIR, the folder chosen in the interface, any Steam library,
+    the standalone client's default folder."""
+    candidates = []
+    if os.environ.get("POE2_DIR"):
+        candidates.append((Path(os.environ["POE2_DIR"]), "env"))
+    if saved_game_dir():
+        candidates.append((saved_game_dir(), "settings"))
+    candidates += [(lib / "steamapps" / "common" / "Path of Exile 2", "steam") for lib in _steam_libraries()]
+    candidates += [(d, "steam" if "Steam" in str(d) else "ggg") for d in STEAM_DIRS]
+    for d, source in candidates:
+        if is_game_dir(d):
+            return d, source
+    return None, None
+
+
 def game_dir() -> Path | None:
-    """The PoE2 install: POE2_DIR, else the usual Steam / standalone folders."""
-    env = os.environ.get("POE2_DIR")
-    for d in ([Path(env)] if env else []) + STEAM_DIRS:
-        if (d / "Bundles2").is_dir() or (d / "Content.ggpk").is_file():
-            return d
-    return None
+    return find_game()[0]
+
+
+last_error: str | None = None  # the last failed unpack, for the interface
+
+
+def status(lang: str = "ru") -> dict:
+    """What the Russian texts need and what is missing, for the interface to explain."""
+    game, source = find_game()
+    return {"game": str(game) if game else None, "gameSource": source, "extractor": BUN.is_file(),
+            "unpacked": available(lang) and names_path(lang).is_file(),
+            "stale": bool(game) and stale(lang, game), "error": last_error}
 
 
 def extract(game: Path, lang: str = "ru"):

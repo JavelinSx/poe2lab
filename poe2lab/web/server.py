@@ -191,9 +191,43 @@ def _game_texts(lang: str) -> Path | None:
                 gamedata.build(lang)
             elif can_unpack and not icons.INDEX.is_file():  # texts unpacked before icons existed
                 icons.build()
-        except (gamedata.GameDataError, OSError):
+        except (gamedata.GameDataError, OSError) as err:
+            gamedata.last_error = str(err)
             return None
     return gamedata.statdesc_dir(lang) if gamedata.available(lang) else None
+
+
+@app.get("/api/gamedata")
+def gamedata_status():
+    """Why names are (not) Russian: the game install, the extractor, the unpacked texts, GGG's trade data."""
+    st = gamedata.status("ru")
+    st["tradeData"] = bool(_dictionaries.get("ru", {}).get("available", True))
+    return st
+
+
+class GameDataRequest(BaseModel):
+    game_dir: str | None = None  # a folder the player points at; empty = search as usual
+
+
+@app.post("/api/gamedata")
+def gamedata_build(req: GameDataRequest):
+    """Unpack the Russian texts and icons now (downloading the extractor if needed), optionally from a folder the
+    player chose."""
+    with _game_lock:
+        try:
+            if req.game_dir and req.game_dir.strip():
+                gamedata.save_game_dir(Path(req.game_dir.strip().strip('"')))
+            game = gamedata.game_dir()
+            if game is None:
+                raise gamedata.GameDataError("Path of Exile 2 не найдена — укажите папку игры")
+            gamedata.ensure_bun()
+            gamedata.build("ru", game)
+            gamedata.last_error = None
+        except (gamedata.GameDataError, OSError) as err:
+            gamedata.last_error = str(err)
+            raise HTTPException(400, str(err))
+    _dictionaries.pop("ru", None)  # the next dictionary request picks up the new names and templates
+    return gamedata_status()
 
 
 @app.get("/api/icons")

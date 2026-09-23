@@ -110,8 +110,11 @@ def setup(rest):
     print("Path of Building: ok")
     game = gamedata.game_dir()
     if game is None:
-        print("Path of Exile 2 не найдена (Steam / клиент GGG; другой путь — переменная POE2_DIR): "
-              "интерфейс будет с английскими названиями из PoB")
+        print("Path of Exile 2 не найдена (искал во всех библиотеках Steam и в папке клиента GGG): названия будут
+"
+              "английскими из PoB. Если игра стоит в другом месте — в интерфейсе внизу слева нажмите
+"
+              "«Тексты игры: английские — почему?» и укажите папку игры.")
         return
     try:
         gamedata.ensure_bun()
