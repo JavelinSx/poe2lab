@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.items import breakeven, compare
 from ..analysis.skills import build_view as skill_build_view, leveling_view as skill_leveling_view
+from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
@@ -590,19 +591,25 @@ def mechanics(build: str | None = None):
 
 
 @app.get("/api/skills")
-def skills_view(view: str = "build", build: str | None = None):
+def skills_view(view: str = "build", scope: str = "level", build: str | None = None):
     """The build's skills: each with its support gems and the links between skills ("build"), or when each gem can
     be had and what to socket meanwhile while levelling ("leveling")."""
-    if view not in ("build", "leveling"):
+    if view not in ("build", "leveling", "uniques"):
         raise HTTPException(400, f"неизвестный вид {view!r}")
     with session.lock:
         session.require(build)
         e, cfg = session.engine, session.profile.config()
-        if view == "build":
+        if view in ("build", "uniques"):
             m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
             data = session.cached(("skills", "build"), lambda: skill_build_view(
                 e, cfg, e.mechanics_raw(_game_texts("ru")), m.uniques,
                 [asdict(g) for g in m.gaps if g.source == "item"]))
+            if view == "uniques":
+                # levelling: what a character of about this level can wear; on maps every unique
+                cap = session.level + 5 if scope == "level" and session.level and session.level < 65 else None
+                view_data = data
+                data = session.cached(("skills", "uniques", cap), lambda: suggest_uniques(e, cfg, view_data, cap))
+                data = data | {"level": session.level}
         else:
             data = session.cached(("skills", "leveling"), lambda: skill_leveling_view(e, cfg))
         return _json(data)

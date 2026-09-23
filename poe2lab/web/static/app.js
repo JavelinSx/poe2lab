@@ -971,13 +971,15 @@ TABS.loot = async (view) => {
 // ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
 TABS.skills = async (view) => {
   const mode = state.skillsMode || "build";
-  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["leveling", t("skLeveling")]].map(([k, label]) =>
+  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["leveling", t("skLeveling")], ["uniques", t("skUniquesTab")]].map(([k, label]) =>
     h("button", { class: mode === k ? "active" : "", onclick: () => { state.skillsMode = k; switchTab("skills"); } }, label)));
-  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : "skLoadingLevel")));
+  const scope = state.uniqueScope || "level";
+  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "uniques" ? "unLoading" : "skLoadingLevel")));
   view.replaceChildren(h("div", { class: "stack" }, h("div", { class: "row" }, seg), body));
   try {
-    const r = await cached(`skills:${mode}`, () => api(`/api/skills?view=${mode}&${buildQuery()}`));
-    body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : renderSkillsLeveling(r)));
+    const key = mode === "uniques" ? `skills:uniques:${scope}` : `skills:${mode}`;
+    const r = await cached(key, () => api(`/api/skills?view=${mode}&scope=${scope}&${buildQuery()}`));
+    body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : mode === "uniques" ? renderUniqueLinks(r) : renderSkillsLeveling(r)));
   } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
 };
 
@@ -1080,6 +1082,41 @@ function renderSkillsBuild(r) {
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
       mechChips(it), termChips(it.terms))))) : null;
   return [links, items, h("div", { class: "grid cards" }, cards)].filter(Boolean);
+}
+
+// uniques of the whole game that go with the build's skills (mechanics, skill kinds, damage types, shared terms)
+const DMG_RU = { cold: "холод", fire: "огонь", lightning: "молния", chaos: "хаос", physical: "физический" };
+function renderUniqueLinks(r) {
+  TERMS = r.terms || {};
+  const mech = (k) => r.mechanics[k] || k;
+  const skills = (list) => list.map((n, i) => [i ? ", " : "", gemName(n)]);
+  const reason = (x) => {
+    if (x.kind === "uses") return [t("unUses", mech(x.mechanic)), " ", skills(x.skills)];
+    if (x.kind === "creates") return [t("unCreates", mech(x.mechanic)), " ", skills(x.skills)];
+    if (x.kind === "skillKind") return [t("unKind", LANG === "en" ? x.type : x.typeRu), " ", skills(x.skills)];
+    if (x.kind === "damage") return t("unDamage", LANG === "en" ? x.type : DMG_RU[x.type]);
+    return [t("unTerms"), " ", x.terms.map((id, i) => [i ? ", " : "", termName(id)])];
+  };
+  const leveling = r.level && r.level < 65;
+  const scopeSeg = leveling ? h("div", { class: "segmented small-seg" }, [["level", t("unScopeLevel", r.maxLevel || r.level + 5)], ["all", t("unScopeAll")]].map(([k, label]) =>
+    h("button", { class: (state.uniqueScope || "level") === k ? "active" : "", onclick: () => { state.uniqueScope = k; switchTab("skills"); } }, label))) : null;
+  const head = h("div", { class: "card" }, h("h3", {}, t("unTitle")), h("div", { class: "sub" }, t("unSub", r.considered)), scopeSeg);
+  if (!r.suggestions.length) return [head, h("p", { class: "muted" }, t("unNone"))];
+  const cards = r.suggestions.map((u) => {
+    const pobBlind = Object.values(u.changes).every((v) => Math.abs(v) < 0.5);
+    return h("div", { class: "card sk-item" },
+      h("div", { class: "row" }, icon(u.name), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
+        u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null),
+      h("ul", { class: "un-reasons small" }, u.reasons.map((x) => h("li", {}, reason(x)))),
+      h("div", { class: "small" }, h("span", { class: "muted" }, t("unWorth", slotName(u.slot))), " ",
+        pobBlind ? h("span", { class: "muted" }, t("unPobBlind")) : deltas(u.changes, METRIC, 0.5)),
+      h("details", {}, h("summary", { class: "small" }, t("unLines")),
+        h("ul", { class: "item-lines small" }, u.lines.map((l) => h("li", { title: l }, trMod(l))))),
+      u.unread.length ? h("div", { class: "hint" }, t("skUnseen"), " ", u.unread.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
+      u.source ? h("div", { class: "hint" }, t("unSource"), " ", trFree(u.source)) : null,
+      termChips(u.terms));
+  });
+  return [head, h("div", { class: "grid cards" }, cards), h("div", { class: "hint" }, t("unNote"))];
 }
 
 function renderSkillsLeveling(r) {

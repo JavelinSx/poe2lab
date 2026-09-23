@@ -74,13 +74,13 @@ MECHANICS = [
     Mechanic("freeze", "Заморозка",
              "Урон от холода копит шкалу заморозки врага; когда она заполнится, враг заморожен. Скиллы, которые её "
              "«поглощают», снимают заморозку ради усиленного удара.",
-             _inflict("freeze|freezes|freezing") + r"|freeze_buildup|hypothermia",
+             _inflict("freeze|freezes|freezing") + r"|freeze[_ ]buildup|hypothermia",
              r"consum\w* .{0,30}freeze|freeze is consumed|" + _against("frozen"),
              created_by_tags=("cold",), prevents=r"never_freeze|cannot_freeze"),
     Mechanic("shock", "Шок",
              "Урон от молнии может наложить шок — враг получает больше урона. Некоторые скиллы поглощают шок ради "
              "дополнительного эффекта.",
-             _inflict("shock|shocks|shocking"), r"consum\w* .{0,30}shock|" + _against("shocked"), created_by_tags=("lightning",)),
+             _inflict("shock|shocks|shocking") + r"|shock chance|chance to shock", r"consum\w* .{0,30}shock|" + _against("shocked"), created_by_tags=("lightning",)),
     Mechanic("ignite", "Поджог",
              "Урон от огня может поджечь врага — он получает урон огнём со временем.",
              _inflict("ignite|ignites|igniting"), r"consum\w* .{0,30}ignit|" + _against("ignited"), created_by_tags=("fire",)),

@@ -863,6 +863,33 @@ for gi, g in ipairs(build.skillsTab.socketGroupList) do
 end
 return _poe2lab_json(out)""")
 
+    def unique_catalog(self) -> list[dict]:
+        """Every unique item of PoB's data as PoB reads it (the current variant): name, base, type, level
+        requirement, lines (with the ones PoB cannot parse marked), and its raw text to equip it in a what-if."""
+        return self._json("""
+local out = _poe2lab_array({})
+for kind, list in pairs(data.uniques or {}) do
+  for _, raw in pairs(list) do
+    local ok, item = pcall(function() return new("Item"):Item(raw, "UNIQUE", true) end)
+    if ok and item and item.base and item.rarity == "UNIQUE" then
+      local lines, unread = _poe2lab_array({}), _poe2lab_array({})
+      for _, list in ipairs({ item.implicitModLines or {}, item.explicitModLines or {} }) do
+        for _, ml in ipairs(list) do
+          if item:CheckModLineVariant(ml) then
+            lines[#lines + 1] = ml.line
+            if ml.extra then unread[#unread + 1] = ml.line end
+          end
+        end
+      end
+      local source = raw:match("\\nSource: ([^\\n]+)") or ""
+      out[#out + 1] = { name = item.title or item.name, base = item.baseName or "", type = item.type or "",
+        kind = kind, level = (item.requirements and item.requirements.level) or 0, lines = lines, unread = unread,
+        source = source, raw = raw }
+    end
+  end
+end
+return _poe2lab_json(out)""")
+
     def support_candidates(self, group: int) -> list[dict]:
         """Support gems (cuttable from uncut gems: tier > 0) that can support the group's first active skill and whose
         family is not in the group yet."""
