@@ -29,7 +29,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
-from .. import feedback, gamedata, icons, library, lootfilter
+from .. import feedback, gamedata, icons, library, lootfilter, pobapp
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -481,6 +481,16 @@ def load(req: LoadRequest):
     with session.lock:
         _errors(lambda: session.load(req.name, req.group, req.skill))
         return _json(_summary())
+
+
+@app.post("/api/pob/open")
+def pob_open():
+    """Path of Building for updating the open build: started with it open, or the running window brought forward."""
+    path = session.path if session.engine is not None else None
+    try:
+        return pobapp.open_pob(path)
+    except OSError as err:
+        raise HTTPException(500, f"не удалось запустить Path of Building: {err}")
 
 
 class ReloadRequest(BaseModel):

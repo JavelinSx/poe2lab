@@ -269,21 +269,56 @@ function renderReloadCode() {
     go.textContent = t("reloading");
     try { await applyReload(code.value); } catch (e) { toast(e.message); go.disabled = false; go.textContent = t("reloadGo"); }
   } }, t("reloadGo"));
+  const opened = h("div", { class: "action hidden" }, t("pobCodeOpened"));
+  const openPob = h("button", { class: "ghost", onclick: async () => {
+    try {
+      const r = await api("/api/pob/open", { method: "POST" });
+      if (r.state === "missing") { toast(t("pobMissing")); return; }
+      opened.classList.remove("hidden");
+      code.focus();
+    } catch (e) { toast(e.message); }
+  } }, t("pobOpen"));
   hideBuildChrome();
   $("#view").replaceChildren(h("div", { class: "card stack add-build" },
-    h("h3", {}, t("reloadTitle", b.name)), h("div", { class: "sub" }, t("reloadSub")), code,
+    h("h3", {}, t("reloadTitle", b.name)), h("div", { class: "sub" }, t("reloadSub")), h("div", { class: "row" }, openPob), opened, code,
     h("div", { class: "row" }, go, h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")))));
   code.focus();
 }
 
-$("#bh-reload").addEventListener("click", () => (state.build.kind === "pob" ? reloadFromFile() : renderReloadCode()));
+$("#bh-reload").addEventListener("click", () => (state.build.kind === "pob" ? updateViaPob() : renderReloadCode()));
+
+// A PoB-saved build changes only when PoB saves it: open PoB on that build (or bring it forward), tell the player
+// what to do there, and pick the save up by ourselves.
+async function updateViaPob() {
+  const box = $("#build-notice");
+  const name = state.build.name;
+  box.replaceChildren(h("span", {}, t("pobOpening")));
+  box.classList.remove("hidden");
+  let r;
+  try { r = await api("/api/pob/open", { method: "POST" }); } catch (e) { toast(e.message); box.classList.add("hidden"); return; }
+  if (r.state === "missing") { toast(t("pobMissing")); box.classList.add("hidden"); reloadFromFile(); return; }
+  state.pobGuide = name;
+  const head = r.state === "running" ? t("pobRunning", name) : r.openedBuild ? t("pobStarted", name) : t("pobStartedPlain", name);
+  box.replaceChildren(h("div", { class: "stack", style: "gap:6px;flex:1" },
+    h("b", {}, head),
+    h("ol", { class: "pob-steps" }, t("pobSteps").map((s) => h("li", {}, s))),
+    h("div", { class: "hint" }, t("pobAuth"), r.bundled ? " " + t("pobDevMode") : ""),
+    h("div", { class: "row" }, h("span", { class: "muted small" }, h("span", { class: "spinner inline" }), " ", t("pobWaiting")),
+      h("button", { class: "ghost small", onclick: () => { state.pobGuide = null; reloadFromFile(); } }, t("pobSavedAlready")),
+      h("button", { class: "ghost small", onclick: () => { state.pobGuide = null; box.classList.add("hidden"); } }, t("cancel")))));
+}
 
 // PoB saved the build again (the player re-imported the character): offer the update when they come back here
 async function checkBuildFile() {
-  if (!state.build || document.hidden) return;
+  if (!state.build || (document.hidden && !state.pobGuide)) return;
   try {
     const s = await api("/api/status");
     const box = $("#build-notice");
+    if (state.pobGuide) {
+      if (state.pobGuide !== state.build.name) { state.pobGuide = null; box.classList.add("hidden"); return; }
+      if (s.buildChanged) { state.pobGuide = null; await reloadFromFile(); }
+      return;
+    }
     if (s.buildChanged && s.build === state.build.name && !$("#tabs").classList.contains("hidden")) {
       box.replaceChildren(h("span", {}, t(state.build.kind === "pob" ? "buildFileChanged" : "buildCodeChanged", state.build.name)),
         h("button", { class: "primary", onclick: reloadFromFile }, t("reload")));
@@ -295,7 +330,8 @@ async function checkBuildFile() {
 }
 window.addEventListener("focus", checkBuildFile);
 document.addEventListener("visibilitychange", checkBuildFile);
-setInterval(checkBuildFile, 15000);
+setInterval(() => { if (!state.pobGuide) checkBuildFile(); }, 15000);
+setInterval(() => { if (state.pobGuide) checkBuildFile(); }, 3000);
 
 function changedEnough(r) {
   if (r.key.startsWith("hit_") && (r.before >= IMMUNE_HIT || r.after >= IMMUNE_HIT)) return (r.before >= IMMUNE_HIT) !== (r.after >= IMMUNE_HIT);

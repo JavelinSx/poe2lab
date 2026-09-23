@@ -359,6 +359,8 @@ details > summary .ico { margin-left: 2px; }
 .build-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   background: var(--gold-soft); border: 1px solid rgba(214, 165, 79, .45); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
 #changes { margin-bottom: 16px; }
+.pob-steps { margin: 0; padding-left: 20px; }
+.spinner.inline { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; }
 #changes .ch-head { display: flex; justify-content: space-between; align-items: center; }
 #changes .bi-act { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
 #changes ul { margin: 4px 0 0; padding-left: 18px; }
