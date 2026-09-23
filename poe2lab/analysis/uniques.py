@@ -26,6 +26,19 @@ DAMAGE = {"cold": r"\bcold damage\b", "fire": r"\bfire damage\b", "lightning": r
           "chaos": r"\bchaos damage\b", "physical": r"\bphysical damage\b"}
 EVALUATE = 60  # most related candidates worn in PoB
 SHOW = 24
+# How a change counts in the plus/minus balance: damage and effective HP fully, each damage type's survivable hit
+# partly (five of them), recovery least (its percentages swing wildly on small numbers).
+BALANCE_WEIGHTS = {"dps": 1.0, "ehp": 1.0, "phys_hit": 0.4, "fire_hit": 0.4, "cold_hit": 0.4, "lightning_hit": 0.4,
+                   "chaos_hit": 0.4, "recovery": 0.3}
+MIN_GAIN = 3.0  # weighted % points of plus a unique must bring
+GAIN_OVER_LOSS = 2.0  # and at least this many times its minus
+
+
+def balance(changes: dict) -> tuple[float, float]:
+    """(plus, minus) of wearing it: weighted sums of the gains and of the losses."""
+    plus = sum(w * max(changes.get(k, 0), 0) for k, w in BALANCE_WEIGHTS.items())
+    minus = sum(w * max(-changes.get(k, 0), 0) for k, w in BALANCE_WEIGHTS.items())
+    return plus, minus
 
 
 def build_traits(view: dict) -> dict:
@@ -138,23 +151,29 @@ def suggest(engine, config: dict, view: dict, max_level: int | None = None) -> d
         if reasons:
             related.append((sum(r["weight"] for r in reasons), u, reasons, slots))
     related.sort(key=lambda x: -x[0])
-    out = []
+    out, tried = [], 0
     for weight, u, reasons, slots in related[:EVALUATE]:
         worth = _worth(engine, config, u, slots, base)
         if worth is None:
             continue
+        tried += 1
         strong = any(r["kind"] in ("uses", "creates", "skillKind") for r in reasons)
-        gain = worth["changes"].get("dps", 0) + worth["changes"].get("ehp", 0)
-        if not strong and gain <= 2:
-            continue  # only a damage type or a common term in common, and PoB sees no gain: not a link
+        plus, minus = balance(worth["changes"])
+        # PoB sees nothing, but the unique is tied to the skills by a mechanic in lines PoB does not read: its worth
+        # is outside the numbers, so it stays (marked); otherwise the plus has to clearly outweigh the minus
+        outside_pob = strong and u["unread"] and plus < 0.5 and minus < 0.5
+        if not outside_pob and (plus < MIN_GAIN or plus < GAIN_OVER_LOSS * minus):
+            continue
         out.append({"name": u["name"], "base": u["base"], "type": u["type"], "level": u["level"],
                     "lines": u["lines"], "unread": u["unread"], "slot": worth["slot"],
                     # PoB's markup in sources: "Drops from unique{Trialmaster} in normal{The Trial of Chaos}"
                     "source": re.sub(r"\w+\{([^}]*)\}", r"\1", u["source"]),
                     "changes": worth["changes"], "reasons": reasons, "relevance": weight,
+                    "plus": plus, "minus": minus, "outsidePob": bool(outside_pob),
                     "terms": kw.find(u["lines"])})
     # related first (a mechanic link outweighs a stat bump), then what PoB says it is worth
-    out.sort(key=lambda s: (-min(s["relevance"], 6), -(s["changes"].get("dps", 0) + s["changes"].get("ehp", 0))))
+    out.sort(key=lambda s: (-min(s["relevance"], 6), -(s["plus"] - s["minus"])))
     terms = {t for s in out[:SHOW] for t in s["terms"]}
-    return {"suggestions": out[:SHOW], "maxLevel": max_level, "considered": len(related),
+    return {"suggestions": out[:SHOW], "maxLevel": max_level, "considered": len(related), "tried": tried,
+            "outweighed": tried - len(out),
             "mechanics": {m.key: m.name for m in MECHANICS}, "terms": kw.entries(terms)}

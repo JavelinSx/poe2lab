@@ -50,8 +50,21 @@ def test_suggestions_for_a_build(titan):
     names = [s["name"] for s in r["suggestions"]]
     assert r["suggestions"] and "Amor Mandragora" not in names  # worn uniques are left out
     assert all(s["type"] not in ("Shield", "Focus", "Quiver") for s in r["suggestions"])  # two-handed talismans
-    rage = [s for s in r["suggestions"] if any(x.get("mechanic") == "rage" for x in s["reasons"])]
-    assert rage  # the build builds and spends Rage: uniques about Rage are found
+    # the build builds and spends Rage: uniques about Rage are found among the candidates (whether they are worth
+    # wearing is the balance's call)
+    traits = un.build_traits(view)
+    assert any(x.get("mechanic") == "rage" for u in un.catalog(titan) for x in un.relate(u, traits))
     low = un.suggest(titan, cfg, view, max_level=20)
     assert all(s["level"] <= 20 for s in low["suggestions"])
     assert titan.what_if(config=cfg)["CombinedDPS"] == base
+
+
+def test_only_clear_gains_are_suggested(titan):
+    assert un.balance({"dps": 10, "ehp": -2, "fire_hit": 5}) == (12.0, 2.0)
+    cfg = MapProfile().config()
+    m = collect(titan)
+    view = sk.build_view(titan, cfg, titan.mechanics_raw(), m.uniques, [asdict(g) for g in m.gaps if g.source == "item"])
+    r = un.suggest(titan, cfg, view)
+    for s in r["suggestions"]:
+        assert s["outsidePob"] or (s["plus"] >= un.MIN_GAIN and s["plus"] >= un.GAIN_OVER_LOSS * s["minus"]), s["name"]
+    assert r["outweighed"] >= 0 and r["tried"] >= len(r["suggestions"])

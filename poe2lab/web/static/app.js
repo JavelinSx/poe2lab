@@ -1122,16 +1122,16 @@ function renderUniqueLinks(r) {
   const leveling = r.level && r.level < 65;
   const scopeSeg = leveling ? h("div", { class: "segmented small-seg" }, [["level", t("unScopeLevel", r.maxLevel || r.level + 5)], ["all", t("unScopeAll")]].map(([k, label]) =>
     h("button", { class: (state.uniqueScope || "level") === k ? "active" : "", onclick: () => { state.uniqueScope = k; switchTab("skills"); } }, label))) : null;
-  const head = h("div", { class: "card" }, h("h3", {}, t("unTitle")), h("div", { class: "sub" }, t("unSub", r.considered)), scopeSeg);
+  const head = h("div", { class: "card" }, h("h3", {}, t("unTitle")), h("div", { class: "sub" }, t("unSub", r.considered)),
+    r.outweighed ? h("div", { class: "hint", style: "margin-bottom:8px" }, t("unOutweighed", r.outweighed)) : null, scopeSeg);
   if (!r.suggestions.length) return [head, h("p", { class: "muted" }, t("unNone"))];
   const cards = r.suggestions.map((u) => {
-    const pobBlind = Object.values(u.changes).every((v) => Math.abs(v) < 0.5);
     return h("div", { class: "card sk-item" },
       h("div", { class: "row" }, itemIcon(u.name, u.base, "unique"), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
         u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null),
       h("ul", { class: "un-reasons small" }, u.reasons.map((x) => h("li", {}, reason(x)))),
       h("div", { class: "small" }, h("span", { class: "muted" }, t("unWorth", slotName(u.slot))), " ",
-        pobBlind ? h("span", { class: "muted" }, t("unPobBlind")) : deltas(u.changes, METRIC, 0.5)),
+        u.outsidePob ? h("span", { class: "chip util" }, t("unPobBlind")) : deltas(u.changes, METRIC, 0.5)),
       h("details", {}, h("summary", { class: "small" }, t("unLines")),
         h("ul", { class: "item-lines small" }, u.lines.map((l) => h("li", { title: l }, trMod(l))))),
       u.unread.length ? h("div", { class: "hint" }, t("skUnseen"), " ", u.unread.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
