@@ -16,8 +16,8 @@ from pathlib import Path
 from .engine.pobcode import encode_pob_code
 from .pobfiles import REPO_ROOT
 
-# set after deploying worker/ (see worker/README.md); POE2LAB_FEEDBACK_URL overrides it, e.g. for a test relay
-RELAY_URL = ""
+# the deployed worker/ (see worker/README.md); POE2LAB_FEEDBACK_URL overrides it, e.g. for a test relay
+RELAY_URL = "https://poe2lab-feedback.poe2lab.workers.dev/feedback"
 MAX_MESSAGE = 5000
 MAX_CONTACT = 200
 MAX_IMAGES = 3
