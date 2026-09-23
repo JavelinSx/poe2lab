@@ -15,3 +15,12 @@ def test_pinned_pob_commit_matches_the_submodule():
     if not head:
         pytest.skip("pob2 is not a git checkout (downloaded archive)")
     assert head == POB_COMMIT, "update POB_COMMIT in poe2lab/engine/luahost.py after moving the submodule"
+
+
+def test_every_module_compiles():
+    """start.bat runs `python -m poe2lab`: a syntax error in any module (e.g. __main__) breaks it for everyone."""
+    import py_compile
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / "poe2lab"
+    for path in root.rglob("*.py"):
+        py_compile.compile(str(path), doraise=True)
