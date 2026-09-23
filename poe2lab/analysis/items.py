@@ -44,8 +44,8 @@ def compare(engine, config: dict, slot: str, item_text: str) -> Comparison:
         hit_pct={t: hit_change(new, base, t) for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")},
         recovery_pct=recovery_change(new, base),
         unmet_requirements={
-            a: (new[a], new[f"Req{a}"]) for a in ATTRS
-            if new[f"Req{a}"] - new[a] > max(base[f"Req{a}"] - base[a], 0)
+            a: (new.get(a, 0), new.get(f"Req{a}", 0)) for a in ATTRS  # no Req<attr> when nothing requires it
+            if new.get(f"Req{a}", 0) - new.get(a, 0) > max(base.get(f"Req{a}", 0) - base.get(a, 0), 0)
         },
         before=_values(base), after=_values(new),
     )

@@ -44,7 +44,8 @@ def holds(base: dict, without: dict, check_mana: bool = True) -> list[str]:
         if without.get(f"{res}Resist", 0) < 75 <= base.get(f"{res}Resist", 0):
             out.append(f"кап резиста {res}")
     for a in ATTRS:
-        if without[a] < without[f"Req{a}"] and base[a] >= base[f"Req{a}"]:
+        # PoB leaves Req<attr> out of the output when nothing requires that attribute
+        if without.get(a, 0) < without.get(f"Req{a}", 0) and base.get(a, 0) >= base.get(f"Req{a}", 0):
             out.append(f"требования {a}")
     return out
 

@@ -77,3 +77,13 @@ def test_save_never_touches_the_source_filter(tmp_path, monkeypatch):
     assert (tmp_path / "mine.filter").read_text(encoding="utf-8") == "Show\n\tClass == \"Rings\"\n"
     same = client.post("/api/lootfilter/save", json={"source": "file", "file": "mine.filter", "name": "mine"}, headers=h)
     assert same.status_code == 400
+
+
+
+def test_a_build_nothing_requires_an_attribute_for():
+    """When nothing requires Strength PoB leaves ReqStr out of its output; that once crashed the filter and
+    item comparison for such a build."""
+    from poe2lab.analysis.slots import holds
+    base = {"Str": 20, "Dex": 150, "ReqDex": 140, "Int": 90, "ReqInt": 80, "SpiritUnreserved": 0}
+    without = base | {"Dex": 130}
+    assert holds(base, without, check_mana=False) == ["требования Dex"]
