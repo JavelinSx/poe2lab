@@ -56,7 +56,7 @@ const icon = (name, cls = "ico") => (name && ICONS[name]
 const loading = (text) => h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
 
 const DMG_COLOR = { Physical: "var(--phys)", Fire: "var(--fire)", Cold: "var(--cold)", Lightning: "var(--lightning)", Chaos: "var(--chaos)" };
-const METRIC = [["dps", "m_dps"], ["phys_hit", "m_phys"], ["fire_hit", "m_fire"], ["cold_hit", "m_cold"],
+const METRIC = [["dps", "m_dps"], ["ehp", "m_ehp"], ["phys_hit", "m_phys"], ["fire_hit", "m_fire"], ["cold_hit", "m_cold"],
   ["lightning_hit", "m_lightning"], ["chaos_hit", "m_chaos"], ["recovery", "m_recovery"]];
 
 function deltas(changes, keys = METRIC, min = 0.3) {

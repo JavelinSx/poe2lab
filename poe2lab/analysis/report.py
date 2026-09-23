@@ -149,9 +149,15 @@ def defence_weights(hits: list) -> dict[str, float]:
     return {t: w / total for t, w in raw.items()}
 
 
+# Defence has two sides. The largest survivable hit assumes the hit lands, so it sees life, energy shield, armour and
+# resistances but not evasion, block or other avoidance; EHP (PoB's TotalEHP) sees avoidance too. Both count, so an
+# evasion node is no longer "no effect" on an evasion build.
+EHP_SHARE = 0.5
+
+
 def score(g: Gradient, mode: str, weights: dict[str, float]) -> float:
     w_dps, w_def, w_rec = MODES[mode]
-    defence = sum(weights[t] * g.one[HIT_METRIC[t]] for t in DAMAGE_TYPES)
+    defence = sum(weights[t] * g.one[HIT_METRIC[t]] for t in DAMAGE_TYPES) + EHP_SHARE * g.one.get("ehp", 0.0)
     return w_dps * g.one["dps"] + w_def * defence + w_rec * g.one["recovery"]
 
 
