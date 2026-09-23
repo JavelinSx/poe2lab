@@ -113,7 +113,7 @@ class Toolbox:
         # resistances as PoB has them (capped and before the cap), so they are read, not inferred from hits
         resists = {t: {"value": stats.get(f"{t}Resist"), "uncapped": stats.get(f"{t}ResistTotal")}
                    for t in ("Fire", "Cold", "Lightning", "Chaos")}
-        return {k: r[k] for k in ("build", "baseline", "gates", "notModelled", "core", "damageRange", "ranking",
+        return {k: r[k] for k in ("build", "profile", "baseline", "gates", "notModelled", "core", "damageRange", "ranking",
                                   "path")} | {"conditions": r["conditions"][:10], "resistances": resists}
 
     def _find_mod(self, text: str):

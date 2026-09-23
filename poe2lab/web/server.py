@@ -2,7 +2,7 @@
 import json
 import re
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -55,6 +55,7 @@ class Session:
         self._prices: PriceBook | None | bool = False
         self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
         self.plan: dict | None = None  # passive tree edits on top of the build (see /api/tree/*)
+        self.level: int | None = None  # character level: sets the enemy (see MapProfile.for_level)
         self.picked_filter: Path | None = None  # the player's filter chosen in the file dialog
         self.mtime = 0.0  # the build file's time when it was read: a newer file means PoB saved it again
 
@@ -66,12 +67,14 @@ class Session:
 
     @property
     def profile(self) -> MapProfile:
-        return MapProfile(rage=self.bp.rage, mana_sustained=self.bp.mana_sustained)
+        # the enemy of the character's stage: an area of its level while levelling, maps from level 65
+        return MapProfile.for_level(self.level, rage=self.bp.rage, mana_sustained=self.bp.mana_sustained)
 
     def load(self, name: str, group: int | None = None, skill: int | None = None):
         self.path = resolve_build(name)
         self.mtime = self.path.stat().st_mtime
         self.engine, self.bp = open_build(self.path, group, skill)
+        self.level = self.engine.info()["level"]
         self.plan = None
         self.cache.clear()
         self.assistant = self.toolbox = None
@@ -862,7 +865,9 @@ def versus_view(ref: str, build: str | None = None):
         session.require(build)
         _, engine, bp = _reference(ref)
         return _json(session.cached(("versus", ref), lambda: versus(
-            session.engine, session.profile, engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))))
+            # the reference against the same enemy as the player's character: compared at the player's stage
+            session.engine, session.profile, engine,
+            replace(session.profile, rage=bp.rage, mana_sustained=bp.mana_sustained))))
 
 
 @app.get("/api/versus/item")

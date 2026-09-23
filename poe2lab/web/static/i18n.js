@@ -138,7 +138,7 @@ const I18N = {
     refTitle: "Сравнение с эталоном", refSub: "Эталон — чужой готовый билд (например, из гайда) со своим шмотом. Покажу, насколько твои характеристики от него отстают, и что даст каждый его предмет в твоём билде.",
     refBuild: "Билд-эталон", pickRef: "— выберите билд —", refNone: "Добавьте билд-эталон кнопкой «+ добавить билд» слева.",
     refLoading: "Загружаю эталон и считаю…", refStats: "Характеристики",
-    refStatsSub: (a, b) => `Каждый билд посчитан со своим профилем против моба 79 ур. Основной скилл: у тебя «${a}», у эталона «${b}».`,
+    refStatsSub: (a, b) => `Каждый билд посчитан со своим профилем против одного монстра — твоего этапа (на прокачке твоего уровня, на картах 79 ур.). Основной скилл: у тебя «${a}», у эталона «${b}».`,
     refSkillDiffers: "Основные скиллы разные — DPS сравним только приблизительно, защита сравнима полностью.",
     mine: "Мой билд", diffMine: "У меня", now: "Сейчас", change: "Изменение", withTheirGear: "С шмотом эталона",
     withCandidate: "С кандидатом",
@@ -174,8 +174,10 @@ const I18N = {
     dps: "DPS", life: "Жизнь", hitChance: "Попадание", recovery: "Лечение", perSec: " /с", whileAttacking: "пока атакуешь",
     dpsRangeNote: "без дебаффов на враге … со всеми",
     hitsTitle: "Сколько снимает удар монстра",
-    hitsSub: (p, ph, ch) => `Доля твоего запаса (здоровье + энергощит), которую снимает один тяжёлый удар обычного монстра ${p.enemy_level} ур. (база ${ph}, хаос ${ch}). Хард-карта: монстры наносят +${p.damage_pct}% урона и +${p.crit_bonus}% к бонусу крита.`,
-    hitNormal: "обычный удар", hitCrit: "крит", hitJuiced: "крит на хард-карте",
+    hitsSub: (p, ph, ch) => p.stage === "maps"
+      ? `Доля твоего запаса (здоровье + энергощит), которую снимает один тяжёлый удар обычного монстра ${p.enemy_level} ур. (база ${ph}, хаос ${ch}), штраф резистов карт ${p.resist_penalty}%. Хард-карта: монстры наносят +${p.damage_pct}% урона и +${p.crit_bonus}% к бонусу крита.`
+      : `Персонаж на прокачке, поэтому монстр — твоего уровня (${p.enemy_level} ур., ${STAGE_RU[p.stage]}, штраф резистов ${p.resist_penalty}%): доля твоего запаса (здоровье + энергощит), которую снимает один его тяжёлый удар (база ${ph}, хаос ${ch}). Сильный монстр — +${p.damage_pct}% урона и +${p.crit_bonus}% к бонусу крита. С 65 уровня — как на картах.`,
+    hitNormal: "обычный удар", hitCrit: "крит", hitJuiced: "крит на хард-карте", hitStrong: "крит сильного монстра",
     issuesTitle: "Что сломано и где дыры", issuesSub: "«Сломано» — в игре не работает, хотя PoB считает.",
     lvl_must: "сломано", lvl_priority: "главное", lvl_warn: "учесть",
     supportsAtRisk: "Один из этих саппортов в игре выключен — цена, если это он:",
@@ -375,7 +377,7 @@ const I18N = {
     refTitle: "Compare with a reference", refSub: "A reference is someone's finished build (e.g. from a guide) with its gear. I show how far your characteristics are from it and what each of its items would do in your build.",
     refBuild: "Reference build", pickRef: "— pick a build —", refNone: "Add a reference build with “+ add build” on the left.",
     refLoading: "Loading the reference and computing…", refStats: "Characteristics",
-    refStatsSub: (a, b) => `Each build is computed with its own profile against a level 79 monster. Main skill: yours “${a}”, reference “${b}”.`,
+    refStatsSub: (a, b) => `Each build is computed with its own profile against the same monster — of your stage (your level while levelling, 79 on maps). Main skill: yours “${a}”, reference “${b}”.`,
     refSkillDiffers: "The main skills differ — DPS compares only roughly, defence compares fully.",
     mine: "My build", diffMine: "Me vs them", now: "Now", change: "Change", withTheirGear: "With their gear",
     withCandidate: "With candidate",
@@ -411,8 +413,10 @@ const I18N = {
     dps: "DPS", life: "Life", hitChance: "Hit chance", recovery: "Recovery", perSec: " /s", whileAttacking: "while attacking",
     dpsRangeNote: "no enemy debuffs … all of them",
     hitsTitle: "How much a monster hit takes",
-    hitsSub: (p, ph, ch) => `Share of your pool (life + energy shield) one heavy hit of an ordinary level ${p.enemy_level} monster takes (base ${ph}, chaos ${ch}). Hard map: monsters deal +${p.damage_pct}% damage and +${p.crit_bonus}% crit bonus.`,
-    hitNormal: "normal hit", hitCrit: "crit", hitJuiced: "crit on a hard map",
+    hitsSub: (p, ph, ch) => p.stage === "maps"
+      ? `Share of your pool (life + energy shield) one heavy hit of an ordinary level ${p.enemy_level} monster takes (base ${ph}, chaos ${ch}), map resistance penalty ${p.resist_penalty}%. Hard map: monsters deal +${p.damage_pct}% damage and +${p.crit_bonus}% crit bonus.`
+      : `The character is levelling, so the monster is of its level (${p.enemy_level}, ${STAGE_EN[p.stage]}, resistance penalty ${p.resist_penalty}%): share of your pool (life + energy shield) one heavy hit of it takes (base ${ph}, chaos ${ch}). Strong monster: +${p.damage_pct}% damage and +${p.crit_bonus}% crit bonus. From level 65 — as on maps.`,
+    hitNormal: "normal hit", hitCrit: "crit", hitJuiced: "crit on a hard map", hitStrong: "crit of a strong monster",
     issuesTitle: "What is broken and where the gaps are", issuesSub: "“Broken” means it does not work in game although PoB counts it.",
     lvl_must: "broken", lvl_priority: "main", lvl_warn: "note",
     supportsAtRisk: "One of these supports is disabled in game — its cost if it is this one:",
@@ -650,6 +654,9 @@ function trSource(src) {
 
 let LANG = "ru";
 try { LANG = localStorage.getItem("poe2lab.lang") || "ru"; } catch (_) { /* storage blocked */ }
+
+const STAGE_RU = { act1: "акт 1", act2: "акт 2", act3: "акт 3", act4: "акт 4", interlude: "интерлюдии", maps: "карты" };
+const STAGE_EN = { act1: "act 1", act2: "act 2", act3: "act 3", act4: "act 4", interlude: "interludes", maps: "maps" };
 
 function t(key, ...args) {
   const v = (I18N[LANG] && I18N[LANG][key]) ?? I18N.ru[key] ?? key;

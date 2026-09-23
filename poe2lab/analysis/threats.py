@@ -9,6 +9,13 @@ IMMUNE_HIT = 1e9  # PoB's infinite survivable hit (immunity, e.g. Chaos Inoculat
 BASE_MONSTER_CRIT_BONUS = 30  # data.monsterConstants.base_critical_hit_damage_bonus
 
 
+MAPS_LEVEL = 65  # the first waystone tier; the campaign's areas are below it
+# The campaign by character level (area level ~ character level while levelling): the game's area levels per act
+# (WorldAreas, patch 0.5: act 1 up to 15, act 2 up to 32, act 3 up to 45, act 4 up to 53, interludes 54-64) and
+# the elemental resistance penalty PoB applies after each act (its Configuration option, down to -60% on maps).
+CAMPAIGN = [(15, "act1", 0), (32, "act2", -10), (45, "act3", -20), (53, "act4", -30), (64, "interlude", -40)]
+
+
 @dataclass
 class MapProfile:
     enemy_level: int = 79  # area level of a tier 15 waystone
@@ -17,9 +24,24 @@ class MapProfile:
     crit_bonus: float = 50  # map/juice extra monster critical damage bonus
     rage: int | None = None  # current Rage in combat; None = maximum (PoB caps it). No effect on builds without Rage
     mana_sustained: bool = False  # confirmed in game: mana is not a constraint, skip mana-deficit checks
+    resist_penalty: int = -60  # elemental resistance penalty of the stage (maps: -60)
+    stage: str = "maps"  # act1..act4, interlude or maps
+
+    @classmethod
+    def for_level(cls, level: int | None, **kw) -> "MapProfile":
+        """The enemy a character of this level meets: an area of its level with that act's resistance penalty
+        while levelling; maps (the defaults) from level 65 or when the level is unknown."""
+        if not level or level >= MAPS_LEVEL:
+            return cls(**kw)
+        stage, penalty = next((s, p) for top, s, p in CAMPAIGN if level <= top)
+        return cls(enemy_level=max(1, int(level)), resist_penalty=penalty, stage=stage, **kw)
+
+    @property
+    def leveling(self) -> bool:
+        return self.stage != "maps"
 
     def config(self, crit: bool = False, crit_bonus: float = 0) -> dict:
-        cfg = {"enemyLevel": self.enemy_level, "enemyIsBoss": self.boss,
+        cfg = {"enemyLevel": self.enemy_level, "enemyIsBoss": self.boss, "resistancePenalty": self.resist_penalty,
                "multiplierRage": 9999 if self.rage is None else self.rage}
         if crit:
             cfg |= {"enemyCritChance": 100, "enemyCritDamage": BASE_MONSTER_CRIT_BONUS + crit_bonus}

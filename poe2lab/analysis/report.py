@@ -88,18 +88,24 @@ def unread_gates(engine) -> list[Gate]:
             for u in engine.unread_items()]
 
 
-def gates(stats: dict, hits: list, rec, mana_sustained: bool = False, ref: dict | None = None) -> list[Gate]:
+def gates(stats: dict, hits: list, rec, mana_sustained: bool = False, ref: dict | None = None,
+          leveling: bool = False) -> list[Gate]:
+    """`leveling`: the character is still in the campaign - resistances below the cap are a weakness to work on,
+    not something broken, and map modifiers do not apply yet."""
     out = []
     for t in ("Fire", "Cold", "Lightning"):
         res, over = stats.get(f"{t}Resist", 0), stats.get(f"{t}ResistOverCap", 0)
         if res < RES_CAP:
-            out.append(Gate("must", f"Резист к {RES_NAMES[t]} не в капе", f"{res:.0f}%, нужно ещё +{RES_CAP - res:.0f}%"))
-        elif over < RES_BUFFER:
+            out.append(Gate("priority" if leveling else "must", f"Резист к {RES_NAMES[t]} не в капе",
+                            f"{res:.0f}%, нужно ещё +{RES_CAP - res:.0f}%"
+                            + ("; к картам понадобится кап 75%" if leveling else "")))
+        elif over < RES_BUFFER and not leveling:
             out.append(Gate("warn", f"Резист к {RES_NAMES[t]} без запаса",
                             f"сверх капа {over:.0f}%: мод карты на снижение резистов опустит его ниже {RES_CAP}%"))
     chaos = stats.get("ChaosResist", 0)
     if chaos < RES_CAP:
-        out.append(Gate("priority", "Хаос-резист ниже капа", f"{chaos:.0f}%, до капа +{RES_CAP - chaos:.0f}%"))
+        out.append(Gate("warn" if leveling else "priority", "Хаос-резист ниже капа",
+                        f"{chaos:.0f}%, до капа +{RES_CAP - chaos:.0f}%"))
     if stats.get("SpiritUnreserved", 0) < 0:
         out.append(Gate("must", "Не хватает spirit", f"перерасход {-stats['SpiritUnreserved']:.0f}"))
     cost = stats.get("ManaPerSecondCost", 0)
@@ -307,7 +313,7 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
         },
         "gates": [asdict(g) for g in unread_gates(engine) + zero_damage_gates(engine, stats, profile.config())
                   + attribute_gates(statuses, swaps, deps)
-                  + gates(stats, hits, rec, profile.mana_sustained, ref)],
+                  + gates(stats, hits, rec, profile.mana_sustained, ref, profile.leveling)],
         "notModelled": [asdict(g) for g in collect_mechanics(engine, statdesc_dir).gaps if g.likely_impact],
         "conditions": [asdict(c) for c in conditions],
         "damageRange": damage_range(engine, profile.config(), conditions),

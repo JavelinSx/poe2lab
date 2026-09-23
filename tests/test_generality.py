@@ -44,3 +44,29 @@ def test_recovery_change_is_measured_against_a_floor_of_the_pool():
     assert recovery_change(new, base) == 90 / (RECOVERY_FLOOR * 3000) * 100  # +100%, not +360%
     strong = {"Life": 3000, "EnergyShield": 0, "LifeRegenRecovery": 300}
     assert recovery_change({**strong, "LifeRegenRecovery": 330}, strong) == 10  # a real base keeps plain percent
+
+
+def test_the_enemy_follows_the_characters_stage():
+    """A levelling character meets monsters of its level with its act's resistance penalty; from level 65, or
+    when the level is unknown, the map enemy (level 79, -60%)."""
+    from poe2lab.analysis.threats import MapProfile
+    assert (MapProfile.for_level(7).enemy_level, MapProfile.for_level(7).resist_penalty) == (7, 0)
+    assert MapProfile.for_level(40).stage == "act3" and MapProfile.for_level(40).resist_penalty == -20
+    assert MapProfile.for_level(60).stage == "interlude"
+    for level in (65, 95, None):
+        p = MapProfile.for_level(level, rage=10)
+        assert (p.enemy_level, p.resist_penalty, p.stage, p.rage) == (79, -60, "maps", 10)
+    assert MapProfile.for_level(7).config()["resistancePenalty"] == 0
+
+
+def test_campaign_resistances_are_a_weakness_not_broken():
+    from types import SimpleNamespace
+    from poe2lab.analysis.report import gates
+    rec = SimpleNamespace(es_primary=False, energy_shield=0, life=1000, es_recharge=0, es_recharge_delay=2, regen=50,
+                          half_life_refill_seconds=5, total=50, leech_capped_per_hit=0)
+    stats = {"FireResist": 13, "ColdResist": 20, "LightningResist": 75, "LightningResistOverCap": 0, "ChaosResist": 0}
+    on_maps = {g.title: g.level for g in gates(stats, [], rec)}
+    levelling = {g.title: g.level for g in gates(stats, [], rec, leveling=True)}
+    assert on_maps["Резист к огню не в капе"] == "must" and levelling["Резист к огню не в капе"] == "priority"
+    assert "Резист к молнии без запаса" in on_maps and "Резист к молнии без запаса" not in levelling
+    assert levelling["Хаос-резист ниже капа"] == "warn"

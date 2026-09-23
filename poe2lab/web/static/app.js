@@ -484,7 +484,7 @@ TABS.overview = async (view) => {
     h("h3", {}, t("hitsTitle")), h("div", { class: "sub" }, t("hitsSub", r.profile, fmt(ref.Physical), fmt(ref.Chaos))),
     h("table", { class: "hits-table" },
       h("thead", {}, h("tr", {}, h("th", {}, t("dmgType")), h("th", { class: "num" }, t("hitNormal")),
-        h("th", { class: "num" }, t("hitCrit")), h("th", { class: "num" }, t("hitJuiced")))),
+        h("th", { class: "num" }, t("hitCrit")), h("th", { class: "num" }, t(r.profile.stage === "maps" ? "hitJuiced" : "hitStrong")))),
       h("tbody", {}, hits.map(([type, v]) => h("tr", { class: worst && type === worst[0] ? "weak" : "" },
         h("td", {}, h("span", { class: "dmg-dot", style: `background:${DMG_COLOR[type]}` }), t("dmgFull_" + type),
           worst && type === worst[0] ? h("span", { class: "chip must", style: "margin-left:8px" }, t("weakest")) : null),
