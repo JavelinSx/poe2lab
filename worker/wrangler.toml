@@ -1,0 +1,19 @@
+# Deploy: see worker/README.md. The Resend key is a secret: npx wrangler secret put RESEND_API_KEY
+name = "poe2lab-feedback"
+main = "feedback.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+FEEDBACK_TO = "poe2lab@proton.me"
+FEEDBACK_FROM = "poe2lab <onboarding@resend.dev>"
+
+# per player: 2 reports a minute; everyone together: 6 a minute (Resend's free plan caps a day at 100)
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "1001"
+simple = { limit = 2, period = 60 }
+
+[[ratelimits]]
+name = "GLOBAL"
+namespace_id = "1002"
+simple = { limit = 6, period = 60 }

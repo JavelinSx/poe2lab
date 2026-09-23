@@ -28,7 +28,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
-from .. import gamedata, icons, library, lootfilter
+from .. import feedback, gamedata, icons, library, lootfilter
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -655,6 +655,45 @@ def tree_save(req: TreeSave):
         if src.exists():
             (PROJECT_BUILDS / f"{name}.profile.json").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         return {"name": name}
+
+
+class FeedbackRequest(BaseModel):
+    message: str
+    contact: str = ""
+    images: list[str] = []  # data: URLs of pasted or chosen screenshots
+    tab: str = ""
+    mode: str = ""
+    lang: str = ""
+
+
+@app.get("/api/feedback")
+def feedback_status():
+    return {"configured": bool(feedback.relay_url()), "maxImages": feedback.MAX_IMAGES}
+
+
+@app.post("/api/feedback")
+def send_feedback(req: FeedbackRequest):
+    """The player's report with the open build (as it is in the file, and with the tree plan if there is one), its
+    profile and where they were in the UI."""
+    with session.lock:
+        session.require()
+        e = session.engine
+        build = {"name": session.path.stem, "code": feedback.build_code(session.path)}
+        if session.plan is not None:
+            e.set_custom_mods(CORRECTION_BLOCK, [])
+            try:
+                build["planCode"] = e.export_code()
+            finally:
+                e.set_custom_mods(CORRECTION_BLOCK, [c.line for c in session.bp.corrections])
+        context = {"tab": req.tab[:40], "mode": req.mode[:20], "lang": req.lang[:5], "mainSkill": e.main_skill(),
+                   "treePlan": session.plan["log"] if session.plan else None,
+                   "gameTexts": gamedata.status()["unpacked"]}
+        profile = _profile_raw() if _profile_path().exists() else None
+    try:
+        feedback.send(feedback.compose(req.message, req.contact, req.images, build, profile, context))
+    except feedback.FeedbackError as err:
+        raise HTTPException(400, str(err))
+    return {"ok": True}
 
 
 @app.get("/api/lootfilter")

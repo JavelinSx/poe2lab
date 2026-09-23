@@ -75,6 +75,17 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .add-build { max-width: 720px; }
 .add-build textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
 .side-foot { display: flex; flex-direction: column; gap: 8px; }
+.side-foot #feedback { text-align: left; }
+.fb { max-width: 760px; }
+.fb textarea.fb-text { font-family: var(--font); font-size: 14px; }
+.fb-drop { border: 1px dashed rgba(153, 161, 174, .45); border-radius: var(--radius); padding: 14px; text-align: center; cursor: pointer; color: var(--muted); }
+.fb-drop:hover, .fb-drop.over { border-color: var(--gold); color: var(--text); }
+.fb-thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.fb-thumbs:empty { display: none; }
+.fb-thumb { position: relative; }
+.fb-thumb img { height: 90px; display: block; border-radius: 6px; border: 1px solid var(--line); }
+.fb-thumb .bi-act { position: absolute; top: 3px; right: 3px; background: rgba(0, 0, 0, .65); border: 0; color: var(--text); border-radius: 4px; cursor: pointer; }
+.fb-what { margin: 4px 0; padding-left: 18px; }
 
 /* main */
 main { padding: 12px 28px 60px; min-width: 0; }

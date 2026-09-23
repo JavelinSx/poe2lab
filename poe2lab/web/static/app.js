@@ -1083,6 +1083,114 @@ function chatCard(configured) {
 const ATTR_RU = { Str: "силы", Dex: "ловкости", Int: "интеллекта" };
 const attrName = (a) => (LANG === "ru" ? ATTR_RU[a] || a : a);
 
+// ---------- feedback: the player's report with the open build, mailed to the author (poe2lab/feedback.py) ----------
+const fbDraft = { message: "", contact: "", images: [] };  // kept while the page is open, so leaving the form loses nothing
+const FB_MAX_IMAGE = 2.5 * 1024 * 1024;
+
+function readDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+// a 4K PNG screenshot is too big for mail: large or unusual images become a JPEG at most 2560 px wide
+async function screenshotData(file) {
+  const url = await readDataUrl(file);
+  if (file.size <= FB_MAX_IMAGE && /^image\/(png|jpeg|webp)$/.test(file.type)) return url;
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = url;
+  });
+  const scale = Math.min(1, 2560 / img.naturalWidth);
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * scale);
+  c.height = Math.round(img.naturalHeight * scale);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.85);
+}
+
+let fbAddFiles = null;  // set while the form is open; Ctrl+V anywhere on the page goes there
+document.addEventListener("paste", (e) => {
+  if (!fbAddFiles || !document.querySelector(".fb")) return;
+  const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+  if (files.length) { e.preventDefault(); fbAddFiles(files); }
+});
+
+async function renderFeedback() {
+  const back = state.build ? () => { renderHeader(); switchTab(state.tab); } : renderEmpty;
+  $("#build-header").classList.add("hidden");
+  $("#tabs").classList.add("hidden");
+  $("#view").replaceChildren(loading(""));
+  let status = { configured: false, maxImages: 3 };
+  try { status = await api("/api/feedback"); } catch (_) { /* shown as not configured */ }
+
+  const message = h("textarea", { class: "fb-text", rows: 7, placeholder: t("fbMessagePh"), maxlength: 5000 });
+  message.value = fbDraft.message;
+  message.addEventListener("input", () => { fbDraft.message = message.value; });
+  const contact = h("input", { type: "text", placeholder: t("fbContactPh"), maxlength: 200, value: fbDraft.contact });
+  contact.addEventListener("input", () => { fbDraft.contact = contact.value; });
+
+  const thumbs = h("div", { class: "fb-thumbs" });
+  const drawThumbs = () => thumbs.replaceChildren(...fbDraft.images.map((src, i) => h("div", { class: "fb-thumb" },
+    h("img", { src, alt: "" }),
+    h("button", { class: "bi-act", title: t("fbRemoveShot"), onclick: () => { fbDraft.images.splice(i, 1); drawThumbs(); } }, "×"))));
+  fbAddFiles = async (files) => {
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) continue;
+      if (fbDraft.images.length >= status.maxImages) { toast(t("fbTooMany", status.maxImages)); break; }
+      try { fbDraft.images.push(await screenshotData(f)); } catch (_) { toast(t("fbBadImage")); }
+    }
+    drawThumbs();
+  };
+  const picker = h("input", { type: "file", accept: "image/*", multiple: true, class: "hidden",
+    onchange: () => { fbAddFiles([...picker.files]); picker.value = ""; } });
+  const drop = h("div", { class: "fb-drop", onclick: () => picker.click(),
+    ondragover: (e) => { e.preventDefault(); drop.classList.add("over"); },
+    ondragleave: () => drop.classList.remove("over"),
+    ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); fbAddFiles([...e.dataTransfer.files]); } },
+  h("b", {}, t("fbDrop")), h("div", { class: "hint" }, t("fbDropHint", status.maxImages)));
+
+  const blocked = !state.build ? t("fbNeedBuild") : !status.configured ? t("fbOff") : null;
+  const send = h("button", { class: "primary", disabled: Boolean(blocked), onclick: async () => {
+    if (fbDraft.message.trim().length < 5) { message.focus(); toast(t("fbEmpty")); return; }
+    send.disabled = true;
+    send.textContent = t("fbSending");
+    try {
+      await api("/api/feedback", { method: "POST", body: { message: fbDraft.message, contact: fbDraft.contact,
+        images: fbDraft.images, tab: state.tab, mode: state.mode, lang: LANG } });
+      fbDraft.message = "";
+      fbDraft.images = [];
+      fbAddFiles = null;
+      toast(t("fbSent"), true);
+      back();
+    } catch (e) {
+      toast(e.message);
+      send.disabled = false;
+      send.textContent = t("fbSend");
+    }
+  } }, t("fbSend"));
+
+  $("#view").replaceChildren(h("div", { class: "card stack fb" },
+    h("h3", {}, t("fbTitle")), h("div", { class: "sub" }, t("fbSub")),
+    blocked ? h("div", { class: "action" }, blocked) : null,
+    message, drop, picker, thumbs, contact,
+    h("div", { class: "small" }, h("b", {}, t("fbWhat")),
+      h("ul", { class: "fb-what" },
+        h("li", {}, state.build ? t("fbWhatBuild", state.build.name) : t("fbWhatNoBuild")),
+        h("li", {}, t("fbWhatProfile")), h("li", {}, t("fbWhatContext")), h("li", {}, t("fbWhatShots"))),
+      h("div", { class: "hint" }, t("fbWhatNot"))),
+    h("div", { class: "row" }, send, h("button", { class: "ghost", onclick: () => { fbAddFiles = null; back(); } }, t("cancel")))));
+  drawThumbs();
+  message.focus();
+}
+
+$("#feedback").addEventListener("click", renderFeedback);
+
 // ---------- Russian texts: why names may be English and how to fix it ----------
 let GAMEDATA = null;
 const bannerKey = "poe2lab.langBanner";
