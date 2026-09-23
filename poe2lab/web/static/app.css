@@ -334,3 +334,10 @@ details > summary .ico { margin-left: 2px; }
 .picker-item { display: flex; align-items: center; padding: 5px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 .picker-item:hover { background: var(--gold-soft); }
 .picker-item.active { color: var(--gold); }
+
+.nowrap { white-space: nowrap; }
+.pos { color: var(--good); }
+.neg { color: var(--bad); }
+.card.plan { border-color: rgba(214, 165, 79, .45); }
+.plan-log { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.plan-log li { margin: 4px 0; }

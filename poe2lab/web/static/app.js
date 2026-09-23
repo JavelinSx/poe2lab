@@ -626,13 +626,14 @@ TABS.tree = async (view) => {
     h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
     h("label", { class: "field", style: "max-width:220px;margin-bottom:10px" }, h("span", {}, t("reach")), pointsSel),
     r.growth.length ? h("table", { class: "versus-items" },
-      h("thead", {}, h("tr", {}, h("th", {}, t("node")), h("th", { class: "num" }, t("points")), h("th", {}, t("perPoint")), h("th", {}, t("treeGives")))),
+      h("thead", {}, h("tr", {}, h("th", {}, t("node")), h("th", { class: "num" }, t("points")), h("th", {}, t("perPoint")), h("th", {}, t("treeGives")), h("th", {}, ""))),
       h("tbody", {}, r.growth.map((g) => h("tr", {},
         h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats),
           g.via.length ? h("div", { class: "hint" }, t("via", [...new Set(g.via.map(trName))].join(", "))) : null),
         h("td", { class: "num" }, g.points),
         h("td", {}, scoreBar(g.perPoint, maxValue)),
-        h("td", {}, deltas(g.changes, METRIC, 0.3))))))
+        h("td", {}, deltas(g.changes, METRIC, 0.3)),
+        h("td", {}, editButton("add", g))))))
       : h("p", { class: "muted" }, t("treeNothing")));
 
   // the other nodes that go with a branch (only reachable through it): they explain uneven numbers
@@ -645,24 +646,77 @@ TABS.tree = async (view) => {
   };
   const branchRow = (b) => h("tr", {},
     h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats), alongWith(b.with)),
-    h("td", { class: "num" }, b.points), h("td", {}, deltas(b.changes, METRIC, 0.3)));
+    h("td", { class: "num" }, b.points), h("td", {}, deltas(b.changes, METRIC, 0.3)), h("td", {}, editButton("remove", b)));
   const respec = h("div", { class: "card" }, h("h3", {}, t("treeRespec")), h("div", { class: "sub" }, t("treeRespecSub")),
     r.respec.length ? h("table", { class: "versus-items" },
-      h("thead", {}, h("tr", {}, h("th", {}, t("branch")), h("th", { class: "num" }, t("freed")), h("th", {}, t("youLose")))),
+      h("thead", {}, h("tr", {}, h("th", {}, t("branch")), h("th", { class: "num" }, t("freed")), h("th", {}, t("youLose")), h("th", {}, ""))),
       h("tbody", {}, r.respec.map(branchRow)))
       : h("p", { class: "muted" }, t("treeNoRespec")));
 
   const listCard = (title, sub, list) => list.length ? h("div", { class: "card" },
     h("details", {}, h("summary", {}, `${title} (${list.length})`), h("div", { class: "sub", style: "margin-top:8px" }, sub),
       h("table", { class: "versus-items" }, h("tbody", {}, list.map((b) => h("tr", {},
-        h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats)), h("td", { class: "num" }, t("pointsN", b.points)))))))) : null;
+        h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats)), h("td", { class: "num" }, t("pointsN", b.points)),
+        h("td", {}, editButton("remove", b)))))))) : null;
 
   return h("div", { class: "stack" },
     h("div", { class: "sub" }, t("treeIntro", r.allocated)),
-    growth, respec,
+    planCard(r.plan), growth, respec,
     listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
     listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
 };
+
+// ---- tree plan: edits live in the engine only; every tab computes with them until reset ----
+async function treeCall(path, body, busyText) {
+  const view = $("#view");
+  view.replaceChildren(loading(busyText || t("counting")));
+  try {
+    const r = await api(path, { method: "POST", body: body || {} });
+    resetCache();
+    await switchTab("tree");
+    return r;
+  } catch (e) { toast(e.message); switchTab("tree"); return null; }
+}
+
+function editButton(action, node) {
+  return h("button", { class: "ghost small nowrap", title: action === "add" ? t("takeHint") : t("dropHint"),
+    onclick: () => treeCall(`/api/tree/${action}`, { id: node.id, name: node.name }) }, action === "add" ? t("take") : t("drop"));
+}
+
+function planCard(plan) {
+  const optimize = h("button", { class: "primary", onclick: async () => {
+    const r = await treeCall("/api/tree/optimize", { mode: state.mode, seed: Math.floor(Math.random() * 1e9) }, t("optimizing"));
+    if (r) toast(r.found ? t("optimized", r.found) : t("optimizedNone"), !!r.found);
+  } }, plan && plan.log.length ? t("optimizeMore") : t("optimize"));
+  const reset = plan ? h("button", { class: "ghost", onclick: () => treeCall("/api/tree/reset") }, t("planReset")) : null;
+  const save = plan && plan.log.length ? h("button", { class: "ghost", onclick: async () => {
+    try {
+      const r = await api("/api/tree/save", { method: "POST", body: {} });
+      toast(t("planSaved", r.name), true);
+      loadBuildList();
+    } catch (e) { toast(e.message); }
+  } }, t("planSave")) : null;
+  const names = (list) => {
+    const counts = {};
+    (list || []).forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
+    return Object.entries(counts).map(([n, c]) => (c > 1 ? `${c}× ${trName(n)}` : trName(n))).join(", ");
+  };
+  const logLine = (e) => e.action === "swap"
+    ? h("li", {}, h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
+    : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
+      : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`);
+  const over = plan && plan.used > plan.budget;
+  return h("div", { class: "card plan" },
+    h("h3", {}, t("planTitle")), h("div", { class: "sub" }, t("planSub", t("mode_" + state.mode))),
+    plan ? h("div", { class: "stack" },
+      h("div", {}, h("b", { class: over ? "neg" : "" }, t("planPoints", plan.used, plan.budget)),
+        over ? h("span", { class: "neg" }, " " + t("planOver", plan.used - plan.budget)) : null),
+      h("div", {}, h("div", { class: "sub", style: "margin:0 0 4px" }, t("planVsBuild")), deltas(plan.changes, METRIC, 0.3)),
+      plan.log.length ? h("details", {}, h("summary", {}, t("planLog", plan.log.length)), h("ul", { class: "plan-log" }, plan.log.map(logLine))) : null,
+      h("div", { class: "hint" }, t("planNote")))
+      : h("p", { class: "muted" }, t("planEmpty")),
+    h("div", { class: "row", style: "margin-top:10px" }, optimize, save, reset));
+}
 
 // ---------- mechanics ----------
 TABS.mechanics = async (view) => {

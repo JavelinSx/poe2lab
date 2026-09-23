@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .luahost import DEFAULT_POB_ROOT, LuaError, LuaHost, lua_string
-from .pobcode import decode_pob_code
+from .pobcode import decode_pob_code, encode_pob_code
 
 _HELPERS = r"""
 local dkjson = require "dkjson"
@@ -316,7 +316,8 @@ return _poe2lab_json(out)""")
         return self._json("""
 local out = _poe2lab_array({})
 for id, node in pairs(build.spec.allocNodes) do
-  if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName then
+  if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName
+     and (node.allocMode or 0) == 0 then
     local deps, names = _poe2lab_array({}), _poe2lab_array({})
     for i, n in ipairs(node.depends or { node }) do
       deps[i] = n.id
@@ -327,6 +328,85 @@ for id, node in pairs(build.spec.allocNodes) do
   end
 end
 return _poe2lab_json(out)""")
+
+    # ---- editing the passive tree (for tree plans; the build file is never touched) ----
+
+    def export_code(self) -> str:
+        """The build as it is now in the engine (tree plans included), as a PoB code."""
+        return encode_pob_code(self._lua('return build:SaveDB("poe2lab")'))
+
+    def tree_points(self) -> int:
+        """Main-tree points in use: allocated nodes without class/ascendancy starts, ascendancy and weapon-set nodes."""
+        return int(self._lua("""
+local n = 0
+for _, node in pairs(build.spec.allocNodes) do
+  if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName
+     and (node.allocMode or 0) == 0 then n = n + 1 end
+end
+return n"""))
+
+    def tree_snapshot(self, name: str):
+        """Remember the current allocation (and attribute choices) under `name`."""
+        self._lua(f"""
+_poe2lab_tree_snaps = _poe2lab_tree_snaps or {{}}
+local snap = {{ nodes = {{}}, overrides = copyTable(build.spec.hashOverrides or {{}}, true) }}
+for id, node in pairs(build.spec.allocNodes) do snap.nodes[id] = node.allocMode or 0 end
+_poe2lab_tree_snaps[ {lua_string(name)} ] = snap""")
+
+    def tree_restore(self, name: str):
+        """Put back an allocation remembered by tree_snapshot, exactly, and recalculate."""
+        self._lua(f"""
+local snap = _poe2lab_tree_snaps and _poe2lab_tree_snaps[ {lua_string(name)} ]
+if not snap then error("no tree snapshot {name}", 0) end
+local spec = build.spec
+for id, node in pairs(copyTable(spec.allocNodes, true)) do
+  if snap.nodes[id] == nil then spec:DeallocSingleNode(spec.nodes[id]) end
+end
+for id, mode in pairs(snap.nodes) do
+  local node = spec.nodes[id]
+  if node and not node.alloc then
+    node.alloc = true
+    node.allocMode = mode
+    spec.allocNodes[id] = node
+  end
+end
+spec.hashOverrides = copyTable(snap.overrides, true)
+spec:BuildAllDependsAndPaths()
+build.buildFlag = true
+build.calcsTab:BuildOutput()""")
+
+    def tree_add(self, node_id: int) -> list[str]:
+        """Allocate a node along PoB's shortest path from the tree; returns the names of the nodes allocated."""
+        return self._json(f"""
+local spec = build.spec
+local node = spec.nodes[{int(node_id)}]
+if not node then error("no passive node {int(node_id)}", 0) end
+if node.alloc then return _poe2lab_json(_poe2lab_array({{}})) end
+if not node.path or #node.path == 0 then error("node cannot be reached from the tree", 0) end
+local before = {{}}
+for id in pairs(spec.allocNodes) do before[id] = true end
+spec:AllocNode(node)
+spec:BuildAllDependsAndPaths()
+build.buildFlag = true
+build.calcsTab:BuildOutput()
+local added = _poe2lab_array({{}})
+for id, n in pairs(spec.allocNodes) do if not before[id] then added[#added + 1] = n.dn or "" end end
+return _poe2lab_json(added)""")
+
+    def tree_remove(self, node_id: int) -> list[str]:
+        """Deallocate a node and everything only reachable through it; returns the names removed."""
+        return self._json(f"""
+local spec = build.spec
+local node = spec.nodes[{int(node_id)}]
+if not node or not node.alloc then return _poe2lab_json(_poe2lab_array({{}})) end
+if node.type == "ClassStart" or node.type == "AscendClassStart" then error("the class start cannot be removed", 0) end
+local removed = _poe2lab_array({{}})
+for _, n in ipairs(node.depends or {{ node }}) do removed[#removed + 1] = n.dn or "" end
+spec:DeallocNode(node)
+spec:BuildAllDependsAndPaths()
+build.buildFlag = true
+build.calcsTab:BuildOutput()
+return _poe2lab_json(removed)""")
 
     def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
                 remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None,

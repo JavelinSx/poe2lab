@@ -13,7 +13,9 @@ from pydantic import BaseModel
 
 from ..analysis.items import breakeven, compare
 from ..analysis.report import MODES, build_report, defence_weights
+from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
+from ..analysis.tree import optimize as optimize_tree
 from ..analysis.slots import craft_path, plan_all
 from ..analysis.sockets import plan_sockets
 from ..analysis.sources import describe as describe_sources
@@ -31,7 +33,7 @@ from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
 from ..pobfiles import PROJECT_BUILDS, resolve_build
-from ..profile import BuildProfile, describe as describe_profile, open_build
+from ..profile import CORRECTION_BLOCK, BuildProfile, describe as describe_profile, open_build
 
 STATIC = Path(__file__).resolve().parent / "static"
 SLOTS_ORDER = ["Weapon 1", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt"]
@@ -50,6 +52,7 @@ class Session:
         self.toolbox: Toolbox | None = None
         self._prices: PriceBook | None | bool = False
         self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
+        self.plan: dict | None = None  # passive tree edits on top of the build (see /api/tree/*)
 
     def require(self, build: str | None = None):
         if self.engine is None:
@@ -64,6 +67,7 @@ class Session:
     def load(self, name: str, group: int | None = None, skill: int | None = None):
         self.path = resolve_build(name)
         self.engine, self.bp = open_build(self.path, group, skill)
+        self.plan = None
         self.cache.clear()
         self.assistant = self.toolbox = None
 
@@ -508,8 +512,115 @@ def tree(mode: str = "balanced", points: int = 6, build: str | None = None):
     with session.lock:
         session.require(build)
         points = max(1, min(points, 10))
-        return _json(session.cached(("tree", mode, points), lambda: analyse_tree(
-            session.engine, session.profile, mode=mode, max_points=points)))
+        result = session.cached(("tree", mode, points), lambda: analyse_tree(
+            session.engine, session.profile, mode=mode, max_points=points))
+        return _json(result | {"plan": _plan_view()})
+
+
+# ---- tree plans: edits of the passive tree in the engine only; the build file is never changed ----
+
+def _plan_start():
+    if session.plan is None:
+        session.engine.tree_snapshot("plan-base")
+        session.plan = {"budget": session.engine.tree_points(),
+                        "base": session.engine.what_if(config=session.profile.config()), "log": []}
+
+
+def _plan_changed():
+    """Every analysis now sees the planned tree: drop cached results (the mod database does not depend on it)."""
+    session.cache = {k: v for k, v in session.cache.items() if k == "db"}
+    session.assistant = session.toolbox = None
+
+
+def _plan_view() -> dict | None:
+    if session.plan is None:
+        return None
+    now = session.engine.what_if(config=session.profile.config())
+    return {"budget": session.plan["budget"], "used": session.engine.tree_points(), "log": session.plan["log"],
+            "changes": metric_changes(now, session.plan["base"])}
+
+
+class TreeEdit(BaseModel):
+    id: int
+    name: str = ""
+
+
+@app.post("/api/tree/add")
+def tree_add(req: TreeEdit):
+    with session.lock:
+        session.require()
+        _plan_start()
+        names = _errors(lambda: session.engine.tree_add(req.id))
+        session.plan["log"].append({"action": "add", "target": req.name, "nodes": names})
+        _plan_changed()
+        return _json(_plan_view())
+
+
+@app.post("/api/tree/remove")
+def tree_remove(req: TreeEdit):
+    with session.lock:
+        session.require()
+        _plan_start()
+        names = _errors(lambda: session.engine.tree_remove(req.id))
+        session.plan["log"].append({"action": "remove", "target": req.name, "nodes": names})
+        _plan_changed()
+        return _json(_plan_view())
+
+
+@app.post("/api/tree/reset")
+def tree_reset():
+    with session.lock:
+        session.require()
+        if session.plan is not None:
+            session.engine.tree_restore("plan-base")
+            session.plan = None
+            _plan_changed()
+        return {"ok": True}
+
+
+class TreeOptimize(BaseModel):
+    mode: str = "balanced"
+    seed: int | None = None
+
+
+@app.post("/api/tree/optimize")
+def tree_optimize(req: TreeOptimize):
+    if req.mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {req.mode!r}")
+    with session.lock:
+        session.require()
+        _plan_start()
+        result = optimize_tree(session.engine, session.profile, req.mode, session.plan["budget"], seed=req.seed)
+        for step in result["steps"]:
+            session.plan["log"].append({"action": "swap", "removed": step["removed"], "added": step["added"]})
+        _plan_changed()
+        return _json(_plan_view() | {"found": len(result["steps"])})
+
+
+class TreeSave(BaseModel):
+    name: str = ""
+
+
+@app.post("/api/tree/save")
+def tree_save(req: TreeSave):
+    """The planned tree as a new build in the list (the profile goes with it), so it opens like any other."""
+    with session.lock:
+        session.require()
+        engine, bp = session.engine, session.bp
+        # the profile's corrections live in PoB's Custom Modifiers; the copied profile re-applies them
+        engine.set_custom_mods(CORRECTION_BLOCK, [])
+        try:
+            code = engine.export_code()
+        finally:
+            engine.set_custom_mods(CORRECTION_BLOCK, [c.line for c in bp.corrections])
+        try:
+            name = library.add(req.name or f"{session.path.stem} план", code)
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+        src = _profile_path()
+        if src.exists():
+            (PROJECT_BUILDS / f"{name}.profile.json").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        return {"name": name}
 
 
 @app.get("/api/versus")
