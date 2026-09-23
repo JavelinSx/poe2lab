@@ -176,6 +176,7 @@ button.link { background: none; border: 0; color: var(--gold); cursor: pointer; 
 .chip.warn { background: rgba(153, 161, 174, .14); color: var(--muted); }
 .chip.tag { background: var(--gold-soft); color: var(--gold); }
 .chip.hold { background: rgba(226, 106, 95, .14); color: var(--bad); }
+.chip.hold, .affix .chip.util { white-space: normal; }  /* long "holds: ..." notes wrap instead of widening the card */
 .chip.util { background: rgba(92, 169, 232, .14); color: var(--cold); }
 
 /* deltas */
@@ -224,7 +225,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: now
 /* slot cards */
 .slot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .slot-head .slot { color: var(--gold); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
-.affix { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); align-items: start; }
+.affix { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); align-items: start; }
 .affix:last-child { border-bottom: 0; }
 .affix .kind { font-size: 11px; color: var(--muted); padding-top: 2px; }
 .tier { font-size: 11px; color: var(--muted); margin-left: 6px; }
@@ -346,6 +347,10 @@ table.versus tr.group td { color: var(--gold); font-size: 12px; text-transform: 
   padding: 3px; border: 1px solid var(--rar, #7a7a7a); border-radius: 4px;
   background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .06), rgba(0, 0, 0, 0) 70%), #07080b;
   box-shadow: inset 0 0 10px rgba(0, 0, 0, .9), 0 0 6px color-mix(in srgb, var(--rar, #7a7a7a) 35%, transparent); }
+.step .what .item-ico, .sock-row .item-ico { width: 34px; height: 34px; padding: 2px; margin-right: 6px; }
+.ico.rune { width: 26px; height: 26px; }
+.src-list { margin: 2px 0 0; padding-left: 16px; }
+.src-list li { margin: 1px 0; }
 .item-ico.r-unique { --rar: #af6025; }
 .item-ico.r-relic { --rar: #82ad6a; }
 .item-ico.r-rare { --rar: #d6c35a; }

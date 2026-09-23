@@ -581,20 +581,26 @@ TABS.gear = async (view) => {
   view.replaceChildren(loading(t("calcGear")));
   const g = await cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`));
 
+  // the item a step is about, as its picture: many slots, so the eye finds the right one at once
+  const slotItem = (slot) => (state.build.items || []).find((i) => i.slot === slot);
+  const slotIcon = (slot) => { const it = slotItem(slot); return it ? itemIcon(it.name, it.baseName, it.rarity) : null; };
+  // "эссенция X: ..." gets the essence's picture
+  const source = (src) => { const m = src.match(/^эссенция (.+?):/); return h("span", { class: "named" }, m ? icon(m[1]) : null, trSource(src)); };
   const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
-    g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", {},
-      h("div", { class: "what" }, chip("tag", slotName(s.slot)), " ",
+    g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", { class: "step-body" },
+      h("div", { class: "what" }, slotIcon(s.slot), chip("tag", slotName(s.slot)), " ",
         s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, trMod(s.removed.join(" / "))), " → ") : t("craftAdd"),
         h("span", { class: "mod" }, trMod(s.added.join(" / ")))),
       deltas(s.changes),
-      s.sources.length ? h("div", { class: "src" }, t("from") + s.sources.map(trSource).join(" · ")) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
+      s.sources.length ? h("div", { class: "src" }, t("from"), h("ul", { class: "src-list" }, s.sources.map((x) => h("li", {}, source(x))))) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
 
   const socketCard = h("div", { class: "card" }, h("h3", {}, t("socketsTitle")),
     h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", trName(g.prices.league)) : "")),
     g.sockets.length ? g.sockets.map((s) => h("div", { style: "margin-bottom:12px" },
-      h("div", {}, chip("tag", slotName(s.slot)), t("socketNow", s.index), h("b", {}, trName(s.current)), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
+      h("div", { class: "row sock-row", style: "gap:6px" }, slotIcon(s.slot), chip("tag", slotName(s.slot)), t("socketNow", s.index),
+        h("b", { class: "named" }, icon(s.current), trName(s.current)), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
       s.best.length ? h("table", {}, h("tbody", {}, s.best.map((o) => h("tr", {},
-        h("td", {}, h("div", {}, trName(o.name)), h("div", { class: "mod muted" }, trMod(o.lines.join(" / ")))),
+        h("td", {}, h("div", { class: "named" }, icon(o.name, "ico rune"), trName(o.name)), h("div", { class: "mod muted" }, trMod(o.lines.join(" / ")))),
         h("td", {}, deltas(o.changes)), h("td", { class: "num" }, trFree(o.price || ""))))))
         : h("div", { class: "muted small" }, t("nothingBetter"))))
       : h("p", { class: "muted" }, t("noSockets")));

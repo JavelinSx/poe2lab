@@ -21,7 +21,8 @@ RGBA_FORMATS = {28: False, 29: False, 87: True, 91: True}  # R8G8B8A8 (UNORM/SRG
 ITEM_SIDE = 96  # item thumbnails: the longer side at most this many pixels
 # item art of gear worth a picture (not currencies, maps, quest items)
 ITEM_ART = re.compile(r"^art/2ditems/(armours|weapons|rings|amulets|belts|offhand|quivers|jewels|flasks|charms)/|"
-                      r"^art/2ditems/gems/.*support")  # support gems: skills already have icons of their own
+                      r"^art/2ditems/gems/.*support|"  # support gems: skills already have icons of their own
+                      r"^art/2ditems/currency/(runes|essence|soulcores|tormentedspiritsocketables)/")  # socketables, essences
 
 
 def _rgb565(c: int) -> tuple[int, int, int]:
