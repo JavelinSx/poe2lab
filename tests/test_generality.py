@@ -35,3 +35,12 @@ def test_recovery_follows_the_pool_the_build_stands_on():
     assert recovery_per_second(es_build) == 100  # 500 / (1 + 4); life regen does not count at 1 life
     life_build = {"Life": 2000, "EnergyShield": 0, "LifeRegenRecovery": 50, "LifeLeechGainRate": 150}
     assert recovery_per_second(life_build) == 200
+
+
+def test_recovery_change_is_measured_against_a_floor_of_the_pool():
+    from poe2lab.analysis.gradients import RECOVERY_FLOOR, recovery_change
+    base = {"Life": 3000, "EnergyShield": 0, "LifeRegenRecovery": 25}
+    new = {"Life": 3000, "EnergyShield": 0, "LifeRegenRecovery": 115}  # +90/s
+    assert recovery_change(new, base) == 90 / (RECOVERY_FLOOR * 3000) * 100  # +100%, not +360%
+    strong = {"Life": 3000, "EnergyShield": 0, "LifeRegenRecovery": 300}
+    assert recovery_change({**strong, "LifeRegenRecovery": 330}, strong) == 10  # a real base keeps plain percent

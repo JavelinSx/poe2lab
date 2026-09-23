@@ -50,6 +50,9 @@ class Gradient:
 
 IMMUNE_HIT = 1e9  # the engine's value for an infinite survivable hit, see analysis.threats
 IMMUNITY_PCT = 100.0  # gaining (losing) immunity to a damage type counts as +100% (-100%) for that type
+# Recovery is measured against at least this share of the pool per second: a build that barely recovers would
+# otherwise read +2000% for its first leech mod, and such percentages swamp every ranking.
+RECOVERY_FLOOR = 0.03
 
 
 def _pct(new: dict, base: dict, metric: str) -> float:
@@ -57,7 +60,16 @@ def _pct(new: dict, base: dict, metric: str) -> float:
     if metric.endswith("_hit") and (b >= IMMUNE_HIT or n >= IMMUNE_HIT):
         # a percentage against infinity means nothing and would swamp every ranking: count it as a big, finite step
         return 0.0 if (b >= IMMUNE_HIT) == (n >= IMMUNE_HIT) else (IMMUNITY_PCT if n >= IMMUNE_HIT else -IMMUNITY_PCT)
+    if metric == "recovery":
+        pool = max(base.get("Life", 0.0), base.get("EnergyShield", 0.0))
+        b_ref = max(b, RECOVERY_FLOOR * pool)
+        return (n - b) / b_ref * 100 if b_ref else 0.0
     return (n - b) / b * 100 if b else 0.0
+
+
+def recovery_change(new: dict, base: dict) -> float:
+    """% change of recovery, against at least RECOVERY_FLOOR of the pool per second."""
+    return _pct(new, base, "recovery")
 
 
 def hit_change(new: dict, base: dict, damage_type: str) -> float:

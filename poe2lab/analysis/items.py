@@ -2,7 +2,7 @@
 import re
 from dataclasses import dataclass, field
 
-from .gradients import hit_change, recovery_per_second
+from .gradients import hit_change, recovery_change, recovery_per_second
 
 ATTRS = ("Str", "Dex", "Int")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
@@ -42,7 +42,7 @@ def compare(engine, config: dict, slot: str, item_text: str) -> Comparison:
         dps_pct=_pct(new["CombinedDPS"], base["CombinedDPS"]),
         life_pct=_pct(new["Life"], base["Life"]),
         hit_pct={t: hit_change(new, base, t) for t in ("Physical", "Fire", "Cold", "Lightning", "Chaos")},
-        recovery_pct=_pct(recovery_per_second(new), recovery_per_second(base)),
+        recovery_pct=recovery_change(new, base),
         unmet_requirements={
             a: (new[a], new[f"Req{a}"]) for a in ATTRS
             if new[f"Req{a}"] - new[a] > max(base[f"Req{a}"] - base[a], 0)

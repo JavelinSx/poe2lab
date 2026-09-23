@@ -2,7 +2,7 @@
 game) or on (PoB assumes them - worth confirming), and how much each one moves damage and defences."""
 from dataclasses import dataclass
 
-from .gradients import hit_change, recovery_per_second
+from .gradients import hit_change, recovery_change, recovery_per_second
 
 NOISE_PCT = 0.5
 
@@ -61,7 +61,7 @@ def audit(engine, config: dict) -> list[ConditionImpact]:
             phys_hit_pct=hit_change(r, base, "Physical"),
             chaos_hit_pct=hit_change(r, base, "Chaos"),
             ele_hit_pct=hit_change({"FireMaximumHitTaken": ele}, {"FireMaximumHitTaken": ele_base}, "Fire"),
-            recovery_pct=_pct(recovery_per_second(r), recovery_per_second(base)),
+            recovery_pct=recovery_change(r, base),
             life_pct=_pct(r["Life"], base["Life"]),
         ))
     return sorted((c for c in out if c.magnitude >= NOISE_PCT), key=lambda c: -c.magnitude)

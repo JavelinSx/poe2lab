@@ -1,11 +1,12 @@
 """One report for a build: what must be fixed, where to invest for a goal, and a step-by-step upgrade path."""
+import math
 from dataclasses import asdict, dataclass
 
 from ..knowledge import collect as collect_mechanics
 from . import attributes as attrs
 from .conditions import audit as audit_conditions
 from .conditions import damage_range
-from .gradients import Gradient, compute, hit_change, recovery_per_second
+from .gradients import Gradient, compute, hit_change, recovery_change, recovery_per_second
 from .stats import mod_line
 from .threats import reference_hits, DAMAGE_TYPES, MapProfile, recovery, survivable_hits
 
@@ -155,10 +156,16 @@ def defence_weights(hits: list) -> dict[str, float]:
 EHP_SHARE = 0.5
 
 
+# Recovery saturates: once it covers what the build needs, more of it is worth little. Its contribution levels off
+# towards +-RECOVERY_CAP percent, so a build that barely recovers cannot trade half its damage for regeneration.
+RECOVERY_CAP = 50.0
+
+
 def score(g: Gradient, mode: str, weights: dict[str, float]) -> float:
     w_dps, w_def, w_rec = MODES[mode]
     defence = sum(weights[t] * g.one[HIT_METRIC[t]] for t in DAMAGE_TYPES) + EHP_SHARE * g.one.get("ehp", 0.0)
-    return w_dps * g.one["dps"] + w_def * defence + w_rec * g.one["recovery"]
+    recovery = RECOVERY_CAP * math.tanh(g.one["recovery"] / RECOVERY_CAP)
+    return w_dps * g.one["dps"] + w_def * defence + w_rec * recovery
 
 
 @dataclass
@@ -178,7 +185,7 @@ def _metric_totals(original: dict, current: dict) -> tuple[float, dict, float]:
     return (
         pct(current["CombinedDPS"], original["CombinedDPS"]),
         {t: hit_change(current, original, t) for t in DAMAGE_TYPES},
-        pct(recovery_per_second(current), recovery_per_second(original)),
+        recovery_change(current, original),
     )
 
 

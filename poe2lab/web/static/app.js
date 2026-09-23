@@ -253,8 +253,30 @@ $("#refresh-builds").addEventListener("click", loadBuildList);
 
 const TABS = {};
 
+// the address keeps the open build and tab (#build=…&tab=…): a reload or a shared link lands on the same view
+function writeHash() {
+  if (!state.build) return;
+  const q = new URLSearchParams({ build: state.build.name, tab: state.tab });
+  if (state.mode !== "balanced") q.set("mode", state.mode);
+  history.replaceState(null, "", "#" + q.toString());
+}
+
+function readHash() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  if (q.get("tab") && TABS[q.get("tab")]) state.tab = q.get("tab");
+  if (q.get("mode") && ["damage", "balanced", "defence"].includes(q.get("mode"))) {
+    state.mode = q.get("mode");
+    document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
+  }
+  if (q.get("ref") && q.get("build")) {
+    try { localStorage.setItem(`poe2lab.ref.${q.get("build")}`, q.get("ref")); } catch (_) { /* storage blocked */ }
+  }
+  return q.get("build");
+}
+
 async function switchTab(tab) {
   state.tab = tab;
+  writeHash();
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   if (!state.build) return;
   const view = $("#view");
@@ -1130,8 +1152,11 @@ function renderLangBanner(force = false) {
   await Promise.all([loadGameTexts(), loadIcons()]);
   loadGameDataStatus();
   const s = await loadStatus();
-  if (s.loaded) {
-    try { state.build = await api("/api/build"); renderHeader(); switchTab("overview"); } catch (_) { /* reopen from the list */ }
+  const wanted = readHash();
+  if (wanted && wanted !== s.build) {
+    await openBuild(wanted);
+  } else if (s.loaded) {
+    try { state.build = await api("/api/build"); renderHeader(); switchTab(wanted ? state.tab : "overview"); } catch (_) { /* reopen from the list */ }
   }
   await loadBuildList();
 })();
