@@ -44,6 +44,7 @@ def analyse(engine, profile: MapProfile, mode: str = "balanced", max_points: int
         changes = metric_changes(engine.what_if(config=cfg, remove_nodes=b["depends"]), base)
         loss = -_value(changes, mode, weights)  # what the build gives up
         branches.append({"id": b["id"], "name": b["name"], "type": b["type"], "points": len(b["depends"]),
+                         "with": b.get("dependNames", []),
                          "stats": b["stats"], "changes": changes, "loss": loss, "lossPerPoint": loss / len(b["depends"])})
     # A branch whose points are worth less than the best growth option per point is a respec candidate - unless
     # PoB sees no effect at all (utility PoB does not model: warcry speed, Rage on hit...) or it holds attributes

@@ -635,8 +635,16 @@ TABS.tree = async (view) => {
         h("td", {}, deltas(g.changes, METRIC, 0.3))))))
       : h("p", { class: "muted" }, t("treeNothing")));
 
+  // the other nodes that go with a branch (only reachable through it): they explain uneven numbers
+  const alongWith = (names) => {
+    if (!names || !names.length) return null;
+    const counts = {};
+    names.forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
+    return h("div", { class: "hint" }, t("alongWith", Object.entries(counts)
+      .map(([n, c]) => (c > 1 ? `${c}× ${trName(n)}` : trName(n))).join(", ")));
+  };
   const branchRow = (b) => h("tr", {},
-    h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats)),
+    h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats), alongWith(b.with)),
     h("td", { class: "num" }, b.points), h("td", {}, deltas(b.changes, METRIC, 0.3)));
   const respec = h("div", { class: "card" }, h("h3", {}, t("treeRespec")), h("div", { class: "sub" }, t("treeRespecSub")),
     r.respec.length ? h("table", { class: "versus-items" },

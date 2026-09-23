@@ -317,9 +317,12 @@ return _poe2lab_json(out)""")
 local out = _poe2lab_array({})
 for id, node in pairs(build.spec.allocNodes) do
   if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" and not node.ascendancyName then
-    local deps = _poe2lab_array({})
-    for i, n in ipairs(node.depends or { node }) do deps[i] = n.id end
-    out[#out + 1] = { id = id, name = node.dn or "", type = node.type or "", depends = deps,
+    local deps, names = _poe2lab_array({}), _poe2lab_array({})
+    for i, n in ipairs(node.depends or { node }) do
+      deps[i] = n.id
+      if n ~= node then names[#names + 1] = n.dn or "" end
+    end
+    out[#out + 1] = { id = id, name = node.dn or "", type = node.type or "", depends = deps, dependNames = names,
                       stats = _poe2lab_array(node.sd or {}) }
   end
 end
