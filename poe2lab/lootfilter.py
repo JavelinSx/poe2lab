@@ -198,6 +198,30 @@ def filters_dir() -> Path:
     return docs / "My Games" / "Path of Exile 2"
 
 
+# a native "open file" dialog in the game's filter folder; run in its own process, since Tk wants the main thread
+_PICK = r"""
+import sys, tkinter
+from tkinter import filedialog
+root = tkinter.Tk()
+root.withdraw()
+root.attributes("-topmost", True)
+path = filedialog.askopenfilename(parent=root, initialdir=sys.argv[1], title=sys.argv[2],
+                                  filetypes=[(sys.argv[3], "*.filter"), ("*.*", "*.*")])
+sys.stdout.write(path or "")
+"""
+
+
+def pick_filter(title: str = "Фильтр, поверх которого добавить правила билда") -> Path | None:
+    """Let the player choose a filter file in a Windows dialog opened in the game's filter folder."""
+    import subprocess
+    import sys
+    folder = filters_dir()
+    res = subprocess.run([sys.executable, "-c", _PICK, str(folder if folder.is_dir() else Path.home()), title,
+                          "Лут-фильтр PoE2"], capture_output=True, text=True, encoding="utf-8")
+    path = res.stdout.strip()
+    return Path(path) if path else None
+
+
 def local_filters() -> list[str]:
     d = filters_dir()
     return sorted(p.name for p in d.glob("*.filter")) if d.is_dir() else []

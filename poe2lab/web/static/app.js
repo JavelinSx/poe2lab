@@ -911,11 +911,27 @@ TABS.loot = async (view) => {
     h("div", { class: "hint", style: "margin-top:4px" }, t("lootLevelingLegend")));
 
   // where the player's filter comes from
-  let source = r.localFilters.length ? "file" : "none";
-  const fileSel = h("select", {}, r.localFilters.map((f) => h("option", { value: f }, f)));
+  let source = "file";
+  // the player's filter: chosen in a Windows dialog opened in the game's filter folder (one filter there: preselected)
+  let chosen = r.localFilters.length === 1 ? r.localFilters[0] : "";
+  let chosenName = chosen;
+  const chosenBox = h("span", { class: "small" });
+  const drawChosen = () => chosenBox.replaceChildren(chosen ? h("b", {}, chosenName) : h("span", { class: "muted" }, t("lootNoneChosen")));
+  drawChosen();
+  const pick = h("button", { class: "ghost", onclick: async () => {
+    pick.disabled = true;
+    pick.textContent = t("lootPicking");
+    try {
+      const p = await api("/api/lootfilter/pick", { method: "POST" });
+      if (!p.cancelled) { chosen = p.path; chosenName = p.name; drawChosen(); }
+    } catch (e) { toast(e.message); }
+    pick.disabled = false;
+    pick.textContent = t("lootPick");
+  } }, t("lootPick"));
   const text = h("textarea", { rows: 6, placeholder: t("lootPastePh"), spellcheck: "false" });
   const name = h("input", { type: "text", placeholder: t("lootNamePh"), style: "width:100%" });
-  const panes = { file: h("div", {}, r.localFilters.length ? fileSel : h("p", { class: "muted small" }, t("lootNoLocal", r.dir))), text, none: h("p", { class: "muted small" }, t("lootOnlyBlock")) };
+  const panes = { file: h("div", { class: "stack", style: "gap:6px" }, h("div", { class: "row" }, pick, chosenBox),
+    h("div", { class: "hint" }, t("lootPickHint", r.dir))), text, none: h("p", { class: "muted small" }, t("lootOnlyBlock")) };
   const paneBox = h("div", {});
   const seg = h("div", { class: "segmented" }, [["file", t("lootSrcFile")], ["text", t("lootSrcText")], ["none", t("lootSrcNone")]].map(([k, label]) =>
     h("button", { "data-k": k, class: source === k ? "active" : "", onclick: () => { source = k; showPane(); } }, label)));
@@ -925,10 +941,11 @@ TABS.loot = async (view) => {
   };
   showPane();
   const save = h("button", { class: "primary", onclick: async () => {
+    if (source === "file" && !chosen) { toast(t("lootPickFirst")); pick.focus(); return; }
     save.disabled = true;
     try {
       const res = await api("/api/lootfilter/save", { method: "POST", body: { mode: state.mode, source,
-        file: fileSel.value || null, text: text.value, name: name.value.trim() || null } });
+        file: chosen || null, text: text.value, name: name.value.trim() || null } });
       done.replaceChildren(h("div", { class: "action" }, t("lootSaved", res.name, res.path)));
       toast(t("lootSavedShort", res.name), true);
     } catch (e) { toast(e.message); }

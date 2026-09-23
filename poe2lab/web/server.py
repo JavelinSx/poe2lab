@@ -54,6 +54,7 @@ class Session:
         self._prices: PriceBook | None | bool = False
         self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
         self.plan: dict | None = None  # passive tree edits on top of the build (see /api/tree/*)
+        self.picked_filter: Path | None = None  # the player's filter chosen in the file dialog
         self.mtime = 0.0  # the build file's time when it was read: a newer file means PoB saved it again
 
     def require(self, build: str | None = None):
@@ -780,6 +781,18 @@ class LootFilterSave(BaseModel):
     name: str | None = None
 
 
+@app.post("/api/lootfilter/pick")
+def loot_filter_pick():
+    """The player picks their filter in a Windows dialog (the page cannot open a given folder itself)."""
+    path = lootfilter.pick_filter()
+    if path is None:
+        return {"cancelled": True}
+    if path.suffix.lower() != ".filter" or not path.is_file():
+        raise HTTPException(400, f"это не файл лут-фильтра: {path.name}")
+    session.picked_filter = path
+    return {"path": str(path), "name": path.name}
+
+
 @app.post("/api/lootfilter/save")
 def loot_filter_save(req: LootFilterSave):
     """Write "the player's filter + the build block" as a new filter in the game's folder; the player's own file
@@ -792,7 +805,9 @@ def loot_filter_save(req: LootFilterSave):
         folder = lootfilter.filters_dir()
         base = ""
         if req.source == "file":
-            src = folder / Path(req.file or "").name
+            picked = session.picked_filter
+            # the file chosen in the dialog (anywhere), or one of the game's folder by name
+            src = picked if picked is not None and req.file == str(picked) else folder / Path(req.file or "").name
             if not src.is_file():
                 raise HTTPException(400, f"нет файла фильтра {src}")
             base = src.read_text(encoding="utf-8-sig", errors="replace")
@@ -806,7 +821,7 @@ def loot_filter_save(req: LootFilterSave):
             default = f"poe2lab {session.path.stem}"
         name = lootfilter.safe_name(req.name or default)
         target = folder / f"{name}.filter"
-        if req.source == "file" and target.resolve() == (folder / Path(req.file).name).resolve():
+        if req.source == "file" and target.resolve() == src.resolve():
             raise HTTPException(400, "имя совпадает с исходным фильтром — выберите другое, исходный файл не меняется")
         folder.mkdir(parents=True, exist_ok=True)
         target.write_text(lootfilter.merge(block, base) if base else block, encoding="utf-8")

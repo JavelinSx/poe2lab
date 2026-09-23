@@ -93,3 +93,30 @@ def test_a_build_nothing_requires_an_attribute_for():
     base = {"Str": 20, "Dex": 150, "ReqDex": 140, "Int": 90, "ReqInt": 80, "SpiritUnreserved": 0}
     without = base | {"Dex": 130}
     assert holds(base, without, check_mana=False) == ["требования Dex"]
+
+
+def test_a_filter_chosen_in_the_dialog(tmp_path, monkeypatch):
+    """The player picks their filter in a Windows dialog (anywhere); the result still goes to the game's folder."""
+    from fastapi.testclient import TestClient
+    from poe2lab.web import server
+    game, elsewhere = tmp_path / "game", tmp_path / "downloads"
+    game.mkdir()
+    elsewhere.mkdir()
+    mine = elsewhere / "NeverSink.filter"
+    mine.write_text("Show\n\tClass == \"Rings\"\n", encoding="utf-8")
+    monkeypatch.setattr(lf, "filters_dir", lambda: game)
+    client = TestClient(server.app)
+    h = {"X-Poe2lab": "1"}
+    client.post("/api/load", json={"name": "titan"}, headers=h)
+    monkeypatch.setattr(lf, "pick_filter", lambda: None)
+    assert client.post("/api/lootfilter/pick", headers=h).json() == {"cancelled": True}
+    monkeypatch.setattr(lf, "pick_filter", lambda: mine)
+    picked = client.post("/api/lootfilter/pick", headers=h).json()
+    assert picked["name"] == "NeverSink.filter"
+    r = client.post("/api/lootfilter/save", json={"source": "file", "file": picked["path"]}, headers=h).json()
+    assert Path(r["path"]).parent == game and r["name"] == "NeverSink + poe2lab titan"
+    assert mine.read_text(encoding="utf-8") == "Show\n\tClass == \"Rings\"\n"
+    # a path that was not chosen in the dialog is only looked up by name in the game's folder
+    other = client.post("/api/lootfilter/save", json={"source": "file", "file": str(tmp_path / "x" / "secret.filter")},
+                        headers=h)
+    assert other.status_code == 400
