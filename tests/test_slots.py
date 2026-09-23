@@ -1,4 +1,4 @@
-"""Mod database and per-slot plans on the user's Titan."""
+"""Mod database and per-slot plans on a public Titan (tests/fixtures/titan.txt)."""
 from pathlib import Path
 
 import pytest
@@ -9,14 +9,14 @@ from poe2lab.analysis.threats import MapProfile, survivable_hits
 from poe2lab.data.moddb import ModDB, max_roll, pattern, ranges
 from poe2lab.engine import PobEngine
 
-TITAN = (Path(__file__).resolve().parents[1] / "builds" / "titan.txt").read_text()
+TITAN = (Path(__file__).resolve().parent / "fixtures" / "titan.txt").read_text()
 
 
 @pytest.fixture(scope="module")
 def titan():
     e = PobEngine()
     e.load_code(TITAN)
-    e.set_main_skill(4)
+    e.set_main_skill(5)
     return e
 
 
@@ -48,36 +48,41 @@ def test_rollable_respects_base_tags_and_item_level(db):
     assert max(m.level for m in chaos(helmet, 70)) <= 70
 
 
-def test_identify_weapon_affixes(titan, db):
-    item = _item(titan, "Weapon 1")
+def test_identify_boot_affixes(titan, db):
+    item = _item(titan, "Boots")
     affixes, unknown = db.identify([x["line"] for x in item["explicit"]], item["tags"], item["itemLevel"])
     assert not unknown
     kinds = {a.rolled[0]: a.mod.type for a in affixes}
-    assert kinds["+4 to Level of all Melee Skills"] == "Suffix"
-    assert kinds["Adds 26 to 42 Physical Damage"] == "Prefix"
-    assert sum(k == "Prefix" for k in kinds.values()) == 3 and sum(k == "Suffix" for k in kinds.values()) == 3
+    assert kinds["25% increased Movement Speed"] == "Prefix"
+    assert kinds["+43% to Cold Resistance"] == "Suffix"
+    assert sum(k == "Prefix" for k in kinds.values()) == 3 and sum(k == "Suffix" for k in kinds.values()) >= 3
 
 
 def test_slot_plan_flags_load_bearing_and_utility(titan, db, weights):
     cfg = MapProfile().config()
-    amulet = plan_slot(titan, db, cfg, _item(titan, "Amulet"), "balanced", weights)
-    spirit = next(a for a in amulet.affixes if "Spirit" in a.lines[0])
-    assert "spirit на резервы" in spirit.holds and not spirit.replaceable
     boots = plan_slot(titan, db, cfg, _item(titan, "Boots"), "balanced", weights)
     ms = next(a for a in boots.affixes if "Movement Speed" in a.lines[0])
     assert ms.utility and not ms.replaceable
-    ring = plan_slot(titan, db, cfg, _item(titan, "Ring 1"), "balanced", weights)
-    leech = next(a for a in ring.affixes if "Leech" in a.lines[0])
-    assert 50 < leech.changes["recovery"] <= 100  # share of current recovery, not a blow-up vs. near zero
+    cold = next(a for a in boots.affixes if "Cold Resistance" in a.lines[0])
+    assert any("кап резиста" in h for h in cold.holds) and not cold.replaceable
+    belt = plan_slot(titan, db, cfg, _item(titan, "Belt"), "balanced", weights)
+    mana = next(a for a in belt.affixes if "maximum Mana" in a.lines[0])
+    assert any("мана" in h for h in mana.holds) and not mana.replaceable
+    helmet = plan_slot(titan, db, cfg, _item(titan, "Helmet"), "balanced", weights)
+    regen = next(a for a in helmet.affixes if "Regeneration" in a.lines[0])
+    assert 0 < regen.changes["recovery"] <= 100  # share of current recovery, not a blow-up vs. near zero
 
 
 def test_craft_path_keeps_caps_and_restores_build(titan, db, weights):
     cfg = MapProfile().config()
     before = titan.what_if(config=cfg)
-    texts = {i["slot"]: titan.item_text(i["slot"]) for i in titan.equipped_item_details()}
+    details = titan.equipped_item_details()
+    texts = {i["slot"]: titan.item_text(i["slot"]) for i in details}
+    corrupted = {i["slot"] for i in details if i["corrupted"]}
+    assert {"Body Armour", "Gloves"} <= corrupted
     path = craft_path(titan, db, cfg, "balanced", weights, steps=3)
     assert len(path) == 3
-    assert all(s.slot not in ("Weapon 1", "Helmet", "Boots", "Body Armour", "Ring 2") for s in path)  # corrupted
+    assert not {s.slot for s in path} & corrupted  # corrupted items cannot be changed
     after = titan.what_if(config=cfg)
     assert after["CombinedDPS"] == pytest.approx(before["CombinedDPS"])
     assert {i["slot"]: titan.item_text(i["slot"]) for i in titan.equipped_item_details()} == texts

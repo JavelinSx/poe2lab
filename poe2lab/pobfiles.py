@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_BUILDS = REPO_ROOT / "builds"
+# the player's own builds (not in git); POE2LAB_BUILDS points elsewhere, e.g. the tests' public fixtures
+PROJECT_BUILDS = Path(os.environ.get("POE2LAB_BUILDS") or REPO_ROOT / "builds")
 
 
 def pob_build_dirs() -> list[Path]:

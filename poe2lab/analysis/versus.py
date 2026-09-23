@@ -8,8 +8,8 @@ from dataclasses import asdict
 from .items import compare
 from .threats import DAMAGE_TYPES, MapProfile, survivable_hits
 
-GEAR_SLOTS = ["Weapon 1", "Weapon 2", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2",
-              "Belt"]
+GEAR_SLOTS = ["Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap", "Helmet", "Body Armour", "Gloves", "Boots",
+              "Amulet", "Ring 1", "Ring 2", "Belt"]  # swap slots too: a main skill may hit with the second weapon set
 # (group, key in PoB output, name key for the UI, higher is better)
 STATS = [
     ("offence", "CombinedDPS", "dps", True),

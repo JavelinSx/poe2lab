@@ -6,7 +6,7 @@ import pytest
 
 from poe2lab.engine import EnginePool, PobEngine, PobError
 
-BUILD = (Path(__file__).resolve().parents[1] / "builds" / "ma95.txt").read_text()
+BUILD = (Path(__file__).resolve().parent / "fixtures" / "monk.txt").read_text()
 
 
 @pytest.fixture(scope="module")

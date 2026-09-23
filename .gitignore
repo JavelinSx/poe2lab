@@ -5,3 +5,4 @@ data/cache/
 tools/ooz/
 builds/.trash/
 .venv/
+builds/

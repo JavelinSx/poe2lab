@@ -1,4 +1,4 @@
-"""Mod sources (essences, desecration) and socket plans on the user's Titan."""
+"""Mod sources (essences, desecration) and socket plans on a public Titan (tests/fixtures/titan.txt)."""
 from pathlib import Path
 
 import pytest
@@ -10,14 +10,14 @@ from poe2lab.analysis.threats import MapProfile, survivable_hits
 from poe2lab.data.moddb import ModDB
 from poe2lab.engine import PobEngine
 
-TITAN = (Path(__file__).resolve().parents[1] / "builds" / "titan.txt").read_text()
+TITAN = (Path(__file__).resolve().parent / "fixtures" / "titan.txt").read_text()
 
 
 @pytest.fixture(scope="module")
 def titan():
     e = PobEngine()
     e.load_code(TITAN)
-    e.set_main_skill(4)
+    e.set_main_skill(5)
     return e
 
 
@@ -38,10 +38,11 @@ def test_essences_and_desecration_as_sources(titan, db):
 
 def test_rune_replacement_round_trips(titan):
     cfg = MapProfile().config()
-    info = titan.socket_info("Weapon 1")
+    slot = "Weapon 1 Swap"  # the talisman Furious Slam hits with: two Greater Iron Runes
+    info = titan.socket_info(slot)
     base = titan.what_if(config=cfg)
-    same = titan.what_if(config=cfg, replace_runes=("Weapon 1", info["runes"]))
-    empty = titan.what_if(config=cfg, replace_runes=("Weapon 1", ["None"] * info["sockets"]))
+    same = titan.what_if(config=cfg, replace_runes=(slot, info["runes"]))
+    empty = titan.what_if(config=cfg, replace_runes=(slot, ["None"] * info["sockets"]))
     assert same["CombinedDPS"] == pytest.approx(base["CombinedDPS"])
     assert empty["CombinedDPS"] < base["CombinedDPS"]
 
@@ -50,6 +51,6 @@ def test_socket_plan_skips_corrupted_and_druid_only_runes(titan):
     profile = MapProfile()
     plans = plan_sockets(titan, profile.config(), "balanced", defence_weights(survivable_hits(titan, profile)))
     corrupted = {i["slot"] for i in titan.equipped_item_details() if i["corrupted"]}
-    assert {p.slot for p in plans} == {"Gloves"}  # the only socketed item that is not corrupted
+    assert {p.slot for p in plans} == {"Helmet", "Boots"}  # socketed and not corrupted (Body Armour, Gloves are)
     assert not corrupted & {p.slot for p in plans}
     assert all(not o.name.startswith("Legacy of") for p in plans for o in p.best)  # Titan is not a Druid

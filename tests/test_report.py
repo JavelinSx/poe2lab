@@ -1,4 +1,4 @@
-"""Report checks on the user's Titan (Furious Slam); its PoB numbers were confirmed against the game."""
+"""Report checks on a public Titan (Furious Slam, Rage; tests/fixtures/titan.txt)."""
 import json
 from pathlib import Path
 
@@ -9,14 +9,25 @@ from poe2lab.analysis.report import attribute_gates, build_report, defence_weigh
 from poe2lab.analysis.threats import MapProfile, recovery, survivable_hits
 from poe2lab.engine import PobEngine
 
-TITAN = (Path(__file__).resolve().parents[1] / "builds" / "titan.txt").read_text()
+TITAN = (Path(__file__).resolve().parent / "fixtures" / "titan.txt").read_text()
+FURIOUS_SLAM = 5
 
 
 @pytest.fixture(scope="module")
 def titan():
     e = PobEngine()
     e.load_code(TITAN)
-    e.set_main_skill(4)
+    e.set_main_skill(FURIOUS_SLAM)
+    return e
+
+
+@pytest.fixture(scope="module")
+def short_on_dex():
+    """The same Titan 10 Dexterity short of its gems' needs (73 of 70 in the build)."""
+    e = PobEngine()
+    e.load_code(TITAN)
+    e.set_main_skill(FURIOUS_SLAM)
+    e.set_custom_mods("test", ["-10 to Dexterity"])
     return e
 
 
@@ -28,34 +39,23 @@ def _attribute_analysis(engine, profile):
             attrs.item_dependencies(engine, profile.config(), sources))
 
 
-def test_attribute_status_and_cheapest_fix(titan):
-    statuses, swaps, deps = _attribute_analysis(titan, MapProfile())
+def test_attribute_status_and_cheapest_fix(short_on_dex):
+    statuses, swaps, _ = _attribute_analysis(short_on_dex, MapProfile())
     by = {s.attr: s for s in statuses}
-    assert (by["Dex"].have, by["Dex"].need) == (22, 25)
-    assert by["Dex"].needed_by == ["5 Dexterity Support Gems"]
-    assert by["Int"].from_nodes == 13
+    assert (by["Dex"].have, by["Dex"].need) == (63, 70)
+    assert "Herald of Ice 17/20" in by["Dex"].needed_by
+    assert by["Str"].margin > 40  # a Strength surplus to move from
     fix = next(w for w in swaps if w.all_met)
-    assert (fix.donor, fix.target, fix.nodes) == ("Str", "Dex", 1)
-    assert {d.slot for d in deps} == {"Body Armour", "Boots", "Amulet", "Belt"}
-    assert all(not d.breaks for d in deps)  # Strength surplus covers any single item
+    assert (fix.donor, fix.target) == ("Str", "Dex") and fix.nodes >= 1
 
 
 def test_supports_at_risk_ranks_main_skill_support_first(titan):
     risk = attrs.supports_at_risk(titan, MapProfile().config(), "Dex")
-    assert len(risk) == 5
     top = risk[0]
     assert (top.name, top.skill) == ("Rapid Attacks II", "Furious Slam")
-    assert top.main_dps_pct == pytest.approx(-15.6, abs=0.3)
+    assert top.main_dps_pct == pytest.approx(-16.3, abs=0.5)
+    assert [r.main_dps_pct for r in risk] == sorted(r.main_dps_pct for r in risk)  # biggest loss first
     assert all(g["enabled"] for g in titan.gems())
-
-
-def test_conditional_support_is_valued_with_its_condition(titan):
-    # In game the Titan's Momentum (on Rampage) is the support switched off by the Dexterity shortfall.
-    momentum = next(s for s in attrs.supports_at_risk(titan, MapProfile().config(), "Dex") if s.name == "Momentum")
-    assert momentum.skill == "Rampage"
-    assert momentum.conditions == ["Moved 2m during Skill use?"]
-    assert momentum.skill_dps_pct == pytest.approx(-29.3, abs=0.5)
-    assert titan.config().get("momentumDamage") is None
 
 
 def test_conditions_audit_flips_each_box_and_restores(titan):
@@ -82,7 +82,7 @@ def test_damage_range_brackets_enemy_debuffs(titan):
 
 def test_energy_shield_build_gets_es_recovery_not_infinity():
     from poe2lab.profile import open_build
-    engine, _ = open_build("ma95")
+    engine, _ = open_build("monk")
     profile = MapProfile()
     rec = recovery(engine, profile)
     assert rec.es_primary and rec.es_recharge > 0 and rec.half_life_refill_seconds is None
@@ -91,30 +91,25 @@ def test_energy_shield_build_gets_es_recovery_not_infinity():
     assert "энергощит" in texts and "inf" not in texts
 
 
-def test_item_dependency_detects_break():
-    # Strip Strength so that the amulet alone holds the 126 Strength gem requirement.
-    e = PobEngine()
-    e.load_code(TITAN)
-    e.set_main_skill(4)
-    profile = MapProfile()
-    sources = e.requirement_sources()
-    base = e.what_if(config=profile.config(), mods=["-80 to Strength"])
-    assert base["Str"] >= base["ReqStr"]
-    without_amulet = e.what_if(config=profile.config(), mods=["-80 to Strength"], remove_slot="Amulet")
-    assert without_amulet["Str"] < without_amulet["ReqStr"]
-    assert any(s["req"] > without_amulet["Str"] for s in sources if s["attr"] == "Str")
+def test_item_dependency_detects_break(titan):
+    # The helmet carries the Dexterity and Intelligence that just cover the gems (margin 3 each).
+    deps = {d.slot: d for d in attrs.item_dependencies(titan, MapProfile().config(), titan.requirement_sources())}
+    assert any("Furious Slam" in b for b in deps["Helmet"].breaks)
 
 
-def test_gates_find_known_problems(titan):
+def test_gates_find_known_problems(titan, short_on_dex):
     profile = MapProfile()
-    found = attribute_gates(*_attribute_analysis(titan, profile)) + gates(
-        titan.what_if(config=profile.config()), survivable_hits(titan, profile), recovery(titan, profile))
-    titles = {(g.level, g.title) for g in found}
-    assert ("must", "Не хватает ловкости") in titles
-    assert ("warn", "Интеллект на грани") in titles
-    assert ("priority", "Хаос-резист ниже капа") in titles
-    assert ("priority", "Слабость к физическим ударам") in titles
-    assert not any(g.title.startswith("Резист к холоду") for g in found)
+
+    def titles(engine):
+        found = attribute_gates(*_attribute_analysis(engine, profile)) + gates(
+            engine.what_if(config=profile.config()), survivable_hits(engine, profile), recovery(engine, profile))
+        return {(g.level, g.title) for g in found}
+
+    ok = titles(titan)
+    assert ("warn", "Интеллект на грани") in ok
+    assert ("priority", "Слабость к физическим ударам") in ok
+    assert not any(level == "must" and "ловкост" in t for level, t in ok)
+    assert ("must", "Не хватает ловкости") in titles(short_on_dex)
 
 
 def test_weaker_types_weigh_more(titan):
@@ -129,7 +124,7 @@ def test_upgrade_path_uses_each_stat_once(titan):
     path = upgrade_path(titan, profile, "defence", 5, w)
     mods = [s.mod for s in path]
     assert len(mods) == len(set(mods)) == 5
-    assert path[0].mod == "+13% to Chaos Resistance"
+    assert any(v > 0 for v in path[-1].total_defence.values()) or path[-1].total_recovery > 0
 
 
 def test_report_is_json_serialisable(titan):

@@ -7,7 +7,7 @@ from poe2lab.analysis.threats import MapProfile
 from poe2lab.analysis.tree import analyse
 from poe2lab.profile import open_build
 
-BUILDS = Path(__file__).resolve().parents[1] / "builds"
+BUILDS = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture(scope="module")
@@ -21,7 +21,7 @@ def test_growth_is_priced_per_point_including_travel(titan_tree):
     assert growth and all(1 <= g["points"] <= 5 for g in growth)
     assert [g["perPoint"] for g in growth] == sorted((g["perPoint"] for g in growth), reverse=True)
     assert all(g["name"] not in g["via"] for g in growth)  # the target is not its own travel node
-    assert growth[0]["changes"]["dps"] > 0
+    assert growth[0]["value"] > 0
 
 
 def test_nodes_pob_cannot_see_are_not_offered_for_respec(titan_tree):

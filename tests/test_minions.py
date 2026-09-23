@@ -6,7 +6,7 @@ import pytest
 from poe2lab.analysis.gradients import compute
 from poe2lab.profile import open_build
 
-LICH = Path(__file__).resolve().parents[1] / "builds" / "lich-minions.txt"  # public build from pobb.in
+LICH = Path(__file__).resolve().parent / "fixtures" / "lich-minions.txt"  # public build from pobb.in
 
 
 @pytest.fixture(scope="module")

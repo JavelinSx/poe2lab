@@ -6,7 +6,7 @@ import pytest
 from poe2lab import library
 
 ROOT = Path(__file__).resolve().parents[1]
-CODE = (ROOT / "builds" / "titan.txt").read_text(encoding="utf-8").strip()
+CODE = (ROOT / "tests" / "fixtures" / "titan.txt").read_text(encoding="utf-8").strip()
 
 
 @pytest.fixture
@@ -24,10 +24,10 @@ def lib(tmp_path, monkeypatch):
 
 def test_add_names_from_the_code_and_refuses_duplicates(lib):
     name = library.add("", CODE)
-    assert name == "Titan 77" and (lib / "Titan 77.txt").read_text(encoding="utf-8").strip() == CODE
-    assert library.add("", CODE) == "Titan 77 (2)"
+    assert name == "Titan 95" and (lib / "Titan 95.txt").read_text(encoding="utf-8").strip() == CODE
+    assert library.add("", CODE) == "Titan 95 (2)"
     with pytest.raises(library.LibraryError):
-        library.add("titan 77", CODE)  # names are case-insensitive, like Windows file names
+        library.add("titan 95", CODE)  # names are case-insensitive, like Windows file names
     with pytest.raises(library.LibraryError):
         library.add("../escape", CODE)
     with pytest.raises(library.LibraryError):

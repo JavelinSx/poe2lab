@@ -8,7 +8,7 @@ from poe2lab.analysis.report import gates
 from poe2lab.analysis.threats import MapProfile, recovery, survivable_hits
 from poe2lab.profile import CORRECTION_BLOCK, BuildProfile, Correction, open_build
 
-BUILDS = Path(__file__).resolve().parents[1] / "builds"
+BUILDS = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_correction_scales_by_uptime():
@@ -37,7 +37,7 @@ def test_titan_profile_applies_skill_and_correction():
 
 def test_arguments_override_profile_skill():
     engine, _ = open_build(BUILDS / "titan.txt", group=3, corrections=False)
-    assert engine.main_skill() == "Rampage"
+    assert engine.main_skill() == "Lunar Assault"
 
 
 def test_mana_gate_respects_confirmation():
@@ -60,7 +60,7 @@ def test_build_by_name_and_from_pob_xml(tmp_path, monkeypatch):
     monkeypatch.setattr(pobfiles, "pob_build_dirs", lambda: [saved])
     path = pobfiles.resolve_build("my titan")
     assert path.name == "My Titan.xml"
-    engine, bp = open_build(path, group=4)
+    engine, bp = open_build(path, group=5)
     assert engine.main_skill() == "Furious Slam" and bp.path is None
     with pytest.raises(FileNotFoundError):
         pobfiles.resolve_build("no such build")
@@ -68,4 +68,4 @@ def test_build_by_name_and_from_pob_xml(tmp_path, monkeypatch):
 
 def test_profile_file_is_valid_json():
     raw = json.loads((BUILDS / "titan.profile.json").read_text(encoding="utf-8"))
-    assert raw["main_skill"]["group"] == 4
+    assert raw["main_skill"]["group"] == 5

@@ -39,16 +39,19 @@ def test_tool_round_trip(titan):
     engine, bp, profile = titan
     fake = FakeClient([
         {"content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {
-            "name": "evaluate_mods", "arguments": json.dumps({"mods": ["+13% to Chaos Resistance"]})}}]},
-        {"content": "Хаос-резист: +43% к переживаемому удару хаосом."},
+            "name": "evaluate_mods", "arguments": json.dumps({"mods": ["+100 to maximum Life"]})}}]},
+        {"content": "Жизнь: удар физикой переживается лучше."},
     ])
     assistant = Assistant(fake, Toolbox(engine, profile), build_context(engine, bp))
-    answer = assistant.ask("Что даст +13% хаос-резиста?")
-    assert answer.startswith("Хаос-резист")
+    answer = assistant.ask("Что даст +100 к здоровью?")
+    assert answer.startswith("Жизнь")
     tool_msg = fake.sent[1][-1]
     assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "c1"
-    change = json.loads(tool_msg["content"])["percentChange"]["chaos_hit"]
-    assert change == pytest.approx(43.3, abs=1.0)
+    change = json.loads(tool_msg["content"])["percentChange"]["phys_hit"]
+    from poe2lab.analysis.gradients import metric_changes
+    cfg = profile.config()
+    expected = metric_changes(engine.what_if(config=cfg, mods=["+100 to maximum Life"]), engine.what_if(config=cfg))
+    assert change > 0 and change == pytest.approx(expected["phys_hit"], abs=0.1)
 
 
 def test_bad_tool_calls_return_errors_not_exceptions(titan):

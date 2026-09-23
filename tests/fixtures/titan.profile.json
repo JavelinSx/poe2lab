@@ -1,0 +1,23 @@
+{
+  "main_skill": {"group": 5, "skill": 1, "name": "Furious Slam"},
+  "rage": null,
+  "mana_sustained": true,
+  "league": null,
+  "corrections": [
+    {
+      "mod": "Gain 40% of Damage as Extra Fire Damage",
+      "source": "бафф Ходячего бедствия (по описанию стата в данных игры): PoB не применяет его стат; скилл используется по перезарядке",
+      "uptime": 1.0,
+      "confirmed": true
+    },
+    {
+      "mod": "30% increased Skill Speed",
+      "source": "Друидизм от Амор Мандрагоры: 10% скорости умений за заряд, максимум 3; PoB механику не знает",
+      "uptime": 1.0,
+      "confirmed": false
+    }
+  ],
+  "notes": [
+    "Тестовый профиль публичного билда https://pobb.in/nbE_LaELwqqM."
+  ]
+}

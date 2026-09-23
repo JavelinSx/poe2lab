@@ -8,7 +8,7 @@ from poe2lab.engine import PobEngine
 from poe2lab.engine.pobcode import decode_pob_code
 from poe2lab.profile import open_build
 
-BUILDS = Path(__file__).resolve().parents[1] / "builds"
+BUILDS = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_items_with_unknown_bases_are_reported():

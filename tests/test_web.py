@@ -28,7 +28,7 @@ def test_status_and_build_list(client):
     s = client.get("/api/status").json()
     assert "llm" in s
     names = {b["name"] for b in client.get("/api/builds").json()}
-    assert {"titan", "ma95"} <= names
+    assert {"titan", "monk"} <= names
 
 
 def test_page_versions_its_scripts(client):
@@ -41,9 +41,9 @@ def test_load_report_and_compare(client):
     assert b["mainSkill"] == "Furious Slam" and b["info"]["ascendancy"] == "Titan"
     r = client.get("/api/report?mode=balanced").json()
     assert r["damageRange"]["high"] > r["damageRange"]["low"] > 0
-    assert any(g["title"] == "Не хватает ловкости" for g in r["gates"])
-    text = client.get("/api/item/Weapon 1").json()["text"]
-    same = client.post("/api/compare", json={"slot": "Weapon 1", "text": text}, headers=H).json()
+    assert any(g["title"] == "Слабость к физическим ударам" for g in r["gates"])
+    text = client.get("/api/item/Weapon 1 Swap").json()["text"]
+    same = client.post("/api/compare", json={"slot": "Weapon 1 Swap", "text": text}, headers=H).json()
     assert abs(same["dps_pct"]) < 1e-6
 
 
@@ -101,7 +101,7 @@ def test_mod_search_finds_parseable_mods_in_both_languages(client):
 
 def test_stale_build_requests_are_refused(client):
     client.post("/api/load", json={"name": "titan"}, headers=H)
-    assert client.get("/api/mechanics", params={"build": "ma95"}).status_code == 409
+    assert client.get("/api/mechanics", params={"build": "monk"}).status_code == 409
     assert client.get("/api/mechanics", params={"build": "titan"}).status_code == 200
 
 
