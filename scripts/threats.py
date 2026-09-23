@@ -36,13 +36,13 @@ def main():
     profile = MapProfile(args.level, args.boss, args.map_damage, args.map_crit, bp.rage, bp.mana_sustained)
 
     print(f"{engine.info()} | main skill: {engine.main_skill()}")
-    print(f"enemy: level {profile.enemy_level}, boss={profile.boss}; juiced map = +{profile.damage_pct:g}% monster damage, "
+    print(f"enemy: level {profile.enemy_level}, boss={profile.boss}; hard map = +{profile.damage_pct:g}% monster damage, "
           f"+{profile.crit_bonus:g}% monster crit bonus (example values - set them from your waystone mods)")
 
     rows = survivable_hits(engine, profile)
     best = max(r.normal for r in rows)
     print("\nLARGEST MONSTER HIT YOU SURVIVE FROM FULL LIFE (monster damage before map mods)")
-    print(f"  {'type':10} {'normal':>9} {'crit':>9} {'juiced crit':>12}   vs your best type")
+    print(f"  {'type':10} {'normal':>9} {'crit':>9} {'hard crit':>12}   vs your best type")
     for r in rows:
         print(f"  {r.damage_type:10} {r.normal:9,.0f} {r.crit:9,.0f} {r.juiced:12,.0f}   {r.normal / best * 100:5.0f}%")
 

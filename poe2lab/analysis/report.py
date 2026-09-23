@@ -116,7 +116,7 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
         if h.normal < best * WEAK_TYPE_SHARE:
             out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}",
                             f"переживаешь {h.normal:,.0f} ({h.normal / best:.0%} от лучшего типа); "
-                            f"критом на сочной карте — {h.juiced:,.0f}"))
+                            f"критом на хард-карте — {h.juiced:,.0f}"))
     if rec.es_primary:
         out.append(Gate("warn", "Защита держится на энергощите",
                         f"энергощит {rec.energy_shield:,.0f} (жизнь {rec.life:,.0f}): перезаряжается "

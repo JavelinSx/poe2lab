@@ -26,11 +26,11 @@ def print_report(r: dict):
     p = r["profile"]
     print(f"{b['class']} / {b['ascendancy']}, {b['level']} ур., основной скилл: {b['mainSkill']}")
     print(f"Цель: {MODE_NAMES[r['mode']]}. Враг: моб {p['enemy_level']} ур. (boss={p['boss']}), "
-          f"сочная карта: +{p['damage_pct']:g}% урона и +{p['crit_bonus']:g}% бонуса крита монстров")
+          f"хард-карта: +{p['damage_pct']:g}% урона и +{p['crit_bonus']:g}% бонуса крита монстров")
     print(f"Сейчас: DPS {base['dps']:,.0f}, жизнь {base['life']:,.0f}, попадание {base['hitChance']:.0f}%, "
           f"восстановление {base['recoveryPerSecond']:,.0f}/с")
     hits = base["survivableHit"]
-    print("Переживаемый удар монстра (обычный / крит / крит на сочной): " + "; ".join(
+    print("Переживаемый удар монстра (обычный / крит / крит на хард-карте): " + "; ".join(
         f"{SHORT[t]} {hits[t]['normal']:,.0f} / {hits[t]['crit']:,.0f} / {hits[t]['juiced']:,.0f}" for t in DAMAGE_TYPES))
 
     names = {"Str": "сила", "Dex": "ловкость", "Int": "интеллект"}
