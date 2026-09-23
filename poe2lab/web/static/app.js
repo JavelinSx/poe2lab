@@ -968,6 +968,91 @@ TABS.loot = async (view) => {
 };
 
 // ---------- mechanics ----------
+// ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
+TABS.skills = async (view) => {
+  const mode = state.skillsMode || "build";
+  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["leveling", t("skLeveling")]].map(([k, label]) =>
+    h("button", { class: mode === k ? "active" : "", onclick: () => { state.skillsMode = k; switchTab("skills"); } }, label)));
+  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : "skLoadingLevel")));
+  view.replaceChildren(h("div", { class: "stack" }, h("div", { class: "row" }, seg), body));
+  try {
+    const r = await cached(`skills:${mode}`, () => api(`/api/skills?view=${mode}&${buildQuery()}`));
+    body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : renderSkillsLeveling(r)));
+  } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+};
+
+const gemName = (name) => h("span", { class: "named", title: name }, icon(name), trName(name));
+// the game's own description in the player's language (from the installed game), English otherwise
+const gameText = (text) => (LANG === "en" ? text : GAME.names[text] || null);
+const MECH_NAMES = {};
+
+function mechChips(gem) {
+  const out = [];
+  for (const k of gem.mechanics.creates) out.push(chip("tag", `${t("skCreates")}: ${MECH_NAMES[k] || k}`));
+  for (const k of gem.mechanics.uses) out.push(chip("util", `${t("skUses")}: ${MECH_NAMES[k] || k}`));
+  return out.length ? h("div", { class: "row small", style: "gap:4px" }, out) : null;
+}
+
+function renderSkillsBuild(r) {
+  for (const [k, m] of Object.entries(r.mechanics || {})) MECH_NAMES[k] = m.name;
+  const ref = (x) => h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, ` → ${trName(x.skill)}`) : null);
+  const links = h("div", { class: "card" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSub")),
+    r.links.length ? r.links.map((l) => h("div", { class: "sk-link" + (l.missing ? " missing" : "") },
+      h("div", {}, h("b", {}, l.name), l.missing ? h("span", { class: "chip must", style: "margin-left:8px" }, t("skMissing")) : null),
+      h("div", { class: "hint" }, LANG === "en" ? "" : l.explain),
+      l.creates.length ? h("div", { class: "small" }, h("span", { class: "muted" }, t("skCreatedBy")), " ", l.creates.map((x, i) => [i ? ", " : "", ref(x)])) : null,
+      h("div", { class: "small" }, h("span", { class: "muted" }, t("skUsedBy")), " ", l.uses.map((x, i) => [i ? ", " : "", ref(x)]))))
+      : h("p", { class: "muted small" }, t("skNoLinks")));
+  const gemRow = (gem, g) => {
+    const lines = LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : gem.lines.map(trMod);
+    const desc = gameText(gem.description);
+    if (!gem.support) {
+      return h("div", { class: "sk-active" }, h("div", { class: "row" }, h("b", {}, gemName(gem.name)),
+        gem.available ? h("span", { class: "muted small" }, t("skFromLevel", gem.available)) : null),
+        desc ? h("div", { class: "muted small" }, desc) : null, mechChips(gem));
+    }
+    const worth = gem.worth ? deltas(gem.worth, METRIC, 0.5) : null;
+    return h("div", { class: "sk-support" + (gem.enabled ? "" : " off") },
+      h("div", { class: "row" }, gemName(gem.name), gem.enabled ? null : chip("warn", t("skDisabled")),
+        gem.because.length ? h("span", { class: "muted small" }, t("skFits", gem.because.join(", "))) : null),
+      lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 5).map((l) => h("li", {}, l))) : (desc ? h("div", { class: "small" }, desc) : null),
+      worth ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : "skWorthMain")), " ", worth) : null,
+      gem.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", gem.unseen.join("; ")) : null,
+      mechChips(gem));
+  };
+  const cards = r.groups.filter((g) => g.gems.length).map((g) => h("div", { class: "card sk-group" + (g.enabled ? "" : " off") },
+    h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
+      g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
+      g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
+    g.actives[0] && g.actives[0].typesRu.length ? h("div", { class: "hint" }, g.actives[0].typesRu.join(" · ")) : null,
+    g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
+    g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
+      g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));
+  return [links, h("div", { class: "grid cards" }, cards)];
+}
+
+function renderSkillsLeveling(r) {
+  const intro = h("div", { class: "card" }, h("h3", {}, t("skLevelTitle")), h("div", { class: "sub" }, t("skLevelSub")),
+    h("div", { class: "small" }, t("skUncut",
+      Object.entries(r.uncutSkillArea).filter(([lv]) => lv % 2 === 1 && lv <= 13).map(([lv, area]) => `${lv} — ${area}`).join(", "),
+      Object.entries(r.uncutSupportArea).map(([tier, lv]) => `${tier} — ${lv}`).join(", "))));
+  const timeline = h("div", { class: "card" }, h("h3", {}, t("skTimeline")),
+    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", { class: "num" }, t("skLevel")), h("th", {}, t("skSkillsCol")), h("th", {}, t("skSupportsCol")))),
+      h("tbody", {}, r.timeline.map((row) => h("tr", {}, h("td", { class: "num" }, `~${row.level}`),
+        h("td", {}, row.gems.filter((x) => !x.support).map((x, i) => [i ? ", " : "", gemName(x.name)])),
+        h("td", {}, row.gems.filter((x) => x.support).map((x, i) => [i ? ", " : "", h("span", { title: x.skills.map(trName).join(", ") }, gemName(x.name))])))))));
+  const plans = r.plans.map((p) => h("div", { class: "card" },
+    h("div", { class: "row" }, h("h3", {}, gemName(p.skill)), p.main ? chip("tag", t("skMain")) : null,
+      p.skillAvailable ? h("span", { class: "muted small" }, t("skFromLevel", p.skillAvailable)) : h("span", { class: "muted small" }, t("skFromItem"))),
+    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", { class: "num" }, t("skLevel")), h("th", {}, t("skFromBuild")), h("th", {}, t("skOptions")))),
+      h("tbody", {}, p.stages.map((s) => h("tr", {}, h("td", { class: "num" }, `~${s.level}`),
+        h("td", { class: "small" }, s.build.length ? s.build.map((n, i) => [i ? ", " : "", gemName(n)]) : h("span", { class: "muted" }, "—"),
+          s.later.length ? h("div", { class: "hint" }, t("skLater", s.later.map(trName).join(", "))) : null),
+        h("td", { class: "small" }, s.options.length ? h("ul", { class: "item-lines" }, s.options.map((o) => h("li", {}, gemName(o.name),
+          h("span", { class: "delta pos", style: "margin-left:6px" }, `${t("m_dps")} ${pct(o.dps)}`)))) : h("span", { class: "muted" }, "—"))))))));
+  return [intro, timeline, h("div", { class: "hint" }, t("skOptionsNote")), ...plans];
+}
+
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));
   const m = await cached("mechanics", () => api(`/api/mechanics?${buildQuery()}`));

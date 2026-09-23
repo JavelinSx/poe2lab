@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.items import breakeven, compare
+from ..analysis.skills import build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
@@ -583,6 +584,23 @@ def mechanics(build: str | None = None):
         session.require(build)
         m = session.cached("mechanics", lambda: collect_mechanics(session.engine, _game_texts("ru")))
         return _json({"gaps": m.gaps, "skills": m.skills, "uniques": m.uniques})
+
+
+@app.get("/api/skills")
+def skills_view(view: str = "build", build: str | None = None):
+    """The build's skills: each with its support gems and the links between skills ("build"), or when each gem can
+    be had and what to socket meanwhile while levelling ("leveling")."""
+    if view not in ("build", "leveling"):
+        raise HTTPException(400, f"неизвестный вид {view!r}")
+    with session.lock:
+        session.require(build)
+        e, cfg = session.engine, session.profile.config()
+        if view == "build":
+            data = session.cached(("skills", "build"),
+                                  lambda: skill_build_view(e, cfg, e.mechanics_raw(_game_texts("ru"))))
+        else:
+            data = session.cached(("skills", "leveling"), lambda: skill_leveling_view(e, cfg))
+        return _json(data)
 
 
 def _reference(name: str):

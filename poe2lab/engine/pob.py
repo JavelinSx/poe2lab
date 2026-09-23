@@ -803,6 +803,149 @@ itemsTab:PopulateSlots()
 wipeGlobalCache()
 build.calcsTab:BuildOutput()""")
 
+    _GEM_HELPERS = """
+local typeName = {}
+for k, v in pairs(SkillType) do typeName[v] = k end
+local function arr(t) return _poe2lab_array(t or {}) end
+local function tags(d) local o = arr({}) for t, on in pairs(d.tags or {}) do if on then o[#o + 1] = t end end return o end
+local function types(set) local o = arr({}) for id, on in pairs(set or {}) do if on and typeName[id] then o[#o + 1] = typeName[id] end end return o end
+-- the required skill types of a support that this active skill has: why the support applies to it
+local function statIds(ge)
+  local o, seen = arr({}), {}
+  for _, set in ipairs(ge.statSets or {}) do
+    for _, st in ipairs(set.stats or {}) do if not seen[st] then seen[st] = true o[#o + 1] = st end end
+    for _, c in ipairs(set.constantStats or {}) do if not seen[c[1]] then seen[c[1]] = true o[#o + 1] = c[1] end end
+  end
+  return o
+end
+local function because(ge, active)
+  local o = arr({})
+  for _, id in ipairs(ge.requireSkillTypes or {}) do
+    local n = typeName[id]
+    if n and n ~= "AND" and n ~= "OR" and n ~= "NOT" and active.skillTypes[id] then o[#o + 1] = n end
+  end
+  return o
+end
+"""
+
+    def skill_groups(self) -> list[dict]:
+        """Socket groups with their gems as the player sees them: active skills with their skill types, support gems
+        with the active skills they apply to and the required skill types that make them apply; gem tiers."""
+        return self._json(self._GEM_HELPERS + """
+local out = arr({})
+for gi, g in ipairs(build.skillsTab.socketGroupList) do
+  local actives = arr({})
+  for _, a in ipairs(g.displaySkillList or {}) do
+    actives[#actives + 1] = { name = a.activeEffect.grantedEffect.name, types = types(a.skillTypes) }
+  end
+  local gems = arr({})
+  for i, gem in ipairs(g.gemList) do
+    local d = gem.gemData
+    if d then
+      local ge = d.grantedEffect
+      local fits = arr({})
+      if ge.support then
+        for _, a in ipairs(g.displaySkillList or {}) do
+          if calcLib.canGrantedEffectSupportActiveSkill(ge, a) then
+            fits[#fits + 1] = { skill = a.activeEffect.grantedEffect.name, because = because(ge, a) }
+          end
+        end
+      end
+      gems[#gems + 1] = { index = i, id = gem.gemId or "", name = ge.name, support = ge.support and true or false,
+        enabled = gem.enabled ~= false, level = gem.level or 1, tier = d.Tier or 0, tags = tags(d),
+        family = d.gemFamily or "", reqLevel = (ge.levels[d.Tier or 1] or ge.levels[1] or {}).levelRequirement or 0,
+        description = ge.description or "", fits = fits, stats = statIds(ge),
+        types = ge.support and arr({}) or types(ge.skillTypes) }
+    end
+  end
+  out[#out + 1] = { index = gi, label = g.label or "", slot = g.slot or "", enabled = g.enabled and true or false,
+    main = gi == build.mainSocketGroup, actives = actives, gems = gems }
+end
+return _poe2lab_json(out)""")
+
+    def support_candidates(self, group: int) -> list[dict]:
+        """Support gems (cuttable from uncut gems: tier > 0) that can support the group's first active skill and whose
+        family is not in the group yet."""
+        return self._json(self._GEM_HELPERS + f"""
+local g = build.skillsTab.socketGroupList[{int(group)}]
+local active = g and g.displaySkillList and g.displaySkillList[1]
+local out = arr({{}})
+if not active then return _poe2lab_json(out) end
+local have = {{}}
+for _, gem in ipairs(g.gemList) do
+  if gem.gemData then have[gem.gemData.gemFamily or gem.gemData.name] = true end
+end
+for id, d in pairs(data.gems) do
+  local ge = d.grantedEffect
+  if ge and ge.support and (d.Tier or 0) > 0 and not ge.hidden and not have[d.gemFamily or d.name]
+     and calcLib.canGrantedEffectSupportActiveSkill(ge, active) then
+    out[#out + 1] = {{ id = id, name = ge.name, tier = d.Tier, family = d.gemFamily or "",
+      description = ge.description or "", because = because(ge, active) }}
+  end
+end
+return _poe2lab_json(out)""")
+
+    def support_gains(self, group: int, gem_ids: list[str], config=None, measure_group: int | None = None) -> dict:
+        """DPS and EHP with each support gem added to the group on its own, in one pass: {"base": {...},
+        id: {...}}. Offence is read for `measure_group` (default: the build's main skill)."""
+        ids = ", ".join(lua_string(i) for i in gem_ids)
+        cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
+        override = f"mainSocketGroup = {int(measure_group)}" if measure_group else ""
+        return self._json(f"""
+local g = build.skillsTab.socketGroupList[{int(group)}]
+local res = {{}}
+_poe2lab_with_setup({{ {cfg} }}, {{}}, {{}}, function()
+  local function measure()
+    wipeGlobalCache()
+    local out = build.calcsTab:GetMiscCalculator()({{ {override} }}, false)
+    return {{ dps = out.CombinedDPS or 0, ehp = out.TotalEHP or 0 }}
+  end
+  res.base = measure()
+  for _, id in ipairs({{ {ids} }}) do
+    local d = data.gems[id]
+    if d then
+      local inst = {{ nameSpec = d.name, gemId = id, level = build.skillsTab:ProcessGemLevel(d), quality = 0,
+        enabled = true, enableGlobal1 = true, enableGlobal2 = true, count = 1, corruptLevel = 0, corrupted = false }}
+      table.insert(g.gemList, inst)
+      build.skillsTab:ProcessSocketGroup(g)
+      local ok, m = pcall(measure)
+      table.remove(g.gemList)
+      if ok then res[id] = m end
+    end
+  end
+  build.skillsTab:ProcessSocketGroup(g)
+end)
+wipeGlobalCache()
+build.calcsTab:BuildOutput()
+return _poe2lab_json(res)""")
+
+    @contextmanager
+    def added_gem(self, group: int, gem_id: str):
+        """Temporarily socket one more gem (a data.gems id) into a socket group, recalculated; removed on exit."""
+        self._lua(f"""
+local g = build.skillsTab.socketGroupList[{int(group)}]
+local d = data.gems[ {lua_string(gem_id)} ]
+if not g or not d then error("no such group or gem", 0) end
+local inst = {{ nameSpec = d.name, gemId = {lua_string(gem_id)}, level = build.skillsTab:ProcessGemLevel(d), quality = 0,
+  enabled = true, enableGlobal1 = true, enableGlobal2 = true, count = 1, corruptLevel = 0, corrupted = false }}
+table.insert(g.gemList, inst)
+_poe2lab_added = {{ group = g, inst = inst }}
+build.skillsTab:ProcessSocketGroup(g)
+wipeGlobalCache()
+build.calcsTab:BuildOutput()""")
+        try:
+            yield self
+        finally:
+            self._lua("""
+local a = _poe2lab_added
+for i, inst in ipairs(a.group.gemList) do
+  if inst == a.inst then table.remove(a.group.gemList, i) break end
+end
+build.skillsTab:ProcessSocketGroup(a.group)
+_poe2lab_added = nil
+wipeGlobalCache()
+build.calcsTab:BuildOutput()""")
+
     def item_text(self, slot: str) -> str:
         """The equipped item in PoB's text format - edit it and pass it back via what_if(replace_item=...)."""
         text = self._lua(f"""
