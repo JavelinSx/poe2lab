@@ -759,7 +759,8 @@ def loot_filter(mode: str = "balanced", build: str | None = None):
         raise HTTPException(400, f"неизвестная цель {mode!r}")
     with session.lock:
         session.require(build)
-        return _json(_loot(mode) | {"dir": str(lootfilter.filters_dir()), "localFilters": lootfilter.local_filters()})
+        return _json(_loot(mode) | {"dir": str(lootfilter.filters_dir()), "localFilters": lootfilter.local_filters(),
+                                    "onlineFilters": lootfilter.online_filters()})
 
 
 def _loot(mode: str) -> dict:
@@ -787,10 +788,11 @@ def loot_filter_pick():
     path = lootfilter.pick_filter()
     if path is None:
         return {"cancelled": True}
-    if path.suffix.lower() != ".filter" or not path.is_file():
+    if not path.is_file() or not lootfilter.looks_like_filter(path):
         raise HTTPException(400, f"это не файл лут-фильтра: {path.name}")
     session.picked_filter = path
-    return {"path": str(path), "name": path.name}
+    online = next((f for f in lootfilter.online_filters() if Path(f["path"]) == path), None)
+    return {"path": str(path), "name": online["name"] if online else path.name}
 
 
 @app.post("/api/lootfilter/save")
@@ -806,12 +808,20 @@ def loot_filter_save(req: LootFilterSave):
         base = ""
         if req.source == "file":
             picked = session.picked_filter
-            # the file chosen in the dialog (anywhere), or one of the game's folder by name
-            src = picked if picked is not None and req.file == str(picked) else folder / Path(req.file or "").name
+            # the file chosen in the dialog (anywhere), the game's copy of an online filter, or one of the game's
+            # folder by name
+            online = {f["path"]: f["name"] for f in lootfilter.online_filters()}
+            if picked is not None and req.file == str(picked):
+                src = picked
+            elif req.file in online:
+                src = Path(req.file)
+            else:
+                src = folder / Path(req.file or "").name
             if not src.is_file():
                 raise HTTPException(400, f"нет файла фильтра {src}")
             base = src.read_text(encoding="utf-8-sig", errors="replace")
-            default = f"{src.stem} + poe2lab {session.path.stem}"
+            label = online.get(str(src)) or (online.get(str(picked)) if src == picked else None) or src.stem
+            default = f"{label} + poe2lab {session.path.stem}"
         elif req.source == "text":
             base = req.text or ""
             if "Show" not in base and "Hide" not in base:

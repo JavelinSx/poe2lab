@@ -206,7 +206,7 @@ root = tkinter.Tk()
 root.withdraw()
 root.attributes("-topmost", True)
 path = filedialog.askopenfilename(parent=root, initialdir=sys.argv[1], title=sys.argv[2],
-                                  filetypes=[(sys.argv[3], "*.filter"), ("*.*", "*.*")])
+                                  filetypes=[(sys.argv[3], "*.filter"), (sys.argv[4], "*")])
 sys.stdout.write(path or "")
 """
 
@@ -217,9 +217,49 @@ def pick_filter(title: str = "Фильтр, поверх которого доб
     import sys
     folder = filters_dir()
     res = subprocess.run([sys.executable, "-c", _PICK, str(folder if folder.is_dir() else Path.home()), title,
-                          "Лут-фильтр PoE2"], capture_output=True, text=True, encoding="utf-8")
+                          "Лут-фильтр PoE2", "Все файлы (онлайн-фильтры — в OnlineFilters, без расширения)"],
+                         capture_output=True, text=True, encoding="utf-8")
     path = res.stdout.strip()
     return Path(path) if path else None
+
+
+def looks_like_filter(path: Path) -> bool:
+    """A loot filter by its content: the game's copies of online filters have no extension."""
+    try:
+        with path.open(encoding="utf-8-sig", errors="replace") as f:
+            head = f.read(200_000)
+    except OSError:
+        return False
+    return bool(re.search(r"^\s*(Show|Hide|Minimal)\b", head, re.M))
+
+
+def online_filters() -> list[dict]:
+    """Online filters the player subscribes to (NeverSink, FilterBlade): the game keeps a copy of each in
+    OnlineFilters, named by an id, with the filter's name in its header."""
+    folder = filters_dir() / "OnlineFilters"
+    out = []
+    for path in sorted(folder.glob("*")) if folder.is_dir() else []:
+        if not path.is_file():
+            continue
+        try:
+            with path.open(encoding="utf-8-sig", errors="replace") as f:
+                head = f.read(4000)
+        except OSError:
+            continue
+        name = re.search(r"^#name:(.+)$", head, re.M)
+        updated = re.search(r"^#lastUpdate:(\S+)", head, re.M)
+        if name:
+            out.append({"path": str(path), "name": name.group(1).strip(),
+                        "updated": updated.group(1)[:10] if updated else None})
+    return out
+
+
+def is_online_copy(path: Path) -> bool:
+    try:
+        path.resolve().relative_to((filters_dir() / "OnlineFilters").resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def local_filters() -> list[str]:

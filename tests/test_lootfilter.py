@@ -120,3 +120,28 @@ def test_a_filter_chosen_in_the_dialog(tmp_path, monkeypatch):
     other = client.post("/api/lootfilter/save", json={"source": "file", "file": str(tmp_path / "x" / "secret.filter")},
                         headers=h)
     assert other.status_code == 400
+
+
+def test_online_filters_from_the_games_copy(tmp_path, monkeypatch):
+    """A subscribed online filter lives in OnlineFilters as an extensionless copy named by an id."""
+    from fastapi.testclient import TestClient
+    from poe2lab.web import server
+    online = tmp_path / "OnlineFilters"
+    online.mkdir()
+    copy = online / "MNqaRoC0"
+    copy.write_text("#Online Item Filter\n#name:endgamus\n#lastUpdate:2026-09-22T22:53:49Z\nShow\n\tClass == \"Rings\"\n",
+                    encoding="utf-8")
+    (online / "junk").write_text("not a filter", encoding="utf-8")
+    monkeypatch.setattr(lf, "filters_dir", lambda: tmp_path)
+    assert lf.online_filters()[0] | {"path": None} == {"path": None, "name": "endgamus", "updated": "2026-09-22"}
+    assert lf.looks_like_filter(copy) and not lf.looks_like_filter(online / "junk")
+    client = TestClient(server.app)
+    h = {"X-Poe2lab": "1"}
+    client.post("/api/load", json={"name": "titan"}, headers=h)
+    assert [f["name"] for f in client.get("/api/lootfilter").json()["onlineFilters"]] == ["endgamus"]
+    r = client.post("/api/lootfilter/save", json={"source": "file", "file": str(copy)}, headers=h).json()
+    assert r["name"] == "endgamus + poe2lab titan" and Path(r["path"]).parent == tmp_path
+    monkeypatch.setattr(lf, "pick_filter", lambda: online / "junk")
+    assert client.post("/api/lootfilter/pick", headers=h).status_code == 400
+    monkeypatch.setattr(lf, "pick_filter", lambda: copy)
+    assert client.post("/api/lootfilter/pick", headers=h).json()["name"] == "endgamus"

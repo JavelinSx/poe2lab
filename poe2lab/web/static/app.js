@@ -930,7 +930,11 @@ TABS.loot = async (view) => {
   } }, t("lootPick"));
   const text = h("textarea", { rows: 6, placeholder: t("lootPastePh"), spellcheck: "false" });
   const name = h("input", { type: "text", placeholder: t("lootNamePh"), style: "width:100%" });
-  const panes = { file: h("div", { class: "stack", style: "gap:6px" }, h("div", { class: "row" }, pick, chosenBox),
+  // the game's copies of online filters (NeverSink, FilterBlade subscriptions), by their names
+  const online = (r.onlineFilters || []).length ? h("div", { class: "row small" }, h("span", { class: "muted" }, t("lootOnlineList")),
+    r.onlineFilters.map((f) => h("button", { class: "ghost small", title: f.path, onclick: () => { chosen = f.path; chosenName = f.name; drawChosen(); } },
+      f.updated ? `${f.name} · ${f.updated}` : f.name))) : null;
+  const panes = { file: h("div", { class: "stack", style: "gap:6px" }, h("div", { class: "row" }, pick, chosenBox), online,
     h("div", { class: "hint" }, t("lootPickHint", r.dir))), text, none: h("p", { class: "muted small" }, t("lootOnlyBlock")) };
   const paneBox = h("div", {});
   const seg = h("div", { class: "segmented" }, [["file", t("lootSrcFile")], ["text", t("lootSrcText")], ["none", t("lootSrcNone")]].map(([k, label]) =>
