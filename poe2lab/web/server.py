@@ -28,7 +28,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
-from .. import gamedata, icons, library
+from .. import gamedata, icons, library, lootfilter
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -655,6 +655,67 @@ def tree_save(req: TreeSave):
         if src.exists():
             (PROJECT_BUILDS / f"{name}.profile.json").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         return {"name": name}
+
+
+@app.get("/api/lootfilter")
+def loot_filter(mode: str = "balanced", build: str | None = None):
+    if mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    with session.lock:
+        session.require(build)
+        return _json(_loot(mode) | {"dir": str(lootfilter.filters_dir()), "localFilters": lootfilter.local_filters()})
+
+
+def _loot(mode: str) -> dict:
+    """Rules and filter block for the open build (caller holds the session lock)."""
+    def compute():
+        e, prof = session.engine, session.profile
+        weights = defence_weights(survivable_hits(e, prof))
+        rules = lootfilter.slot_rules(e, session.db(), prof.config(), mode, weights)
+        return {"rules": rules, "block": lootfilter.render(rules, session.path.stem)}
+
+    return session.cached(("lootfilter", mode), compute)
+
+
+class LootFilterSave(BaseModel):
+    mode: str = "balanced"
+    source: str = "none"  # "file": a filter in the game's folder, "text": pasted, "none": the block alone
+    file: str | None = None
+    text: str | None = None
+    name: str | None = None
+
+
+@app.post("/api/lootfilter/save")
+def loot_filter_save(req: LootFilterSave):
+    """Write "the player's filter + the build block" as a new filter in the game's folder; the player's own file
+    is never changed."""
+    with session.lock:
+        session.require()
+        if req.mode not in MODES:
+            raise HTTPException(400, f"неизвестная цель {req.mode!r}")
+        block = _loot(req.mode)["block"]
+        folder = lootfilter.filters_dir()
+        base = ""
+        if req.source == "file":
+            src = folder / Path(req.file or "").name
+            if not src.is_file():
+                raise HTTPException(400, f"нет файла фильтра {src}")
+            base = src.read_text(encoding="utf-8-sig", errors="replace")
+            default = f"{src.stem} + poe2lab {session.path.stem}"
+        elif req.source == "text":
+            base = req.text or ""
+            if "Show" not in base and "Hide" not in base:
+                raise HTTPException(400, "вставленный текст не похож на лут-фильтр (нет блоков Show/Hide)")
+            default = f"мой фильтр + poe2lab {session.path.stem}"
+        else:
+            default = f"poe2lab {session.path.stem}"
+        name = lootfilter.safe_name(req.name or default)
+        target = folder / f"{name}.filter"
+        if req.source == "file" and target.resolve() == (folder / Path(req.file).name).resolve():
+            raise HTTPException(400, "имя совпадает с исходным фильтром — выберите другое, исходный файл не меняется")
+        folder.mkdir(parents=True, exist_ok=True)
+        target.write_text(lootfilter.merge(block, base) if base else block, encoding="utf-8")
+        return {"path": str(target), "name": name}
 
 
 @app.get("/api/versus")

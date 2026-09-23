@@ -348,3 +348,6 @@ details > summary .ico { margin-left: 2px; }
 .lang-banner .lb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .lang-banner ul { margin: 6px 0 0; padding-left: 18px; }
 .lang-banner .bi-act { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+
+.filter-preview { max-height: 420px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px; font-size: 12px; white-space: pre; }

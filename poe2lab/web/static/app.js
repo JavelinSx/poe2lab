@@ -719,6 +719,59 @@ function planCard(plan) {
     h("div", { class: "row", style: "margin-top:10px" }, optimize, save, reset));
 }
 
+// ---------- loot filter ----------
+TABS.loot = async (view) => {
+  view.replaceChildren(loading(t("lootLoading")));
+  const r = await cached(`loot:${state.mode}`, () => api(`/api/lootfilter?mode=${state.mode}&${buildQuery()}`));
+  const rows = r.rules.map((x) => h("tr", {},
+    h("td", {}, slotName(x.slot)),
+    h("td", {}, h("span", { class: "named", title: x.base }, icon(x.base), trName(x.base)),
+      x.unique ? h("div", { class: "hint" }, t("lootUnique")) : null),
+    h("td", { class: "num" }, x.unique ? "—" : x.item_level),
+    h("td", {}, x.unique ? h("span", { class: "muted small" }, t("lootByBase"))
+      : x.affixes.length ? h("div", {}, h("ul", { class: "item-lines small" }, x.mods.slice(0, 5).map((m) => h("li", { title: m }, trMod(m)))),
+        h("div", { class: "hint" }, t("lootAffixes", x.affixes.length))) : h("span", { class: "muted small" }, t("lootNoMods")))));
+  const what = h("div", { class: "card" }, h("h3", {}, t("lootWhat")), h("div", { class: "sub" }, t("lootWhatSub", t("mode_" + state.mode))),
+    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", {}, t("slot")), h("th", {}, t("lootBase")),
+      h("th", { class: "num" }, t("lootIlvl")), h("th", {}, t("lootGold")))), h("tbody", {}, rows)),
+    h("div", { class: "hint", style: "margin-top:8px" }, t("lootLegend")));
+
+  // where the player's filter comes from
+  let source = r.localFilters.length ? "file" : "none";
+  const fileSel = h("select", {}, r.localFilters.map((f) => h("option", { value: f }, f)));
+  const text = h("textarea", { rows: 6, placeholder: t("lootPastePh"), spellcheck: "false" });
+  const name = h("input", { type: "text", placeholder: t("lootNamePh"), style: "width:100%" });
+  const panes = { file: h("div", {}, r.localFilters.length ? fileSel : h("p", { class: "muted small" }, t("lootNoLocal", r.dir))), text, none: h("p", { class: "muted small" }, t("lootOnlyBlock")) };
+  const paneBox = h("div", {});
+  const seg = h("div", { class: "segmented" }, [["file", t("lootSrcFile")], ["text", t("lootSrcText")], ["none", t("lootSrcNone")]].map(([k, label]) =>
+    h("button", { "data-k": k, class: source === k ? "active" : "", onclick: () => { source = k; showPane(); } }, label)));
+  const showPane = () => {
+    seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.k === source));
+    paneBox.replaceChildren(panes[source]);
+  };
+  showPane();
+  const save = h("button", { class: "primary", onclick: async () => {
+    save.disabled = true;
+    try {
+      const res = await api("/api/lootfilter/save", { method: "POST", body: { mode: state.mode, source,
+        file: fileSel.value || null, text: text.value, name: name.value.trim() || null } });
+      done.replaceChildren(h("div", { class: "action" }, t("lootSaved", res.name, res.path)));
+      toast(t("lootSavedShort", res.name), true);
+    } catch (e) { toast(e.message); }
+    save.disabled = false;
+  } }, t("lootSave"));
+  const done = h("div", {});
+  const build = h("div", { class: "card stack" }, h("h3", {}, t("lootBuild")), h("div", { class: "sub" }, t("lootBuildSub")),
+    seg, paneBox, h("label", { class: "field" }, h("span", {}, t("lootName")), name), h("div", {}, save), done,
+    h("div", { class: "hint" }, t("lootOnline")));
+  const copy = h("button", { class: "ghost small", onclick: async () => {
+    try { await navigator.clipboard.writeText(r.block); toast(t("copied"), true); } catch (e) { toast(e.message); }
+  } }, t("copyBlock"));
+  const preview = h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lootPreview")),
+    h("div", { class: "row", style: "margin:8px 0" }, copy), h("pre", { class: "filter-preview" }, r.block)));
+  return h("div", { class: "stack" }, h("div", { class: "sub" }, t("lootIntro")), what, build, preview);
+};
+
 // ---------- mechanics ----------
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));
