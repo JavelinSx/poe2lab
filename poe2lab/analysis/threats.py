@@ -38,6 +38,14 @@ class HitRow:
         return self.normal >= IMMUNE_HIT
 
 
+def reference_hits(engine, level: int) -> dict[str, float]:
+    """A typical heavy hit of an ordinary monster of that level, per damage type: PoB's monster damage table x1.5,
+    chaos a 2.5th of that - the same basis PoB uses for its default enemy hit. Real skills vary; this is the
+    yardstick that turns "largest hit you survive" into "how much of your pool one hit takes"."""
+    base = engine.monster_damage(level) * 1.5
+    return {t: base / 2.5 if t == "Chaos" else base for t in DAMAGE_TYPES}
+
+
 def survivable_hits(engine, profile: MapProfile) -> list[HitRow]:
     normal = engine.what_if(config=profile.config())
     crit = engine.what_if(config=profile.config(crit=True))

@@ -268,8 +268,6 @@ TABS.overview = async (view) => {
   const b = r.baseline;
   const rng = r.damageRange;
   const hits = Object.entries(b.survivableHit);
-  const finiteHits = hits.filter(([, v]) => v.normal < IMMUNE_HIT);
-  const maxHit = Math.max(1, ...finiteHits.map(([, v]) => v.normal));
 
   const kpi = h("div", { class: "grid kpi" },
     h("div", { class: "card kpi" }, h("div", { class: "label" }, b.minions ? t("dpsMinions") : t("dps")),
@@ -284,19 +282,29 @@ TABS.overview = async (view) => {
       h("div", { class: "value" }, fmt(b.recoveryPerSecond), h("span", { class: "to" }, t("perSec"))),
       h("div", { class: "note" }, b.recoveryPool === "es" ? t("esRecoveryNote") : t("whileAttacking"))));
 
-  // a table, not overlapping bars: one row per damage type, one column per situation, the weakest type marked
-  const weakest = (finiteHits.length ? finiteHits : hits).reduce((w, cur) => (cur[1].normal < w[1].normal ? cur : w));
-  const hitCell = (type, val) => val >= IMMUNE_HIT ? h("td", { class: "num hit-cell" }, h("div", { class: "hit-num pos" }, t("immune"))) : h("td", { class: "num hit-cell" },
-    h("div", { class: "hit-num" }, fmt(val)),
-    h("div", { class: "hit-track" }, h("span", { style: `width:${Math.max(2, (val / maxHit) * 100)}%;background:${DMG_COLOR[type]}` })));
+  // How much of the pool one typical monster hit takes: grows with difficulty (normal < crit < crit on a hard map),
+  // which reads the way players think about danger. The raw "largest hit you survive" stays in the tooltip.
+  const ref = b.referenceHit;
+  const share = (type, survivable) => (survivable >= IMMUNE_HIT ? 0 : (ref[type] / survivable) * 100);
+  const worst = hits.filter(([, v]) => v.normal < IMMUNE_HIT)
+    .reduce((w, cur) => (!w || share(cur[0], cur[1].juiced) > share(w[0], w[1].juiced) ? cur : w), null);
+  const hitCell = (type, survivable) => {
+    if (survivable >= IMMUNE_HIT) return h("td", { class: "num hit-cell" }, h("div", { class: "hit-num pos" }, t("immune")));
+    const p = share(type, survivable);
+    const cls = p >= 100 ? "deadly" : p >= 50 ? "danger" : "";
+    return h("td", { class: "num hit-cell " + cls, title: t("hitTooltip", fmt(survivable), fmt(ref[type])) },
+      h("div", { class: "hit-num" }, p >= 100 ? t("oneShot") : `${fmt(p)}%`),
+      h("div", { class: "hit-hint" }, p >= 100 ? t("oneShotHint") : t("hitsToDie", Math.max(1, Math.ceil(100 / p - 1e-9)))),
+      h("div", { class: "hit-track" }, h("span", { style: `width:${Math.min(100, p)}%;background:${DMG_COLOR[type]}` })));
+  };
   const hitCard = h("div", { class: "card" },
-    h("h3", {}, t("hitsTitle")), h("div", { class: "sub" }, t("hitsSub", r.profile)),
+    h("h3", {}, t("hitsTitle")), h("div", { class: "sub" }, t("hitsSub", r.profile, fmt(ref.Physical), fmt(ref.Chaos))),
     h("table", { class: "hits-table" },
       h("thead", {}, h("tr", {}, h("th", {}, t("dmgType")), h("th", { class: "num" }, t("hitNormal")),
         h("th", { class: "num" }, t("hitCrit")), h("th", { class: "num" }, t("hitJuiced")))),
-      h("tbody", {}, hits.map(([type, v]) => h("tr", { class: type === weakest[0] ? "weak" : "" },
+      h("tbody", {}, hits.map(([type, v]) => h("tr", { class: worst && type === worst[0] ? "weak" : "" },
         h("td", {}, h("span", { class: "dmg-dot", style: `background:${DMG_COLOR[type]}` }), t("dmgFull_" + type),
-          type === weakest[0] ? h("span", { class: "chip must", style: "margin-left:8px" }, t("weakest")) : null),
+          worst && type === worst[0] ? h("span", { class: "chip must", style: "margin-left:8px" }, t("weakest")) : null),
         hitCell(type, v.normal), hitCell(type, v.crit), hitCell(type, v.juiced))))),
     h("div", { class: "note small muted", style: "margin-top:8px" }, t("hitsNote")));
 

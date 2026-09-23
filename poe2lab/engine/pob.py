@@ -271,6 +271,10 @@ return _poe2lab_json(out)""")
             self.set_main_skill(group, active)
         return sorted(out, key=lambda x: -x["dps"])
 
+    def monster_damage(self, level: int) -> float:
+        """PoB's base monster damage for an area level (data.monsterDamageTable)."""
+        return float(self._lua(f"return data.monsterDamageTable[{int(level)}]"))
+
     def main_skill(self) -> str | None:
         return self._lua("""
 local g = build.skillsTab.socketGroupList[build.mainSocketGroup]

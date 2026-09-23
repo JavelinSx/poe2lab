@@ -7,7 +7,7 @@ from .conditions import audit as audit_conditions
 from .conditions import damage_range
 from .gradients import Gradient, compute, hit_change, recovery_per_second
 from .stats import mod_line
-from .threats import DAMAGE_TYPES, MapProfile, recovery, survivable_hits
+from .threats import reference_hits, DAMAGE_TYPES, MapProfile, recovery, survivable_hits
 
 HIT_METRIC = {"Physical": "phys_hit", "Fire": "fire_hit", "Cold": "cold_hit", "Lightning": "lightning_hit",
               "Chaos": "chaos_hit"}
@@ -87,7 +87,7 @@ def unread_gates(engine) -> list[Gate]:
             for u in engine.unread_items()]
 
 
-def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Gate]:
+def gates(stats: dict, hits: list, rec, mana_sustained: bool = False, ref: dict | None = None) -> list[Gate]:
     out = []
     for t in ("Fire", "Cold", "Lightning"):
         res, over = stats.get(f"{t}Resist", 0), stats.get(f"{t}ResistOverCap", 0)
@@ -114,9 +114,15 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False) -> list[Ga
     best = max((h.normal for h in finite), default=0)
     for h in finite:
         if h.normal < best * WEAK_TYPE_SHARE:
-            out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}",
-                            f"переживаешь {h.normal:,.0f} ({h.normal / best:.0%} от лучшего типа); "
-                            f"критом на хард-карте — {h.juiced:,.0f}"))
+            if ref:
+                r = ref[h.damage_type]
+                detail = (f"удар обычного монстра снимает {r / h.normal:.0%} запаса, критом на хард-карте — "
+                          f"{r / h.juiced:.0%}; переживаешь в {best / h.normal:.1f} раза меньший удар, "
+                          "чем от лучшего типа")
+            else:
+                detail = (f"переживаешь {h.normal:,.0f} ({h.normal / best:.0%} от лучшего типа); "
+                          f"критом на хард-карте — {h.juiced:,.0f}")
+            out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}", detail))
     if rec.es_primary:
         out.append(Gate("warn", "Защита держится на энергощите",
                         f"энергощит {rec.energy_shield:,.0f} (жизнь {rec.life:,.0f}): перезаряжается "
@@ -254,6 +260,7 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
                  statdesc_dir=None) -> dict:
     stats = engine.what_if(config=profile.config())
     hits = survivable_hits(engine, profile)
+    ref = reference_hits(engine, profile.enemy_level)
     rec = recovery(engine, profile)
     weights = defence_weights(hits)
     _, grads = compute(engine, config=profile.config())
@@ -281,12 +288,13 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
             "es": stats.get("EnergyShield", 0.0),
             "hitChance": stats.get("HitChance"),
             "survivableHit": {h.damage_type: asdict(h) for h in hits},
+            "referenceHit": ref,
             "recoveryPerSecond": recovery_per_second(stats),
             "recoveryPool": "es" if stats.get("EnergyShield", 0) > stats.get("Life", 0) else "life",
         },
         "gates": [asdict(g) for g in unread_gates(engine) + zero_damage_gates(engine, stats, profile.config())
                   + attribute_gates(statuses, swaps, deps)
-                  + gates(stats, hits, rec, profile.mana_sustained)],
+                  + gates(stats, hits, rec, profile.mana_sustained, ref)],
         "notModelled": [asdict(g) for g in collect_mechanics(engine, statdesc_dir).gaps if g.likely_impact],
         "conditions": [asdict(c) for c in conditions],
         "damageRange": damage_range(engine, profile.config(), conditions),
