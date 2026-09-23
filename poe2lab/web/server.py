@@ -599,8 +599,10 @@ def skills_view(view: str = "build", build: str | None = None):
         session.require(build)
         e, cfg = session.engine, session.profile.config()
         if view == "build":
-            data = session.cached(("skills", "build"),
-                                  lambda: skill_build_view(e, cfg, e.mechanics_raw(_game_texts("ru"))))
+            m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
+            data = session.cached(("skills", "build"), lambda: skill_build_view(
+                e, cfg, e.mechanics_raw(_game_texts("ru")), m.uniques,
+                [asdict(g) for g in m.gaps if g.source == "item"]))
         else:
             data = session.cached(("skills", "leveling"), lambda: skill_leveling_view(e, cfg))
         return _json(data)

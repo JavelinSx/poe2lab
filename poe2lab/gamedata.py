@@ -29,6 +29,8 @@ TABLES = {  # table -> (key column, text columns)
     "leaguenames": ("Id", ["Name1"]),
     "passiveskills": ("Id", ["Name"]),
 }
+# The game's own explanations of its terms (the popups on hover): Id, name and text in English and in `lang`.
+KEYWORDS = "keywordpopups"
 # Names PoB shows that no table holds under the same English text (PoB's own labels for game things).
 MANUAL_NAMES = {"ru": {"Thorns": "Шипы"}}
 TYPE_SIZE = {"Bool": 1, "Int": 4, "UInt": 4, "UInt16": 2, "Float": 4, "Enum": 4, "Interval": 8, "String": 8,
@@ -145,7 +147,7 @@ def extract(game: Path, lang: str = "ru"):
     if not BUN.is_file():
         raise GameDataError(f"нет {BUN.relative_to(ROOT)} — скачайте bun с github.com/zao/ooz/releases")
     folder = LANG_NAMES[lang].lower()
-    names = "|".join(TABLES)
+    names = "|".join([*TABLES, KEYWORDS])
     patterns = [r"^data/statdescriptions/.*\.csd$", rf"^data/balance/({folder}/)?({names})\.datc64$"]
     RAW.mkdir(parents=True, exist_ok=True)
     res = subprocess.run([str(BUN), "extract-files", "--regex", str(game), str(RAW), *patterns],
@@ -426,6 +428,35 @@ def load_templates(lang: str) -> dict[str, str]:
     return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
 
 
+def keywords_path(lang: str) -> Path:
+    return GAME_CACHE / lang / "keywords.json"
+
+
+def build_keywords(lang: str = "ru") -> dict[str, dict]:
+    """The game's term popups: {Id: {"name", "text", "nameLocal", "textLocal"}}. Texts keep the game's cross-links
+    "[Key|shown text]" (poe2lab.keywords renders them)."""
+    folder = LANG_NAMES[lang].lower()
+    en_path, loc_path = RAW / "data/balance" / f"{KEYWORDS}.datc64", RAW / "data/balance" / folder / f"{KEYWORDS}.datc64"
+    if not en_path.is_file():
+        return {}
+    cols = ["Id", "Name", "Description"]
+    loc = {r["Id"]: r for r in read_table(loc_path, cols)} if loc_path.is_file() else {}
+    out = {}
+    for r in read_table(en_path, cols):
+        if not r["Id"] or not r["Name"] or not r["Description"]:
+            continue
+        other = loc.get(r["Id"], {})
+        keep_links = lambda t: re.sub(r"<[^>]+>\{([^}]+)\}", r"\1", t or "").strip()  # colour tags only
+        out[r["Id"]] = {"name": r["Name"].strip(), "text": keep_links(r["Description"]),
+                        "nameLocal": (other.get("Name") or "").strip(), "textLocal": keep_links(other.get("Description"))}
+    return out
+
+
+def load_keywords(lang: str) -> dict[str, dict]:
+    p = keywords_path(lang)
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+
+
 def names_path(lang: str) -> Path:
     return GAME_CACHE / lang / "names.json"
 
@@ -442,11 +473,14 @@ def build(lang: str = "ru", game: Path | None = None) -> dict:
     templates = build_templates(lang)
     templates_path(lang).write_text(json.dumps(templates, ensure_ascii=False, indent=0, sort_keys=True),
                                     encoding="utf-8")
+    keywords = build_keywords(lang)
+    keywords_path(lang).write_text(json.dumps(keywords, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
     from . import icons  # icons read this module's tables; imported here to keep the dependency one-way
     icon_info = icons.build(game)
     # names.json last: its time marks a finished unpack (see stale)
     names_path(lang).write_text(json.dumps(names, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
-    return {"statFiles": files, "names": len(names), "templates": len(templates), "icons": icon_info["icons"],
+    return {"statFiles": files, "names": len(names), "templates": len(templates), "keywords": len(keywords),
+            "icons": icon_info["icons"],
             "game": str(game)}
 
 
@@ -461,8 +495,8 @@ def available(lang: str) -> bool:
 
 def stale(lang: str, game: Path | None = None) -> bool:
     """Not unpacked yet, or the game was patched after unpacking (its bundle index is newer)."""
-    if not available(lang) or not names_path(lang).is_file():
-        return True
+    if not available(lang) or not names_path(lang).is_file() or not keywords_path(lang).is_file():
+        return True  # keywords.json: unpacks made before the term popups were added
     game = game or game_dir()
     index = game / "Bundles2" / "_.index.bin" if game else None
     return bool(index and index.is_file() and index.stat().st_mtime > names_path(lang).stat().st_mtime)

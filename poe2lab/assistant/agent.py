@@ -2,6 +2,7 @@
 facts in context, and uses the PoB engine through tools for every number."""
 import json
 
+from .. import keywords
 from ..knowledge import collect as collect_mechanics
 from ..profile import BuildProfile
 from ..profile import describe as describe_profile
@@ -76,6 +77,15 @@ def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = No
     if mech.uniques:
         parts.append("Уникальные предметы:\n" + "\n".join(
             f"- {u['name']} ({u['slot']}): " + "; ".join(u["lines"]) for u in mech.uniques))
+    # the game's own explanations of the terms this build's skills and items use: mechanics in the game's words
+    texts = [s["description"] for s in mech.skills] + [l for s in mech.skills for l in s["lines"]]
+    texts += [l for u in mech.uniques for l in u["lines"]]
+    terms = keywords.entries(keywords.find(texts))
+    if terms:
+        parts.append("Термины игры, которые встречаются в этом билде (официальные пояснения игры; опирайся на них, "
+                     "объясняя механики):\n" + "\n".join(
+                         f"- {k['name']} = {k['nameLocal'] or k['name']}: {keywords.plain(k['textLocal'] or k['text'])}"
+                         for k in terms.values()))
     parts.append("Надетые предметы: " + ", ".join(f"{i['slot']}: {i['name']}"
                                                  + (" [испорчен]" if i["corrupted"] else "")
                                                  for i in engine.equipped_item_details()))

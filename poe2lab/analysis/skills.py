@@ -8,6 +8,7 @@ uses one; every pair in the build is then found by matching. Numbers come from P
 import re
 from dataclasses import dataclass
 
+from .. import keywords as kw
 from .gradients import metric_changes
 
 # Area level from which each uncut gem level drops (the game's BaseItemTypes.DropLevel, patch 0.5): a skill gem of
@@ -104,7 +105,7 @@ MECHANICS = [
     Mechanic("rage", "Свирепость",
              "Свирепость копится от ударов и усиливает атаки; некоторые скиллы расходуют её ради сильного удара.",
              r"gain\w* .{0,20}\brage\b|\brage_on_|grants? \brage\b|rage_regen",
-             r"consum\w* .{0,30}\brage\b|spend\w* .{0,20}\brage\b|\brage_cost|uses? \d* ?rage"),
+             r"consum\w* .{0,30}\brage\b|spend\w* .{0,20}\brage\b|\brage spent|\brage_cost|uses? \d* ?rage"),
     Mechanic("infusion", "Насыщение",
              "Насыщения появляются, когда подбираешь остатки стихий; скиллы, которые их поглощают, получают "
              "дополнительный эффект.",
@@ -124,11 +125,24 @@ MECHANICS = [
              "Урон копит шкалу оглушения; при её заполнении враг тяжело оглушён — некоторые скиллы наносят по таким "
              "врагам особый урон.",
              r"build\w* up stun|stun_threshold|hit_damage_stun_multiplier", _against("heavy stunned")),
+    Mechanic("shapeshift", "Превращение",
+             "Скиллы превращения меняют облик героя (медведь, виверна, волк); некоторые предметы и пассивки "
+             "работают только в превращённом облике.",
+             r"(?<![\w-])shapeshift(?:ing)?(?![\w-])", r"\bshapeshifted\b|while in (?:bear|wyvern|wolf|werewolf) form"),
 ]
+# The game's own explanation of each mechanic (its term popups, poe2lab.keywords), shown instead of ours when the
+# game data is unpacked.
+MECHANIC_TERMS = {"impale": ["Impale"], "ice_crystal": ["IceCrystals", "IceCrystalShatter"],
+                  "freeze": ["Freeze", "PrimedFreeze"], "shock": ["Shock"], "ignite": ["Ignite"],
+                  "bleed": ["Bleeding"], "poison": ["Poison"], "frenzy": ["Charges"], "power": ["Charges"],
+                  "endurance": ["Charges"], "rage": ["Rage"], "infusion": ["ElementalInfusion"],
+                  "armour_break": ["ArmourBreak"], "glory": ["Glory"], "combo": ["Combo"],
+                  "heavy_stun": ["HeavyStun", "PrimedStun"], "shapeshift": ["Shapeshift"]}
 
 
 def _text(gem: dict) -> str:
-    return (gem.get("description", "") + " " + " ".join(gem.get("stats", []))).lower()
+    """Description, stat ids and skill types ("Shapeshift" is a type of the bear and wyvern skills)."""
+    return " ".join([gem.get("description", ""), *gem.get("stats", []), *gem.get("types", [])]).lower()
 
 
 def mechanics_of(gem: dict) -> dict[str, list[str]]:
@@ -150,11 +164,17 @@ def mechanics_of(gem: dict) -> dict[str, list[str]]:
     return out
 
 
-def links(groups: list[dict]) -> list[dict]:
-    """Mechanics that one gem of the build creates and another uses; and mechanics a skill needs that nothing in
-    the build creates."""
+def links(groups: list[dict], items: list[dict] = ()) -> list[dict]:
+    """Mechanics that one gem or unique item of the build creates and another uses; and mechanics a skill needs
+    that nothing in the build creates."""
     by = {m.key: m for m in MECHANICS}
     creators, users = {}, {}
+    for it in items:
+        ref = {"gem": it["name"], "skill": it["slot"], "group": None, "support": True, "item": True}
+        for key in it["mechanics"]["creates"]:
+            creators.setdefault(key, []).append(ref)
+        for key in it["mechanics"]["uses"]:
+            users.setdefault(key, []).append(ref)
     for g in groups:
         if not g["enabled"]:
             continue
@@ -173,10 +193,11 @@ def links(groups: list[dict]) -> list[dict]:
         c, u = creators.get(key, []), users.get(key, [])
         # a link is two different gems; a mechanic only created (or only used) is a warning, not a link
         if c and u and ({r["gem"] for r in c} | {r["gem"] for r in u}) != {r["gem"] for r in c} & {r["gem"] for r in u}:
-            out.append({"key": key, "name": by[key].name, "explain": by[key].explain, "creates": c, "uses": u})
+            out.append({"key": key, "name": by[key].name, "explain": by[key].explain, "creates": c, "uses": u,
+                        "terms": MECHANIC_TERMS.get(key, [])})
         elif u and not c and not by[key].used_by_tags and any(not r["support"] for r in u):
             out.append({"key": key, "name": by[key].name, "explain": by[key].explain, "creates": [], "uses": u,
-                        "missing": True})
+                        "missing": True, "terms": MECHANIC_TERMS.get(key, [])})
     return out
 
 
@@ -200,8 +221,10 @@ def _measure_group(engine, config, g: dict) -> int | None:
     return g["index"] if g["enabled"] and _own_dps(engine, config, g["index"]) > 0 else None
 
 
-def build_view(engine, config: dict, mechanics_raw: dict | None = None) -> dict:
-    """Every socket group with its gems, what each support is worth and the links between skills."""
+def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques: list[dict] = (),
+               item_gaps: list[dict] = ()) -> dict:
+    """Every socket group with its gems, what each support is worth, the unique items and the mechanics they take
+    part in, and the links between all of them. `uniques` and `item_gaps` come from poe2lab.knowledge."""
     groups = engine.skill_groups()
     local = {}
     for s in (mechanics_raw or {}).get("skills", []):
@@ -220,6 +243,7 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None) -> dict:
             gem["because"] = sorted({TYPE_RU.get(t, t) for f in gem["fits"] for t in f["because"]})
             gem.update(local.get((g["index"], gem["name"]), {"lines": [], "linesLocal": [], "unseen": []}))
             gem["unseen"] = [" / ".join(u) if isinstance(u, list) else u for u in gem["unseen"]][:4]
+            gem["terms"] = kw.find([gem["description"], *gem["lines"]])
             if gem["support"] and gem["enabled"] and g["enabled"]:
                 without = engine.what_if(config=config, disable_gems=[(g["index"], gem["index"])],
                                          main_socket_group=measure)
@@ -228,12 +252,25 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None) -> dict:
                 gem["worth"] = None
         for a in g["actives"]:
             a["typesRu"] = [TYPE_RU[t] for t in a["types"] if t in TYPE_RU]
+    items = []
+    for u in uniques:
+        item = {"name": u["name"], "slot": u["slot"], "lines": u["lines"], "description": " ".join(u["lines"]),
+                "support": True, "enabled": True}
+        item["mechanics"] = mechanics_of(item)
+        item["terms"] = kw.find(u["lines"])
+        prefix = u["name"].split(",")[0]
+        item["unseen"] = [g["text_local"] or g["text"] for g in item_gaps if g["where"].startswith(prefix)][:6]
+        items.append(item)
     created = {k for g in groups if g["enabled"] for x in g["gems"] if x["enabled"] for k in x["mechanics"]["creates"]}
+    created |= {k for it in items for k in it["mechanics"]["creates"]}
     generic = {m.key for m in MECHANICS if m.used_by_tags}
     for g in groups:
         for x in g["gems"]:
             x["mechanics"]["uses"] = [k for k in x["mechanics"]["uses"] if k not in generic or k in created]
-    return {"groups": groups, "links": links(groups),
+    found = links(groups, items)
+    terms = {t for g in groups for x in g["gems"] for t in x["terms"]} | {t for it in items for t in it["terms"]}
+    terms |= {t for l in found for t in l["terms"]}
+    return {"groups": groups, "items": items, "links": found, "terms": kw.entries(terms),
             "mechanics": {m.key: {"name": m.name, "explain": m.explain} for m in MECHANICS}}
 
 

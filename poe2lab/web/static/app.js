@@ -986,6 +986,41 @@ const gemName = (name) => h("span", { class: "named", title: name }, icon(name),
 const gameText = (text) => (LANG === "en" ? text : GAME.names[text] || null);
 const MECH_NAMES = {};
 
+// The game's own explanations of its terms (its hover popups), in the player's language when unpacked.
+let TERMS = {};
+const termName = (id) => { const k = TERMS[id]; return k ? (LANG !== "en" && k.nameLocal ? k.nameLocal : k.name) : id; };
+// "[Rage|свирепости]" -> a link opening that term when the game explains it, plain text otherwise
+function termText(text) {
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(/\[([^|\]]+)(?:\|([^\]]+))?\]/g)) {
+    out.push(text.slice(last, m.index));
+    const shown = m[2] || m[1];
+    out.push(TERMS[m[1]] ? h("a", { class: "term-link", href: "#", onclick: (e) => { e.preventDefault(); showTerm(m[1]); } }, shown) : shown);
+    last = m.index + m[0].length;
+  }
+  out.push(text.slice(last));
+  return out;
+}
+function showTerm(id) {
+  const k = TERMS[id];
+  if (!k) return;
+  let box = $("#term-pop");
+  if (!box) {
+    box = h("div", { id: "term-pop", class: "term-pop" });
+    document.body.append(box);
+  }
+  const text = LANG !== "en" && k.textLocal ? k.textLocal : k.text;
+  box.replaceChildren(h("div", { class: "row", style: "justify-content:space-between" }, h("b", {}, termName(id)),
+    h("button", { class: "bi-act", onclick: () => box.remove() }, "×")),
+    h("div", { class: "small" }, termText(text)), h("div", { class: "hint" }, t("termSource")));
+}
+function termChips(ids) {
+  const known = (ids || []).filter((id) => TERMS[id]);
+  return known.length ? h("div", { class: "row small", style: "gap:4px" }, h("span", { class: "muted" }, t("termsLabel")),
+    known.map((id) => h("button", { class: "chip term", title: t("termOpen"), onclick: () => showTerm(id) }, termName(id)))) : null;
+}
+
 function mechChips(gem) {
   const out = [];
   for (const k of gem.mechanics.creates) out.push(chip("tag", `${t("skCreates")}: ${MECH_NAMES[k] || k}`));
@@ -995,11 +1030,20 @@ function mechChips(gem) {
 
 function renderSkillsBuild(r) {
   for (const [k, m] of Object.entries(r.mechanics || {})) MECH_NAMES[k] = m.name;
-  const ref = (x) => h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, ` → ${trName(x.skill)}`) : null);
+  TERMS = r.terms || {};
+  const ref = (x) => (x.item ? h("span", { class: "named", title: x.gem }, `${trItem(x.gem.split(",")[0])} (${slotName(x.skill)})`)
+    : h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, ` → ${trName(x.skill)}`) : null));
+  // the game's own explanation of a mechanic when the game data is unpacked, ours otherwise
+  const explain = (l) => {
+    const official = (l.terms || []).filter((id) => TERMS[id]);
+    if (!official.length || LANG === "en" && !TERMS[official[0]].text) return h("div", { class: "hint" }, LANG === "en" ? "" : l.explain);
+    return h("div", { class: "hint" }, official.map((id, i) => h("div", {}, i ? h("b", {}, `${termName(id)}: `) : null,
+      termText(LANG !== "en" && TERMS[id].textLocal ? TERMS[id].textLocal : TERMS[id].text))));
+  };
   const links = h("div", { class: "card" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSub")),
     r.links.length ? r.links.map((l) => h("div", { class: "sk-link" + (l.missing ? " missing" : "") },
       h("div", {}, h("b", {}, l.name), l.missing ? h("span", { class: "chip must", style: "margin-left:8px" }, t("skMissing")) : null),
-      h("div", { class: "hint" }, LANG === "en" ? "" : l.explain),
+      explain(l),
       l.creates.length ? h("div", { class: "small" }, h("span", { class: "muted" }, t("skCreatedBy")), " ", l.creates.map((x, i) => [i ? ", " : "", ref(x)])) : null,
       h("div", { class: "small" }, h("span", { class: "muted" }, t("skUsedBy")), " ", l.uses.map((x, i) => [i ? ", " : "", ref(x)]))))
       : h("p", { class: "muted small" }, t("skNoLinks")));
@@ -1009,7 +1053,7 @@ function renderSkillsBuild(r) {
     if (!gem.support) {
       return h("div", { class: "sk-active" }, h("div", { class: "row" }, h("b", {}, gemName(gem.name)),
         gem.available ? h("span", { class: "muted small" }, t("skFromLevel", gem.available)) : null),
-        desc ? h("div", { class: "muted small" }, desc) : null, mechChips(gem));
+        desc ? h("div", { class: "muted small" }, desc) : null, mechChips(gem), termChips(gem.terms));
     }
     const worth = gem.worth ? deltas(gem.worth, METRIC, 0.5) : null;
     return h("div", { class: "sk-support" + (gem.enabled ? "" : " off") },
@@ -1018,7 +1062,7 @@ function renderSkillsBuild(r) {
       lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 5).map((l) => h("li", {}, l))) : (desc ? h("div", { class: "small" }, desc) : null),
       worth ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : "skWorthMain")), " ", worth) : null,
       gem.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", gem.unseen.join("; ")) : null,
-      mechChips(gem));
+      mechChips(gem), termChips(gem.terms));
   };
   const cards = r.groups.filter((g) => g.gems.length).map((g) => h("div", { class: "card sk-group" + (g.enabled ? "" : " off") },
     h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
@@ -1028,7 +1072,14 @@ function renderSkillsBuild(r) {
     g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
     g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
       g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));
-  return [links, h("div", { class: "grid cards" }, cards)];
+  const items = (r.items || []).length ? h("div", { class: "card" }, h("h3", {}, t("skUniques")), h("div", { class: "sub" }, t("skUniquesSub")),
+    h("div", { class: "grid two" }, r.items.map((it) => h("div", { class: "sk-item" },
+      h("div", { class: "row" }, icon(it.name.split(",")[0]), h("b", { title: it.name }, trItem(it.name.split(",")[0])),
+        h("span", { class: "muted small" }, slotName(it.slot))),
+      h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", { title: l }, trMod(l)))),
+      it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
+      mechChips(it), termChips(it.terms))))) : null;
+  return [links, items, h("div", { class: "grid cards" }, cards)].filter(Boolean);
 }
 
 function renderSkillsLeveling(r) {
