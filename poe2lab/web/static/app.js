@@ -52,10 +52,26 @@ let ICONS = {};
 async function loadIcons() {
   try { ICONS = await (await fetch("/api/icons")).json(); } catch (_) { ICONS = {}; }
 }
-const icon = (name, cls = "ico") => (name && ICONS[name]
-  ? h("img", { class: cls, src: `/icons/${ICONS[name]}`, alt: "" }) : null);
+// Frames like the game's: a skill gem square in its socket colour, a support round, an item in an inventory cell
+// coloured by rarity. Gem colours come with the open build (and with levelling suggestions).
+let GEM_INFO = {};
+const GEM_RGB = { "^xE05030": "#d9573a", "^x70FF70": "#5fcf5f", "^x7070FF": "#6b78f0" };
+const icon = (name, cls = "ico") => {
+  if (!name || !ICONS[name]) return null;
+  const img = h("img", { class: cls, src: `/icons/${ICONS[name]}`, alt: "" });
+  const gem = cls === "ico" && GEM_INFO[name];
+  if (gem) {
+    img.classList.add(gem.support ? "gem-support" : "gem-skill");
+    img.style.setProperty("--gem", GEM_RGB[gem.color] || "#b8b8b8");
+  }
+  return img;
+};
 // an item's picture: a unique's own art ("Name, Base" -> Name), else its base's
-const itemIcon = (name, base) => icon((name || "").split(",")[0].trim(), "item-ico") || icon(base, "item-ico");
+const itemIcon = (name, base, rarity = "") => {
+  const img = icon((name || "").split(",")[0].trim(), "item-ico") || icon(base, "item-ico");
+  if (img) img.classList.add("r-" + (rarity || "normal").toLowerCase());
+  return img;
+};
 
 const loading = (text) => h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
 
@@ -221,6 +237,7 @@ async function openBuild(name, group, skill) {
 
 function renderHeader() {
   const b = state.build;
+  GEM_INFO = { ...(b.gemColors || {}) };
   setBuildNames(b);
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
@@ -580,7 +597,7 @@ TABS.gear = async (view) => {
   const cards = g.slots.map((p) => {
     const max = Math.max(...p.affixes.map((a) => a.score), 1);
     return h("div", { class: "card" },
-      h("div", { class: "slot-head" }, h("div", { class: "row", style: "gap:0;flex-wrap:nowrap" }, itemIcon(p.item, p.base),
+      h("div", { class: "slot-head" }, h("div", { class: "row", style: "gap:0;flex-wrap:nowrap" }, itemIcon(p.item, p.base, p.rarity),
         h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", { title: p.item }, trItem(p.item)))),
         chip(p.corrupted ? "must" : "tag", p.corrupted ? t("corrupted") : t("craftable"))),
       h("div", { class: "sub" }, t("affixCount", { ...p, base: trName(p.base) }) + (p.uncertain ? t("approx") : "")),
@@ -1066,7 +1083,9 @@ function renderSkillsBuild(r) {
         gem.because.length ? h("span", { class: "muted small" }, t("skFits", gem.because.join(", "))) : null),
       lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 5).map((l) => h("li", {}, l))) : (desc ? h("div", { class: "small" }, desc) : null),
       worth ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : "skWorthMain")), " ", worth) : null,
-      gem.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", gem.unseen.join("; ")) : null,
+      // raw stat ids ("support_momentum_...") mean nothing to a player; the English view keeps them
+      (() => { const shown = gem.unseen.filter((u) => LANG === "en" || !/^[a-z0-9_%+]+$/.test(u));
+        return shown.length ? h("div", { class: "hint" }, t("skUnseen"), " ", shown.join("; ")) : null; })(),
       mechChips(gem), termChips(gem.terms));
   };
   const cards = r.groups.filter((g) => g.gems.length).map((g) => h("div", { class: "card sk-group" + (g.enabled ? "" : " off") },
@@ -1079,7 +1098,7 @@ function renderSkillsBuild(r) {
       g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));
   const items = (r.items || []).length ? h("div", { class: "card" }, h("h3", {}, t("skUniques")), h("div", { class: "sub" }, t("skUniquesSub")),
     h("div", { class: "grid two" }, r.items.map((it) => h("div", { class: "sk-item" },
-      h("div", { class: "row" }, itemIcon(it.name, it.name.split(",")[1]), h("b", { title: it.name }, trItem(it.name.split(",")[0])),
+      h("div", { class: "row" }, itemIcon(it.name, it.name.split(",")[1], "unique"), h("b", { title: it.name }, trItem(it.name.split(",")[0])),
         h("span", { class: "muted small" }, slotName(it.slot))),
       h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", { title: l }, trMod(l)))),
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
@@ -1108,7 +1127,7 @@ function renderUniqueLinks(r) {
   const cards = r.suggestions.map((u) => {
     const pobBlind = Object.values(u.changes).every((v) => Math.abs(v) < 0.5);
     return h("div", { class: "card sk-item" },
-      h("div", { class: "row" }, itemIcon(u.name, u.base), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
+      h("div", { class: "row" }, itemIcon(u.name, u.base, "unique"), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
         u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null),
       h("ul", { class: "un-reasons small" }, u.reasons.map((x) => h("li", {}, reason(x)))),
       h("div", { class: "small" }, h("span", { class: "muted" }, t("unWorth", slotName(u.slot))), " ",
@@ -1123,6 +1142,9 @@ function renderUniqueLinks(r) {
 }
 
 function renderSkillsLeveling(r) {
+  for (const p of r.plans) for (const s of p.stages) for (const o of s.options) {
+    if (o.color && !GEM_INFO[o.name]) GEM_INFO[o.name] = { color: o.color, support: true };
+  }
   const intro = h("div", { class: "card" }, h("h3", {}, t("skLevelTitle")), h("div", { class: "sub" }, t("skLevelSub")),
     h("div", { class: "small" }, t("skUncut",
       Object.entries(r.uncutSkillArea).filter(([lv]) => lv % 2 === 1 && lv <= 13).map(([lv, area]) => `${lv} — ${area}`).join(", "),

@@ -477,6 +477,7 @@ def _summary():
     q = _errors(_profile_questions)
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
             "gems": sorted({g["name"] for g in e.gems()}),
+            "gemColors": {g["name"]: {"color": g["color"], "support": g["support"]} for g in e.gems()},
             "profile": describe_profile(session.bp, rage=q["rage"]), "profileRaw": _profile_raw(),
             "hasProfile": _profile_path().exists(), "questions": q, "items": e.equipped_item_details(),
             "kind": "pob" if session.path.suffix.lower() == ".xml" else "code"}

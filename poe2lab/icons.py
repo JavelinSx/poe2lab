@@ -20,7 +20,8 @@ BC1_FORMATS = {71, 72}  # BC1_UNORM, BC1_UNORM_SRGB
 RGBA_FORMATS = {28: False, 29: False, 87: True, 91: True}  # R8G8B8A8 (UNORM/SRGB); B8G8R8A8: channels swapped
 ITEM_SIDE = 96  # item thumbnails: the longer side at most this many pixels
 # item art of gear worth a picture (not currencies, maps, quest items)
-ITEM_ART = re.compile(r"^art/2ditems/(armours|weapons|rings|amulets|belts|offhand|quivers|jewels|flasks|charms)/")
+ITEM_ART = re.compile(r"^art/2ditems/(armours|weapons|rings|amulets|belts|offhand|quivers|jewels|flasks|charms)/|"
+                      r"^art/2ditems/gems/.*support")  # support gems: skills already have icons of their own
 
 
 def _rgb565(c: int) -> tuple[int, int, int]:

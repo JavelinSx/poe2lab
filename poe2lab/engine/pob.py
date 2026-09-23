@@ -907,7 +907,7 @@ for id, d in pairs(data.gems) do
   if ge and ge.support and (d.Tier or 0) > 0 and not ge.hidden and not have[d.gemFamily or d.name]
      and calcLib.canGrantedEffectSupportActiveSkill(ge, active) then
     out[#out + 1] = {{ id = id, name = ge.name, tier = d.Tier, family = d.gemFamily or "",
-      description = ge.description or "", because = because(ge, active) }}
+      color = tostring(d.color or ""), description = ge.description or "", because = because(ge, active) }}
   end
 end
 return _poe2lab_json(out)""")

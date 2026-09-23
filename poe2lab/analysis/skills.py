@@ -316,7 +316,7 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None) -> dic
                     options.append(c)
             options = options[:OPTIONS]
             stages.append({"level": level, "build": have, "later": later,
-                           "options": [{"name": c["name"], "dps": c["dps"], "tier": c["tier"],
+                           "options": [{"name": c["name"], "dps": c["dps"], "tier": c["tier"], "color": c["color"],
                                         "because": sorted({TYPE_RU.get(t, t) for t in c["because"]})}
                                        for c in options]})
         # collapse stages that change nothing
