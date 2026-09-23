@@ -45,6 +45,14 @@ function toast(msg, ok = false) {
   toast.timer = setTimeout(() => el.classList.add("hidden"), 6000);
 }
 
+// English skill / passive name -> icon file, from the installed game (see poe2lab/icons.py)
+let ICONS = {};
+async function loadIcons() {
+  try { ICONS = await (await fetch("/api/icons")).json(); } catch (_) { ICONS = {}; }
+}
+const icon = (name, cls = "ico") => (name && ICONS[name]
+  ? h("img", { class: cls, src: `/icons/${ICONS[name]}`, alt: "" }) : null);
+
 const loading = (text) => h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
 
 const DMG_COLOR = { Physical: "var(--phys)", Fire: "var(--fire)", Cold: "var(--cold)", Lightning: "var(--lightning)", Chaos: "var(--chaos)" };
@@ -213,20 +221,22 @@ function renderHeader() {
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
   $("#bh-sub").textContent = `${trName(b.info.class)} / ${trName(b.info.ascendancy)} · ${t("level", b.info.level)}`;
-  const sel = $("#main-skill");
-  sel.replaceChildren();
-  for (const g of b.groups) {
-    g.skills.forEach((s, i) => {
-      const opt = h("option", { value: `${g.index}:${i + 1}` }, `${g.index}. ${trName(s)}`);
-      if (b.info.mainSocketGroup === g.index && b.mainSkill === s) opt.selected = true;
-      sel.append(opt);
-    });
-  }
+  // a picker with skill icons (a <select> cannot show images)
+  const picker = $("#main-skill");
+  const entries = b.groups.flatMap((g) => g.skills.map((s, i) => ({ group: g.index, skill: i + 1, name: s })));
+  const current = entries.find((e) => b.info.mainSocketGroup === e.group && b.mainSkill === e.name) || entries[0];
+  const label = (e) => [icon(e.name), h("span", {}, `${e.group}. ${trName(e.name)}`)];
+  const list = h("div", { class: "picker-list hidden" }, entries.map((e) => h("div", {
+    class: "picker-item" + (e === current ? " active" : ""),
+    onclick: () => { list.classList.add("hidden"); if (e !== current) openBuild(b.name, e.group, e.skill); },
+  }, label(e))));
+  const button = h("button", { class: "picker-button", onclick: (ev) => { ev.stopPropagation(); list.classList.toggle("hidden"); } },
+    current ? label(current) : null, h("span", { class: "caret" }, "▾"));
+  picker.replaceChildren(button, list);
 }
 
-$("#main-skill").addEventListener("change", (e) => {
-  const [g, s] = e.target.value.split(":").map(Number);
-  openBuild(state.build.name, g, s);
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#main-skill")) document.querySelectorAll("#main-skill .picker-list").forEach((l) => l.classList.add("hidden"));
 });
 
 $("#mode").addEventListener("click", (e) => {
@@ -607,7 +617,7 @@ TABS.tree = async (view) => {
   const r = await cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`));
   const pointsSel = h("select", { onchange: (e) => { state.treePoints = Number(e.target.value); switchTab("tree"); } },
     [3, 4, 5, 6, 8, 10].map((n) => h("option", { value: n, selected: n === points }, t("upToPoints", n))));
-  const nodeName = (n) => h("span", { title: n.name }, trName(n.name));
+  const nodeName = (n) => h("span", { title: n.name, class: "named" }, icon(n.name, "ico passive"), trName(n.name));
   const typeChip = (type) => type === "Keystone" ? chip("tag", t("keystone")) : type === "Notable" ? chip("warn", t("notable")) : null;
   const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
@@ -656,7 +666,7 @@ TABS.mechanics = async (view) => {
     const m = w.match(/^(.*) \(([^()]+)\)$/);
     if (!m) return trFree(w);
     const tail = m[2].replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`);
-    return h("span", { title: w }, `${trItem(m[1])} (${SLOT_RU[m[2]] !== undefined ? slotName(m[2]) : trFree(tail)})`);
+    return h("span", { title: w, class: "named" }, icon(m[1]), `${trItem(m[1])} (${SLOT_RU[m[2]] !== undefined ? slotName(m[2]) : trFree(tail)})`);
   };
   // in Russian mode show only what has an official translation; the English original stays in the tooltip
   const line = (text) => h("div", { title: text }, trMod(text));
@@ -674,7 +684,7 @@ TABS.mechanics = async (view) => {
     h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
       impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
     h("div", { class: "card" }, h("h3", {}, t("skillsTitle")), h("div", { class: "sub" }, t("skillsSub")),
-      m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, `${s.group}. ${trName(s.name)}`),
+      m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, icon(s.name), `${s.group}. ${trName(s.name)}`),
         s.description && (LANG === "en" || GAME.names[s.description])
           ? h("p", { class: "muted small" }, LANG === "en" ? s.description : GAME.names[s.description]) : null,
         h("ul", {}, LANG !== "en" && s.linesLocal && s.linesLocal.length
@@ -939,7 +949,7 @@ const attrName = (a) => (LANG === "ru" ? ATTR_RU[a] || a : a);
 (async function start() {
   applyStaticTexts();
   renderEmpty();
-  await loadGameTexts();
+  await Promise.all([loadGameTexts(), loadIcons()]);
   const s = await loadStatus();
   if (s.loaded) {
     try { state.build = await api("/api/build"); renderHeader(); switchTab("overview"); } catch (_) { /* reopen from the list */ }

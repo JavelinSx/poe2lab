@@ -98,7 +98,7 @@ def game_texts(rest):
         info = gamedata.build("ru", args.game)
     except gamedata.GameDataError as err:
         sys.exit(str(err))
-    print(f"{info['game']}: описаний статов {info['statFiles']}, названий {info['names']}")
+    print(f"{info['game']}: описаний статов {info['statFiles']}, названий {info['names']}, иконок {info['icons']}")
 
 
 EXTRA = ("dossier", "builds", "ui", "gamedata")

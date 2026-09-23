@@ -315,3 +315,22 @@ table.versus tr.group td { color: var(--gold); font-size: 12px; text-transform: 
 .hit-hint { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hit-cell.danger .hit-num { color: var(--warn); }
 .hit-cell.deadly .hit-num { color: var(--bad); }
+
+/* icons from the game */
+.ico { width: 22px; height: 22px; border-radius: 4px; vertical-align: middle; margin-right: 7px; flex: none; }
+.ico.passive { border-radius: 50%; }
+.named { display: inline-flex; align-items: center; }
+details > summary .ico { margin-left: 2px; }
+
+/* main skill picker (icons need a custom list) */
+.skill-picker { position: relative; }
+.picker-button { display: flex; align-items: center; gap: 2px; min-width: 240px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; text-align: left; }
+.picker-button:hover { border-color: var(--gold); }
+.picker-button .caret { margin-left: auto; color: var(--muted); padding-left: 8px; }
+.picker-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 100%; max-height: 420px;
+  overflow-y: auto; overflow-x: hidden; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45); padding: 4px; }
+.picker-item { display: flex; align-items: center; padding: 5px 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.picker-item:hover { background: var(--gold-soft); }
+.picker-item.active { color: var(--gold); }

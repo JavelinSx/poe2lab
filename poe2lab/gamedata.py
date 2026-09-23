@@ -350,9 +350,12 @@ def build(lang: str = "ru", game: Path | None = None) -> dict:
     templates = build_templates(lang)
     templates_path(lang).write_text(json.dumps(templates, ensure_ascii=False, indent=0, sort_keys=True),
                                     encoding="utf-8")
+    from . import icons  # icons read this module's tables; imported here to keep the dependency one-way
+    icon_info = icons.build(game)
     # names.json last: its time marks a finished unpack (see stale)
     names_path(lang).write_text(json.dumps(names, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
-    return {"statFiles": files, "names": len(names), "templates": len(templates), "game": str(game)}
+    return {"statFiles": files, "names": len(names), "templates": len(templates), "icons": icon_info["icons"],
+            "game": str(game)}
 
 
 def load_names(lang: str) -> dict[str, str]:

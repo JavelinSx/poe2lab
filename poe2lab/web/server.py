@@ -26,7 +26,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
-from .. import gamedata, library
+from .. import gamedata, icons, library
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -181,12 +181,22 @@ def _game_texts(lang: str) -> Path | None:
     if lang not in gamedata.LANG_NAMES:
         return None
     with _game_lock:
-        if gamedata.stale(lang) and gamedata.game_dir() and gamedata.BUN.is_file():
-            try:
+        can_unpack = gamedata.game_dir() and gamedata.BUN.is_file()
+        try:
+            if gamedata.stale(lang) and can_unpack:
                 gamedata.build(lang)
-            except (gamedata.GameDataError, OSError):
-                return None
+            elif can_unpack and not icons.INDEX.is_file():  # texts unpacked before icons existed
+                icons.build()
+        except (gamedata.GameDataError, OSError):
+            return None
     return gamedata.statdesc_dir(lang) if gamedata.available(lang) else None
+
+
+@app.get("/api/icons")
+def icon_index():
+    """English skill / passive name -> icon file under /icons (empty without the game's files)."""
+    _game_texts("ru")
+    return icons.load_index()
 
 
 @app.get("/api/i18n/{lang}")
@@ -592,6 +602,7 @@ def chat_reset():
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/icons", StaticFiles(directory=icons.ICONS, check_dir=False), name="icons")
 
 
 @app.get("/")
