@@ -32,6 +32,8 @@ async function api(path, opts = {}) {
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).detail || msg; } catch (_) { /* not json */ }
+    // FastAPI's own 404 for an unknown path: the page is newer than the server that serves it
+    if (res.status === 404 && msg === "Not Found") msg = t("serverOutdated");
     throw new Error(msg);
   }
   return res.json();
