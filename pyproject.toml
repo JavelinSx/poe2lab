@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["psutil", "fastapi", "uvicorn"]
 
+[tool.setuptools.packages.find]
+include = ["poe2lab*"]  # pob2/, builds/, data/ sit next to the package and are not Python packages
+
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]
 anthropic = ["anthropic"]

@@ -101,7 +101,31 @@ def game_texts(rest):
     print(f"{info['game']}: описаний статов {info['statFiles']}, названий {info['names']}, иконок {info['icons']}")
 
 
-EXTRA = ("dossier", "builds", "ui", "gamedata")
+def setup(rest):
+    """Everything the UI needs on a new machine: Path of Building, and - when Path of Exile 2 is installed - the
+    extractor and the game's Russian texts and icons. Safe to run again: done steps are skipped."""
+    from . import gamedata
+    from .engine.luahost import DEFAULT_POB_ROOT, ensure_pob
+    ensure_pob(DEFAULT_POB_ROOT)
+    print("Path of Building: ok")
+    game = gamedata.game_dir()
+    if game is None:
+        print("Path of Exile 2 не найдена (Steam / клиент GGG; другой путь — переменная POE2_DIR): "
+              "интерфейс будет с английскими названиями из PoB")
+        return
+    try:
+        gamedata.ensure_bun()
+        if gamedata.stale("ru", game):
+            print("распаковываю русские тексты и иконки из игры (~30 с)...")
+            info = gamedata.build("ru", game)
+            print(f"тексты игры: описаний статов {info['statFiles']}, названий {info['names']}, иконок {info['icons']}")
+        else:
+            print("тексты игры: ok")
+    except (gamedata.GameDataError, OSError) as err:
+        print(f"тексты игры не распакованы ({err}); интерфейс будет с английскими названиями")
+
+
+EXTRA = ("dossier", "builds", "ui", "gamedata", "setup")
 
 
 def main():
@@ -120,6 +144,9 @@ def main():
         return
     if command == "gamedata":
         game_texts(rest)
+        return
+    if command == "setup":
+        setup(rest)
         return
     script = SCRIPTS / COMMANDS[command]
     sys.argv = [str(script), *rest]

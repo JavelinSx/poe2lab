@@ -39,6 +39,27 @@ class GameDataError(RuntimeError):
     pass
 
 
+BUN_URL = "https://github.com/zao/ooz/releases/download/v0.2.4/bun-0.2.4-x64-Release.zip"
+
+
+def ensure_bun() -> Path:
+    """The bundle extractor PoB's own exporter uses (zao/ooz); downloaded once into tools/ooz."""
+    if BUN.is_file():
+        return BUN
+    import io
+    import urllib.request
+    import zipfile
+    print(f"downloading {BUN_URL} (~0.3 MB)...")
+    with urllib.request.urlopen(urllib.request.Request(BUN_URL, headers={"User-Agent": "poe2lab"}), timeout=120) as res:
+        data = res.read()
+    BUN.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        z.extractall(BUN.parent)
+    if not BUN.is_file():
+        raise GameDataError(f"в архиве {BUN_URL} нет {BUN.name}")
+    return BUN
+
+
 def game_dir() -> Path | None:
     """The PoE2 install: POE2_DIR, else the usual Steam / standalone folders."""
     env = os.environ.get("POE2_DIR")

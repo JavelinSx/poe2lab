@@ -4,3 +4,4 @@ __pycache__/
 data/cache/
 tools/ooz/
 builds/.trash/
+.venv/
