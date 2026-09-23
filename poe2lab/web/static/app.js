@@ -448,6 +448,7 @@ function readHash() {
 }
 
 async function switchTab(tab) {
+  if (tab !== state.tab) document.querySelector("main").scrollTop = 0;  // a new tab starts at its top
   state.tab = tab;
   writeHash();
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));

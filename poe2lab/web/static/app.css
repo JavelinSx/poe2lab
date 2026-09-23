@@ -24,6 +24,8 @@ html, body { margin: 0; height: 100%; }
 body {
   display: grid;
   grid-template-columns: 240px 1fr;
+  height: 100vh;
+  overflow: hidden;  /* the page itself does not scroll: the right panel does, the sidebar stays in place */
   background: var(--bg);
   color: var(--text);
   font: 14px/1.5 var(--font);
@@ -88,7 +90,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .fb-what { margin: 4px 0; padding-left: 18px; }
 
 /* main */
-main { padding: 12px 28px 60px; min-width: 0; }
+main { padding: 12px 28px 60px; min-width: 0; height: 100vh; overflow-y: auto; }
 .topbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .small-seg button { padding: 3px 10px; font-size: 12px; }
 .ai-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
