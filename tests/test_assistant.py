@@ -100,3 +100,11 @@ def test_low_temperature_only_where_the_provider_takes_it(monkeypatch):
     sent.clear()
     ChatClient(LLMConfig(api_key="k", provider="openai")).complete([{"role": "user", "content": "q"}])
     assert "temperature" not in sent  # OpenAI's reasoning models reject it
+
+
+def test_instructions_keep_the_assistant_on_poe2(titan):
+    engine, _, profile = titan
+    fake = FakeClient([{"content": "ok"}])
+    Assistant(fake, Toolbox(engine, profile), "ctx").ask("?")
+    system = fake.sent[0][0]["content"]
+    assert "только Path of Exile 2" in system and "Я отвечаю только по Path of Exile 2 и этому билду." in system
