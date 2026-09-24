@@ -1608,7 +1608,8 @@ async function journalPage(view) {
 
   body.append(h("div", { class: "card" }, h("h3", {}, t("jnTitle")), h("div", { class: "sub" }, t("jnSub")),
     h("div", { class: "row", style: "gap:12px;flex-wrap:wrap;margin:6px 0 10px" }, j.available ? recordBtn : h("span", { class: "muted" }, t("jnNoWindows")),
-      j.recording ? h("span", { class: "rec-dot" }, t("jnRecording", j.recordedNow)) : h("span", { class: "muted" }, t("jnOff"))),
+      j.recording ? h("span", { class: "rec-dot" }, t("jnRecording", j.recordedNow)) : h("span", { class: "muted" }, t("jnOff")),
+      j.recording && j.hotkey ? chip(j.hotkey === "F2" ? "ok" : "priority", t(j.hotkey === "F2" ? "jnHotkey" : "jnHotkeyBusy")) : null),
     h("ol", { class: "jn-rules" }, [1, 2, 3, 4, 5].map((i) => h("li", {}, t("jnRule" + i)))),
     h("details", {}, h("summary", {}, t("jnPaste")), paste, h("div", { style: "margin-top:6px" }, addBtn))));
 

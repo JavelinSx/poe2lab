@@ -113,6 +113,13 @@ def test_a_batch_of_the_same_base(db, names):
     assert sum(len(x.added) for x in samples) == 4
 
 
+def test_f2_is_one_advanced_copy_in_the_game_only():
+    keys = [(i.ki.wScan, i.ki.dwFlags) for i in journal.copy_inputs()]
+    # Ctrl, Alt, C pressed by scan code, then released in reverse order: exactly one Ctrl+Alt+C
+    assert keys == [(0x1D, 8), (0x38, 8), (0x2E, 8), (0x2E, 10), (0x38, 10), (0x1D, 10)]
+    assert journal.is_game_title("Path of Exile 2") and not journal.is_game_title("poe2lab — Chrome")
+
+
 def test_estimate_moves_towards_what_rolls(db):
     """Transmutations where life always shows up: life's weight rises, the others fall."""
     tags = tuple(db.bases[BASE]["tags"])

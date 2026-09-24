@@ -1080,6 +1080,7 @@ def _estimate_summary(est):
 @app.get("/api/journal")
 def journal_view(limit: int = 40):
     out = {"recording": recorder.on, "available": recorder.available(), "recordedNow": recorder.count,
+           "hotkey": recorder.hotkey,
            "estimate": _estimate_summary(journal.load_estimate()), "applied": crafting.WEIGHTS_FILE.is_file()}
     with session.lock:
         rows, samples = _journal_rows()

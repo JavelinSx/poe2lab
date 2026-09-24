@@ -21,6 +21,7 @@ with room). The weights are modelled as w(m) = exp(a[family] + b * level / 100):
 shared fall-off with the tier's level. The prior is the assumption crafting used so far (every family alike, a tier
 halving every 25 levels), so with few draws the estimate stays near it and moves as draws come in."""
 import ctypes
+import ctypes.wintypes
 import itertools
 import json
 import math
@@ -125,12 +126,57 @@ def _read_clipboard() -> str | None:
         user32.CloseClipboard()
 
 
+# F2 while recording: one press = one advanced copy (Ctrl+Alt+C) of the item under the cursor, as trade helpers do.
+# poe2lab only answers the player's own key press; it never presses anything by itself.
+HOTKEY_VK = 0x71  # F2
+GAME_TITLES = ("Path of Exile",)
+_KEYS = [(0x1D, 0), (0x38, 0), (0x2E, 0), (0x2E, 2), (0x38, 2), (0x1D, 2)]  # Ctrl, Alt, C down; then up (scan codes)
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort), ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long), ("mouseData", ctypes.c_ulong),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _anonymous_ = ("u",)
+    _fields_ = [("type", ctypes.c_ulong), ("u", _INPUTUNION)]
+
+
+def copy_inputs() -> list:
+    """Ctrl+Alt+C as keyboard input by scan code (games read scan codes)."""
+    return [_INPUT(type=1, ki=_KEYBDINPUT(0, scan, 0x8 | up, 0, 0)) for scan, up in _KEYS]  # 0x8: by scan code
+
+
+def is_game_title(title: str) -> bool:
+    return any(t in title for t in GAME_TITLES)
+
+
+def _foreground_title() -> str:
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetWindowTextW(hwnd, buf, 256)
+    return buf.value
+
+
 class Recorder:
-    """Watches the clipboard while on; each new item text goes to the journal. Only on Windows."""
+    """While on: watches the clipboard (each new item text goes to the journal) and, with the game in front, turns
+    F2 into an advanced copy. Only on Windows."""
 
     def __init__(self):
         self.on = False
         self.count = 0  # items recorded since it was switched on
+        self.hotkey = None  # "F2" when the key is ours, "busy" when another program holds it
         self._stop = threading.Event()
         self._thread = None
 
@@ -141,6 +187,8 @@ class Recorder:
     def start(self):
         if self.on or not self.available():
             return
+        if self._thread and self._thread.is_alive():
+            self._thread.join(1)  # the previous run lets F2 go first
         self.on, self.count = True, 0
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True, name="craft-journal")
@@ -150,21 +198,40 @@ class Recorder:
         self.on = False
         self._stop.set()
 
+    def _copy(self):
+        if not is_game_title(_foreground_title()):
+            return  # F2 outside the game does nothing
+        inputs = copy_inputs()
+        array = (_INPUT * len(inputs))(*inputs)
+        ctypes.windll.user32.SendInput(len(inputs), array, ctypes.sizeof(_INPUT))
+
     def _run(self):
-        seq = ctypes.windll.user32.GetClipboardSequenceNumber
+        user32 = ctypes.windll.user32
+        seq = user32.GetClipboardSequenceNumber
+        # the hotkey belongs to the thread that registers it: this loop reads its messages
+        self.hotkey = "F2" if user32.RegisterHotKey(None, 1, 0x4000, HOTKEY_VK) else "busy"  # 0x4000: no auto-repeat
+        msg = ctypes.wintypes.MSG()
         last = seq()  # what is on the clipboard already is not a new copy
-        while not self._stop.wait(0.25):
-            now = seq()
-            if now == last:
-                continue
-            last = now
-            try:
-                text = _read_clipboard()
-            except OSError:
-                continue
-            if is_item_text(text):
-                add(text, "clipboard")
-                self.count += 1
+        try:
+            while not self._stop.wait(0.03):
+                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):  # PM_REMOVE
+                    if msg.message == 0x0312:  # WM_HOTKEY
+                        self._copy()
+                now = seq()
+                if now == last:
+                    continue
+                last = now
+                try:
+                    text = _read_clipboard()
+                except OSError:
+                    continue
+                if is_item_text(text):
+                    add(text, "clipboard")
+                    self.count += 1
+        finally:
+            if self.hotkey == "F2":
+                user32.UnregisterHotKey(None, 1)
+            self.hotkey = None
 
 
 # ---------- reading an item's text ----------
