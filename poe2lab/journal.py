@@ -18,8 +18,8 @@ the journal but not counted: their mods did not roll freely.
 
 A draw picks mod m with chance w(m) / (sum of w over the mods allowed then: a family not yet on the item, a side
 with room). The weights are modelled as w(m) = exp(a[family] + b[kind] * level / 100): one number per mod family
-and a slope with the tier's level for weapons and one for the other items. The prior is what 1285 draws showed and
-crafting assumes without an estimate: families alike, a weapon tier halving every 50 levels, other tiers alike; with
+and a slope with the tier's level for weapons and one for the other items. The prior is what 2646 draws showed and
+crafting assumes without an estimate: families alike, a weapon tier halving every 60 levels, other tiers alike; with
 few draws the estimate stays near it."""
 import ctypes
 import ctypes.wintypes
@@ -501,7 +501,7 @@ def _read(p: Parsed, text: str, items: list[dict], db: ModDB):
 
 # ---------- estimating the weights ----------
 
-# b in w = exp(a + b * level / 100), as measured: weapons halve every 50 levels, the other items' tiers are alike
+# b in w = exp(a + b * level / 100), as measured: weapons halve every 60 levels, the other items' tiers are alike
 PRIOR_SLOPE = {"weapon": -math.log(2) * 100 / WEAPON_HALF_LEVEL, "other": 0.0}
 PRIOR_SD_FAMILY = 1.5  # a family's weight within ~x4.5 of the average, a priori
 PRIOR_SD_SLOPE = 1.5
@@ -651,19 +651,35 @@ def estimate(db: ModDB, samples: list[Sample]) -> dict:
 GUIDE_LEVEL = {"greater": 35, "perfect": 50}  # what the guides say (timesaver.gg): the journal checks it
 
 
+MISLABEL_SHARES = (0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7)
+
+
 def thresholds(model: "Model", graded: list[Sample]) -> dict:
     """For Greater / Perfect orbs: below which mod level they add nothing, and whether a mod with no tier that high
     can still roll. Every distinct tier level is tried as the threshold L (tiers of level >= L allowed) under both
     rules, with the weights fitted on regular draws; the likeliest wins (`minLevel`, used by crafting). `range` holds
-    every threshold the draws do not rule out: it narrows as graded draws come in."""
+    every threshold the draws do not rule out: it narrows as graded draws come in.
+
+    A record marked "greater" may have been made with a regular orb (the switch left on, one step done with a
+    regular orb): each record is read as either, and the share of regular-looking ones (`regularShare`) is fitted
+    too - so such records do not drag the threshold down, and the page can say they are there."""
     out = {}
     for grade in ("greater", "perfect"):
         ss = [s for s in graded if s.grade == grade]
         if not ss:
             continue
         levels = sorted({m.level for s in ss for m in model._pool(s)} | {0})
-        scores = {(i, low): sum(_graded_loglik(model, s, level, low) for s in ss)
-                  for i, level in enumerate(levels) for low in (True, False)}
+        plain = [_graded_loglik(model, s, 0, True) for s in ss]  # as if made by a regular orb
+        scores, shares = {}, {}
+        for i, level in enumerate(levels):
+            for low in (True, False):
+                per = [_graded_loglik(model, s, level, low) for s in ss]
+                best = None
+                for e in MISLABEL_SHARES:
+                    ll = sum(_mix(a, b, e) for a, b in zip(per, plain))
+                    if best is None or ll > best[0]:
+                        best = (ll, e)
+                scores[(i, low)], shares[(i, low)] = best
         (i, low), ll = max(scores.items(), key=lambda kv: kv[1])
         other = max(v for (_, lw), v in scores.items() if lw != low)
         # every threshold the draws do not rule out (within e^2 of the best): the lowest level seen pulls the best
@@ -673,8 +689,25 @@ def thresholds(model: "Model", graded: list[Sample]) -> dict:
         out[grade] = {"draws": sum(len(s.added) for s in ss), "minLevel": levels[i],
                       "range": [levels[lo - 1] + 1 if lo else 0, levels[hi]],
                       "lowFamilies": low if ll - other > 2 else None,  # None: the draws cannot tell yet
+                      "regularShare": shares[(i, low)],
                       "lowestSeen": min(m.level for s in ss for m in s.added), "guide": GUIDE_LEVEL[grade]}
     return out
+
+
+def crafting_level(t: dict) -> int:
+    """The threshold crafting uses: the guide's while the draws do not rule it out, else the measured one."""
+    return t["guide"] if t["range"][0] <= t["guide"] <= t["range"][1] else t["minLevel"]
+
+
+def _mix(graded_ll: float, plain_ll: float, share: float) -> float:
+    """log of (1 - share) * P(as graded) + share * P(as regular)."""
+    parts = []
+    if share < 1:
+        parts.append(math.log1p(-share) + graded_ll)
+    if share > 0:
+        parts.append(math.log(share) + plain_ll)
+    top = max(parts)
+    return top + math.log(sum(math.exp(x - top) for x in parts))
 
 
 def _graded_loglik(model: "Model", s: Sample, level: int, low: bool) -> float:

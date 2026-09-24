@@ -1175,7 +1175,8 @@ def journal_apply():
     crafting.WEIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     applied = dict(est["weights"])
     # measured thresholds of Greater / Perfect orbs, once there are enough draws to trust them
-    applied["grades"] = {g: {"minLevel": t["minLevel"], "lowFamilies": True if t["lowFamilies"] is None else t["lowFamilies"]}
+    applied["grades"] = {g: {"minLevel": journal.crafting_level(t),
+                             "lowFamilies": True if t["lowFamilies"] is None else t["lowFamilies"]}
                          for g, t in (est.get("thresholds") or {}).items() if t["draws"] >= journal.MIN_GRADE_DRAWS}
     crafting.WEIGHTS_FILE.write_text(json.dumps(applied), encoding="utf-8")
     with session.lock:

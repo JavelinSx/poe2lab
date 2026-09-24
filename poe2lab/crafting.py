@@ -8,8 +8,8 @@ guaranteed modifier". Which mods can roll comes from PoB's data (base tags, item
 modifier level of Greater / Perfect currency (35 / 50) is not in the client files, it comes from public guides.
 
 PoE2 does not ship mod weights (the client's weight columns only say whether a mod can roll). The craft journal
-(poe2lab.journal) measured them. In 1285 draws the tiers of a mod roll equally often on armour and jewellery (the top
-tier as often as any), while on weapons a tier's weight halves about every 50 mod levels; mod families differ (life,
+(poe2lab.journal) measured them. In 2646 draws the tiers of a mod roll equally often on armour and jewellery (the top
+tier as often as any), while on weapons a tier's weight halves about every 60 mod levels; mod families differ (life,
 all resistances ~2.5x the average). That is the default here; weights estimated from the player's own journal replace
 it once applied (%APPDATA%/poe2lab/craft_weights.json: {"weapon" | "other": {mod id: weight}}). Chances are
 estimates."""
@@ -43,7 +43,7 @@ BONE = {"Weapon": "Gnawed Jawbone", "Armour": "Gnawed Rib", "Jewellery": "Gnawed
 # item classes counted as weapons: their tiers fall with level (measured), the rest's do not
 WEAPONS = {"Bow", "Claw", "Crossbow", "Dagger", "Flail", "One Hand Axe", "One Hand Mace", "One Hand Sword", "Sceptre",
            "Spear", "Staff", "Talisman", "Two Hand Axe", "Two Hand Mace", "Two Hand Sword", "Wand"}
-WEAPON_HALF_LEVEL = 50
+WEAPON_HALF_LEVEL = 60  # the journal's fit: 52 levels at 288 weapon draws, 63 at 982
 
 
 def is_weapon(item_type: str) -> bool:
