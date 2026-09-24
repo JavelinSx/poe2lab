@@ -11,7 +11,7 @@ BASE = "https://poe.ninja/poe2/api/economy"
 USER_AGENT = "poe2lab/0.1 (personal build analysis tool)"
 CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "cache" / "ninja"
 CACHE_SECONDS = 3600
-EXCHANGE_TYPES = ("Currency", "Essences", "SoulCores", "Runes", "Idols")
+EXCHANGE_TYPES = ("Currency", "Essences", "SoulCores", "Runes", "Idols", "Ritual", "Abyss")  # Ritual: omens; Abyss: bones
 THIN_MARKET = 1.0  # traded volume (in divines) below which a price is shaky
 
 
@@ -53,14 +53,26 @@ class PriceBook:
         prices, rate = {}, 0.0
         for data in overviews.values():
             rate = rate or data.get("core", {}).get("rates", {}).get("exalted", 0.0)
+            # common currency has short ids ("alch", "exalted"): its name gives the usual key too
+            names = {i["id"]: i.get("name", "") for i in data.get("items", [])}
             for line in data.get("lines", []):
-                prices[line["id"]] = Price(float(line.get("primaryValue", 0)), float(line.get("volumePrimaryValue", 0)))
+                price = Price(float(line.get("primaryValue", 0)), float(line.get("volumePrimaryValue", 0)))
+                prices[line["id"]] = price
+                if names.get(line["id"]):
+                    prices.setdefault(slug(names[line["id"]]), price)
         return cls(league, prices, rate)
 
     @classmethod
     def load(cls, league: str | None = None, types=EXCHANGE_TYPES) -> "PriceBook":
         league = league or leagues()[0]
-        return cls.from_overviews(league, {t: _get("exchange/current/overview", league=league, type=t) for t in types})
+        overviews = {}
+        for t in types:
+            try:
+                overviews[t] = _get("exchange/current/overview", league=league, type=t)
+            except OSError:
+                if t in EXCHANGE_TYPES[:1]:
+                    raise  # without currency there are no prices at all
+        return cls.from_overviews(league, overviews)
 
 
 def leagues() -> list[str]:

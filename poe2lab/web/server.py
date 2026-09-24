@@ -19,7 +19,7 @@ from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
 from ..analysis.tree import optimize as optimize_tree
-from ..analysis.slots import craft_path, plan_all
+from ..analysis.slots import craft_path, plan_all, plan_slot
 from ..analysis.sockets import plan_sockets
 from ..analysis.sources import describe as describe_sources
 from ..analysis.threats import MapProfile, survivable_hits
@@ -31,7 +31,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobError
-from .. import feedback, gamedata, icons, library, lootfilter, pobapp
+from .. import crafting, feedback, gamedata, icons, library, lootfilter, pobapp
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -782,6 +782,64 @@ def send_feedback(req: FeedbackRequest):
     except feedback.FeedbackError as err:
         raise HTTPException(400, str(err))
     return {"ok": True}
+
+
+@app.get("/api/craft")
+def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, mode: str = "balanced",
+          build: str | None = None):
+    """Ways to craft the slot's item from a white or blue base: strategies played out on the base's mod pool, with
+    the chance, the currency and its price (see poe2lab.crafting)."""
+    grade = {"greater": "Greater ", "perfect": "Perfect "}.get(grade.lower(), "")
+    item_level = max(1, min(int(item_level), 100))
+    if mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    with session.lock:
+        session.require(build)
+        e, prof = session.engine, session.profile
+
+        def compute():
+            item = next((i for i in e.equipped_item_details() if i["slot"] == slot), None)
+            if item is None:
+                raise HTTPException(400, f"в слоте {slot} ничего не надето — не из чего взять базу")
+            db, prices = session.db(), session.prices()
+            weights = defence_weights(survivable_hits(e, prof))
+            plan = plan_slot(e, db, prof.config(), item, mode, weights, top=8, check_mana=not prof.mana_sustained)
+            targets = crafting.pick_targets(db, plan, item["tags"], item_level)
+            if not targets:
+                return {"slot": slot, "base": item["baseName"], "targets": [], "strategies": []}
+            # an essence (not Perfect/Corrupted: those work on rares) that guarantees a target at its wanted tier:
+            # for the most valuable target it can, the cheapest tier of it
+            by_id, essence = {m.id: m for m in db.mods}, None
+            usable = [(es["name"], by_id.get(es["mods"].get(item["type"], "")))
+                      for es in sorted(e.export_essences(), key=lambda x: x["tierLevel"])
+                      if not es["name"].startswith(("Perfect", "Corrupted"))]
+            for t in targets:
+                essence = next(((name, m) for name, m in usable if m and m.group == t.group and
+                                m.patterns == t.patterns and m.level >= t.min_level), None)
+                if essence:
+                    break
+            pool = crafting.Pool(db, item["tags"], item_level)
+            desecrated = crafting.Pool(db, item["tags"], item_level, sets=("Desecrated",))
+            wanted = max(1, min(need, len(targets)))
+            found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated,
+                                        crafting.bone_for(item["type"]))
+            crafting.price(found, prices)
+            # cheapest first when priced; otherwise the likeliest
+            found.sort(key=lambda x: (x.per_base == 0, x.cost if x.cost is not None and x.priced else 1e9,
+                                      -x.per_base))
+            priced = {}
+            for s_ in found:
+                for name in s_.use:
+                    price = prices.get(name) if prices else None
+                    priced[name] = prices.describe(price) if price else None
+            return {"slot": slot, "base": item["baseName"], "itemLevel": item_level, "grade": grade.strip().lower(),
+                    "need": wanted, "targets": [asdict(t) | {"patterns": list(t.patterns)} for t in targets],
+                    "essence": essence[0] if essence else None, "strategies": [asdict(x) for x in found],
+                    "prices": priced, "exaltedPerDivine": prices.exalted_per_divine if prices else None,
+                    "league": prices.league if prices else None,
+                    "estimatedWeights": not crafting.WEIGHTS_FILE.is_file()}
+
+        return _json(session.cached(("craft", slot, need, grade, item_level, mode), compute))
 
 
 @app.get("/api/lootfilter")

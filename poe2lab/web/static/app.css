@@ -434,3 +434,18 @@ details > summary .ico { margin-left: 2px; }
 
 .filter-preview { max-height: 420px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   padding: 10px; font-size: 12px; white-space: pre; }
+
+/* crafting a slot's item from a white base */
+.craft { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.craft-head .sub { margin-top: 2px; }
+.craft-controls { gap: 12px; flex-wrap: wrap; margin: 8px 0; font-size: 13px; }
+.craft-targets { margin: 4px 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.craft-list { display: flex; flex-direction: column; gap: 8px; }
+.craft .sk-item.best { outline: 1px solid rgba(214, 165, 79, .5); }
+.craft .craft-never { opacity: .6; }
+.craft-nums { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.craft-steps { margin: 2px 0 0; padding-left: 20px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.craft-steps .named .ico, .craft details .named .ico { width: 20px; height: 20px; vertical-align: middle; }
+.craft details { margin: 0; }
+.craft-steps .named { display: inline; }
+.craft-steps .named .ico { margin-right: 3px; }

@@ -618,12 +618,101 @@ TABS.gear = async (view) => {
           a.holds.length ? h("div", {}, chip("hold", t("holds") + a.holds.map(trFree).join(", "))) : null,
           a.utility ? h("div", {}, chip("util", t("utility"))) : null),
         scoreBar(a.score, max))),
-      p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null);
+      p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null,
+      craftBlock(p.slot));
   });
 
   return h("div", { class: "stack" }, h("div", { class: "grid two" }, path, socketCard),
     h("div", { class: "section-title" }, t("slots")), h("div", { class: "grid cards" }, cards));
 };
+
+// ---------- crafting a slot's item from a white base ----------
+const craftState = {};  // per slot: the settings last used, so a re-render keeps them
+
+function craftBlock(slot) {
+  const box = h("div", { class: "craft" });
+  const btn = h("button", { class: "ghost small", onclick: () => { btn.remove(); openCraft(box, slot); } }, t("crButton"));
+  box.append(btn);
+  if (craftState[slot]) { btn.remove(); openCraft(box, slot); }
+  return box;
+}
+
+function openCraft(box, slot) {
+  const st = craftState[slot] = craftState[slot] || { need: 3, grade: "", itemLevel: 82 };
+  const out = h("div", {});
+  const select = (key, options) => h("select", { onchange: (e) => { st[key] = e.target.value; run(); } },
+    options.map(([v, label]) => h("option", { value: v, selected: String(st[key]) === String(v) }, label)));
+  const ilvl = h("input", { type: "number", min: 1, max: 100, value: st.itemLevel, style: "width:64px",
+    onchange: (e) => { st.itemLevel = Math.max(1, Math.min(100, Number(e.target.value) || 82)); run(); } });
+  const controls = h("div", { class: "row craft-controls" },
+    h("label", {}, t("crNeed"), " ", select("need", [1, 2, 3, 4].map((n) => [n, t("crNeedN", n)]))),
+    h("label", {}, t("crGrade"), " ", select("grade", [["", t("crGradeNormal")], ["greater", t("crGradeGreater")], ["perfect", t("crGradePerfect")]])),
+    h("label", {}, t("crIlvl"), " ", ilvl));
+  box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("crTitle")), h("div", { class: "sub" }, t("crSub"))), controls, out);
+
+  async function run() {
+    out.replaceChildren(loading(t("crLoading")));
+    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&mode=${state.mode}`;
+    try {
+      const r = await cached(`craft:${q}`, () => api(`/api/craft?${q}&${buildQuery()}`));
+      out.replaceChildren(renderCraft(r));
+    } catch (e) {
+      out.replaceChildren(h("p", { class: "muted" }, e.message));
+    }
+  }
+  run();
+}
+
+function renderCraft(r) {
+  if (!r.targets.length) return h("p", { class: "muted" }, t("crNoTargets"));
+  const named = (n) => h("span", { class: "named" }, icon(n), trName(n));
+  // a price in divines, or in exalted orbs when it is under one divine
+  const money = (div) => {
+    if (div === null || div === undefined) return "—";
+    if (div < 1 && r.exaltedPerDivine) return `${fmt(div * r.exaltedPerDivine, div * r.exaltedPerDivine < 10 ? 1 : 0)} ex`;
+    return `${fmt(div, div < 10 ? 2 : 0)} div`;
+  };
+  // "{0} with {1}": the placeholders become the items' pictures and names
+  const stepText = (s) => {
+    const text = t("crStep_" + s.k, s.mod ? trMod(s.mod) : "");
+    return text.split(/(\{\d\})/).map((part) => {
+      const m = part.match(/^\{(\d)\}$/);
+      return m ? named(s.n[Number(m[1])]) : part;
+    });
+  };
+  const targets = h("div", {}, h("div", { class: "sub" }, t("crTargets", r.need, r.targets.length)),
+    h("ul", { class: "craft-targets" }, r.targets.map((x) => h("li", {},
+      chip("tag", x.side === "Prefix" ? t("prefix") : t("suffix")), " ", h("span", { class: "mod" }, trMod(x.label)),
+      h("span", { class: "muted small" }, " " + t("crFromLevel", x.min_level))))));
+  const working = r.strategies.filter((s) => s.per_base > 0);
+  const cards = r.strategies.map((s) => {
+    const best = working.length && s === working[0];
+    if (!s.per_base) {
+      return h("div", { class: "sk-item craft-never" }, h("b", {}, t("crStrategy_" + s.key)), h("div", { class: "muted small" }, t("crNever")));
+    }
+    const uses = Object.entries(s.use).sort((a, b) => b[1] - a[1]);
+    return h("div", { class: "sk-item" + (best ? " best" : "") },
+      h("div", { class: "row", style: "justify-content:space-between" }, h("b", {}, t("crStrategy_" + s.key)),
+        best ? chip("tag", t("crBest")) : null),
+      h("div", { class: "craft-nums" },
+        h("span", {}, t("crPerBase"), " ", h("b", {}, `${fmt(s.per_base * 100, s.per_base < 0.1 ? 1 : 0)}%`)),
+        h("span", {}, t("crBases"), " ", h("b", {}, fmt(s.bases, s.bases < 10 ? 1 : 0)), h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${s.bases_p90}`)),
+        s.cost !== null && s.cost !== undefined ? h("span", {}, t("crCost"), " ", h("b", {}, money(s.cost)),
+          h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${money(s.cost_p90)}`), s.priced ? null : h("span", { class: "muted" }, " " + t("crPartPriced"))) : null),
+      h("ol", { class: "craft-steps" }, s.steps.map((x) => h("li", {}, stepText(x)))),
+      h("details", {}, h("summary", {}, t("crUse")),
+        h("table", {}, h("thead", {}, h("tr", {}, h("th", {}), h("th", { class: "num" }, t("crColAvg")),
+          h("th", { class: "num" }, t("crBadLuck")), h("th", { class: "num" }, t("crColPrice")))),
+        h("tbody", {}, uses.map(([n, v]) => h("tr", {}, h("td", {}, named(n)),
+          h("td", { class: "num" }, fmt(v, v < 10 ? 1 : 0)), h("td", { class: "num muted" }, fmt(s.p90[n], s.p90[n] < 10 ? 1 : 0)),
+          h("td", { class: "num muted small" }, r.prices[n] ? trFree(r.prices[n]) : "—")))))));
+  });
+  return h("div", { class: "stack", style: "gap:10px" }, targets,
+    r.essence ? h("div", { class: "small" }, t("crEssence"), " ", named(r.essence)) : null,
+    h("div", { class: "craft-list" }, cards),
+    h("div", { class: "note small muted" }, t(r.estimatedWeights ? "crWeightsNote" : "crWeightsReal") +
+      (r.league ? " " + t("prices", trName(r.league)) : "")));
+}
 
 // ---------- compare ----------
 const refKey = () => `poe2lab.ref.${state.build.name}`;

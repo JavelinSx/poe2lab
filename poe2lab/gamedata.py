@@ -166,7 +166,8 @@ def _spec(table: str) -> list[tuple[str, str, bool]]:
     if not m:
         raise GameDataError(f"в spec.lua нет таблицы {table}")
     cols = re.findall(r'list=(true|false),\s*name="([^"]*)",\s*refTo="[^"]*",\s*type="([^"]+)"', m.group(1))
-    return [(name, typ, lst == "true") for lst, name, typ in cols]
+    # unnamed columns are addressed by position: "_17" is the 18th column
+    return [(name or f"_{i}", typ, lst == "true") for i, (lst, name, typ) in enumerate(cols)]
 
 
 def _read_string(raw: bytes, pos: int) -> str:
@@ -176,9 +177,12 @@ def _read_string(raw: bytes, pos: int) -> str:
     return raw[pos:end].decode("utf-16-le", errors="replace")
 
 
+_SCALAR = {"Int": "<i", "Enum": "<i", "UInt": "<I", "UInt16": "<H", "Bool": "<?", "Float": "<f"}
+
+
 def read_table(path: Path, columns: list[str]) -> list[dict]:
     """Rows of a .datc64 file, only the requested columns: String, Int, or Key (the row number in the table it
-    points to, None for none)."""
+    points to, None for none), and lists of those."""
     table = path.stem
     offsets, off = {}, 0
     for name, typ, is_list in _spec(table):
@@ -196,14 +200,26 @@ def read_table(path: Path, columns: list[str]) -> list[dict]:
         row = {}
         for c in columns:
             o, typ, is_list = offsets[c]
-            if is_list or typ not in ("String", "Int", "Key"):
+            if typ not in _SCALAR and typ not in ("String", "Key"):
                 raise GameDataError(f"{table}.{c}: читаю только строки, числа и ключи")
-            if o + TYPE_SIZE[typ] > size:  # the game has fewer columns than the spec: schema drift
+            if o + (16 if is_list else TYPE_SIZE[typ]) > size:  # fewer columns than the spec: schema drift
                 raise GameDataError(f"{table}: схема spec.lua не совпадает с файлом игры")
-            if typ == "String":
+            if is_list:  # count and offset into the data section; elements are laid out one after another
+                count, at = struct.unpack_from("<QQ", raw, base + o)
+                values = []
+                for k in range(count):
+                    pos = data + at + k * TYPE_SIZE[typ]
+                    if typ in _SCALAR:
+                        values.append(struct.unpack_from(_SCALAR[typ], raw, pos)[0])
+                    elif typ == "Key":
+                        values.append(struct.unpack_from("<Q", raw, pos)[0])
+                    else:
+                        values.append(_read_string(raw, data + struct.unpack_from("<Q", raw, pos)[0]))
+                row[c] = values
+            elif typ == "String":
                 row[c] = _read_string(raw, data + struct.unpack_from("<Q", raw, base + o)[0])
-            elif typ == "Int":
-                row[c] = struct.unpack_from("<i", raw, base + o)[0]
+            elif typ in _SCALAR:
+                row[c] = struct.unpack_from(_SCALAR[typ], raw, base + o)[0]
             else:
                 key = struct.unpack_from("<Q", raw, base + o)[0]
                 row[c] = None if key == 0xFEFEFEFEFEFEFEFE else key
@@ -506,8 +522,10 @@ def stale(lang: str, game: Path | None = None) -> bool:
     """Not unpacked yet, or the game was patched after unpacking (its bundle index is newer)."""
     if not available(lang) or not names_path(lang).is_file() or not keywords_path(lang).is_file():
         return True  # keywords.json: unpacks made before the term popups were added
-    if not (GAME_CACHE / "icons" / "items.ok").is_file():
-        return True  # unpacks made before item pictures were added
+    ok = GAME_CACHE / "icons" / "items.ok"
+    from .icons import ART_VERSION  # icons imports this module
+    if not ok.is_file() or (ok.read_text(encoding="utf-8").split() or [""])[0] != str(ART_VERSION):
+        return True  # unpacks made before item pictures were added, or with fewer of them
     game = game or game_dir()
     index = game / "Bundles2" / "_.index.bin" if game else None
     return bool(index and index.is_file() and index.stat().st_mtime > names_path(lang).stat().st_mtime)

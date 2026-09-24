@@ -19,10 +19,13 @@ SOURCES = {"activeskills": ("DisplayName", "Icon"), "passiveskills": ("Name", "I
 BC1_FORMATS = {71, 72}  # BC1_UNORM, BC1_UNORM_SRGB
 RGBA_FORMATS = {28: False, 29: False, 87: True, 91: True}  # R8G8B8A8 (UNORM/SRGB); B8G8R8A8: channels swapped
 ITEM_SIDE = 96  # item thumbnails: the longer side at most this many pixels
-# item art of gear worth a picture (not currencies, maps, quest items)
+# item art worth a picture: gear, supports, socketables and crafting currency (not maps, quest items)
 ITEM_ART = re.compile(r"^art/2ditems/(armours|weapons|rings|amulets|belts|offhand|quivers|jewels|flasks|charms)/|"
                       r"^art/2ditems/gems/.*support|"  # support gems: skills already have icons of their own
-                      r"^art/2ditems/currency/(runes|essence|soulcores|tormentedspiritsocketables)/")  # socketables, essences
+                      r"^art/2ditems/currency/(runes|essence|soulcores|tormentedspiritsocketables|omens|abyss)/|"
+                      r"^art/2ditems/currency/[^/]+\.dds$")  # socketables, essences, omens, bones, orbs
+# bumped when ITEM_ART takes in more pictures: an unpack made with an older set is redone (see gamedata.stale)
+ART_VERSION = 2
 
 
 def _rgb565(c: int) -> tuple[int, int, int]:
@@ -185,7 +188,7 @@ def build(game: Path | None = None) -> dict:
             index[name] = converted[key]
     INDEX.write_text(json.dumps(index, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
     if items:
-        (ICONS / "items.ok").write_text(str(len(items)), encoding="utf-8")  # see gamedata.stale
+        (ICONS / "items.ok").write_text(f"{ART_VERSION} {len(items)}", encoding="utf-8")  # see gamedata.stale
     return {"icons": len(set(index.values())), "names": len(index), "items": len(items), "skipped": skipped}
 
 
