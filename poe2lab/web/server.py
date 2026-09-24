@@ -30,7 +30,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
-from .. import crafting, feedback, gamedata, glossary, icons, journal, library, lootfilter, pobapp
+from .. import crafting, feedback, gamedata, glossary, icons, itemtext, journal, library, lootfilter, pobapp
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -986,14 +986,29 @@ def item_text(slot: str):
         return {"text": _errors(lambda: session.engine.item_text(slot))}
 
 
+def _english_item(text: str) -> str:
+    """PoB reads item text in English only: an item copied from the Russian client is translated first."""
+    if not itemtext.is_russian(text):
+        return text
+    db = session.db()
+    if "names" not in _bare:
+        _bare["names"] = journal.Names(db)
+    uniques = session.cached("unique-catalog", session.engine.unique_catalog)
+    try:
+        return itemtext.to_english(text, db, _bare["names"], uniques)
+    except itemtext.TranslationError as err:
+        raise HTTPException(400, f"не смог прочитать предмет: {err}")
+
+
 @app.post("/api/compare")
 def compare_item(req: CompareRequest):
     with session.lock:
         session.require()
         cfg = session.profile.config()
-        result = asdict(_errors(lambda: compare(session.engine, cfg, req.slot, req.text)))
+        text = _english_item(req.text)
+        result = asdict(_errors(lambda: compare(session.engine, cfg, req.slot, text)))
         if req.breakeven:
-            res = _errors(lambda: breakeven(session.engine, cfg, req.slot, req.text, req.breakeven))
+            res = _errors(lambda: breakeven(session.engine, cfg, req.slot, text, req.breakeven))
             result["breakeven"] = None if res is None else {"factor": res[0], "line": res[1]}
         return _json(result)
 

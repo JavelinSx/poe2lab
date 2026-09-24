@@ -164,7 +164,7 @@ def test_thresholds_of_greater_orbs(db, low):
 
 def test_a_forgotten_switch_does_not_drag_the_threshold(db):
     """Records marked "greater" but made with regular orbs: the threshold stays, their share is found."""
-    draws = greater_draws(db, 35, True, n=60) + greater_draws(db, 0, True, n=30, seed=5)
+    draws = greater_draws(db, 35, True, n=200) + greater_draws(db, 0, True, n=100, seed=5)
     t = journal.estimate(db, draws)["thresholds"]["greater"]
     assert t["range"][0] <= 35 <= t["range"][1] and 0.2 <= t["regularShare"] <= 0.5
     assert journal.crafting_level(t) == 35

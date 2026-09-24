@@ -319,6 +319,7 @@ class ItemMod:
     side: str
     tier: int | None
     kind: str  # "" / fractured / desecrated / crafted / essence
+    lines: list[str] = field(default_factory=list)  # its lines as copied, with the rolled numbers
 
 
 @dataclass
@@ -330,6 +331,10 @@ class Parsed:
     problems: list[str] = field(default_factory=list)  # why it cannot be read (fully)
     skip: str = ""  # why it is not counted as draws although read
     advanced: bool = False
+    names: list[str] = field(default_factory=list)  # the name lines as copied
+    quality: int = 0
+    corrupted: bool = False
+    implicits: list[str] = field(default_factory=list)  # the base's own lines as copied
 
     @property
     def key(self):
@@ -377,7 +382,24 @@ def parse(text: str, db: ModDB, names: Names) -> Parsed:
     if p.problems:
         return p
     tags = set(db.bases[p.base]["tags"])
-    for line in lines:
+    p.names = head
+    quality = next((l for l in lines if l.lower().startswith(("quality:", "качество:"))), "")
+    p.quality = int(re.findall(r"\d+", quality)[0]) if re.findall(r"\d+", quality) else 0
+    p.corrupted = any(l in CORRUPTED for l in lines)
+
+    def under(i: int) -> list[str]:
+        """The lines a header covers: up to the next header or separator."""
+        out = []
+        for rest in lines[i + 1:]:
+            if not rest or rest.startswith(("{", "--------")):
+                break
+            out.append(rest)
+        return out
+
+    for i, line in enumerate(lines):
+        if line.startswith("{") and re.search(r"Implicit Modifier|Собственное свойство", line):
+            p.implicits += under(i)
+            continue
         m = HEADER.match(line)
         if not m:
             continue
@@ -398,7 +420,7 @@ def parse(text: str, db: ModDB, names: Names) -> Parsed:
         kind = KIND.get(m["kind"] or "", "")
         if not kind and ("Essence" in mod.id or mod.set != "Item"):
             kind = "essence" if "Essence" in mod.id else mod.set.lower()
-        p.mods.append(ItemMod(mod, side, tier, kind))
+        p.mods.append(ItemMod(mod, side, tier, kind, under(i)))
     if not p.advanced and p.rarity in ("magic", "rare"):
         p.problems.append("простое копирование: нажимай Ctrl+Alt+C, чтобы были видны тиры и стороны модов")
     if not p.skip and any(x.kind for x in p.mods):
