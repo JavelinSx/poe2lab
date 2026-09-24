@@ -33,11 +33,7 @@ ATTEMPTS = 1500
 MAX_ATTEMPTS = 15000
 ENOUGH_SUCCESSES = 40
 MAX_TRIES = 40  # fresh bases a player would burn before giving up on a strategy
-SIDE_OMEN = {("Exalted", "Prefix"): "Omen of Sinistral Exaltation", ("Exalted", "Suffix"): "Omen of Dextral Exaltation",
-             ("Regal", "Prefix"): "Omen of Sinistral Coronation", ("Regal", "Suffix"): "Omen of Dextral Coronation",
-             ("Crystallisation", "Prefix"): "Omen of Sinistral Crystallisation",
-             ("Crystallisation", "Suffix"): "Omen of Dextral Crystallisation",
-             ("Necromancy", "Prefix"): "Omen of Sinistral Necromancy", ("Necromancy", "Suffix"): "Omen of Dextral Necromancy"}
+GREATER_EXALT = "Omen of Greater Exaltation"  # the next Exalted Orb adds two random modifiers
 BONE = {"Weapon": "Gnawed Jawbone", "Armour": "Gnawed Rib", "Jewellery": "Gnawed Collarbone"}
 
 
@@ -133,21 +129,12 @@ def is_target(mod: Mod, targets: list[Target]) -> bool:
 
 def reachable(item: Item, targets: list[Target], need: int) -> bool:
     """Whether the goal can still be met: the missing targets that can still roll (family absent, room on their
-    side) are enough. A player stops working on a base as soon as it cannot - side omens make that happen sooner."""
+    side) are enough. A player stops working on a base as soon as it cannot."""
     limit = SIDE_LIMIT.get(item.rarity, 3)
     have = item.families()
     missing = Counter(t.side for t in targets if (t.group, t.patterns) not in have)
     possible = sum(min(n, limit - item.side(side)) for side, n in missing.items())
     return hits(item, targets) + possible >= need
-
-
-def missing_side(item: Item, targets: list[Target]) -> str | None:
-    """The side where targets are still missing and there is room; None if both or neither."""
-    limit = SIDE_LIMIT.get(item.rarity, 3)
-    want = {t.side for t in targets if not any(m.group == t.group and m.patterns == t.patterns and
-                                                m.level >= t.min_level for m in item.mods)}
-    open_ = {s for s in want if item.side(s) < limit}
-    return next(iter(open_)) if len(open_) == 1 else None
 
 
 @dataclass
@@ -198,20 +185,24 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
     lvl = MIN_LEVEL[grade]
     out = []
 
-    def finish_with_exalts(item: Item, rng, used, omens: bool) -> bool:
-        """Exalt until the goal or no room; with omens, towards the side still missing targets."""
+    def finish_with_exalts(item: Item, rng, used, greater: bool) -> bool:
+        """Exalt until the goal, 6 mods, or the goal is out of reach. With Omen of Greater Exaltation the first
+        exalt adds two mods at once (one omen per item, as players use it)."""
+        first = greater
         while hits(item, targets) < need and len(item.mods) < 6 and reachable(item, targets, need):
-            side = missing_side(item, targets) if omens else None
-            if side:
-                used[SIDE_OMEN[("Exalted", side)]] += 1
+            count = 2 if first and len(item.mods) <= 4 else 1
+            if count == 2:
+                used[GREATER_EXALT] += 1
+            first = False
             used[f"{grade}Exalted Orb"] += 1
-            mod = pool.pick(item, rng, side, lvl)
-            if mod is None:
-                break
-            item.mods.append(mod)
+            for _ in range(count):
+                mod = pool.pick(item, rng, None, lvl)
+                if mod is None:
+                    return hits(item, targets) >= need
+                item.mods.append(mod)
         return hits(item, targets) >= need
 
-    def magic_start(omens: bool):
+    def magic_start(greater: bool):
         """Transmute + augment for a start worth keeping, regal, then exalts."""
         def attempt(rng, used) -> bool:
             item = Item("magic")
@@ -222,19 +213,16 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
             if mod:
                 item.mods.append(mod)
             if hits(item, targets) == 0:
-                return False  # nothing worth keeping: a fresh base is cheaper than working on this one
+                return False  # nothing worth keeping: the base stays in the pile, the next one is tried
             item.rarity = "rare"
-            side = missing_side(item, targets) if omens else None
-            if side:
-                used[SIDE_OMEN[("Regal", side)]] += 1
             used[f"{grade}Regal Orb"] += 1
-            mod = pool.pick(item, rng, side, lvl)
+            mod = pool.pick(item, rng, None, lvl)
             if mod:
                 item.mods.append(mod)
-            return finish_with_exalts(item, rng, used, omens)
+            return finish_with_exalts(item, rng, used, greater)
         return attempt
 
-    def essence_start(omens: bool):
+    def essence_start(greater: bool):
         name, given = essence
 
         def attempt(rng, used) -> bool:
@@ -247,7 +235,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
             if item.side(given.type) >= SIDE_LIMIT["rare"]:
                 return False
             item.mods.append(given)
-            return finish_with_exalts(item, rng, used, omens)
+            return finish_with_exalts(item, rng, used, greater)
         return attempt
 
     def alchemy(whittle: bool):
@@ -275,28 +263,23 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
         return attempt
 
     # steps name their text by key (the UI words them in its language) and the English item names they use
-    exalt_omens = {"k": "exalt_omens", "n": [f"{grade}Exalted Orb", SIDE_OMEN[("Exalted", "Prefix")],
-                                             SIDE_OMEN[("Exalted", "Suffix")]]}
     exalt = {"k": "exalt", "n": [f"{grade}Exalted Orb"]}
+    exalt_greater = {"k": "exalt_greater", "n": [f"{grade}Exalted Orb", GREATER_EXALT]}
     plays = {}
-    for omens in (True, False):
-        key = "magic_omens" if omens else "magic"
-        plays[key] = magic_start(omens)
-        steps = [{"k": "transmute_augment", "n": [f"{grade}Orb of Transmutation", f"{grade}Orb of Augmentation"]}]
-        if omens:
-            steps += [{"k": "regal_omens", "n": [f"{grade}Regal Orb", SIDE_OMEN[("Regal", "Prefix")],
-                                                 SIDE_OMEN[("Regal", "Suffix")]]}, exalt_omens]
-        else:
-            steps += [{"k": "regal", "n": [f"{grade}Regal Orb"]}, exalt]
-        out.append(Strategy(key, steps))
+    for greater in (False, True):
+        key = "magic_greater" if greater else "magic"
+        plays[key] = magic_start(greater)
+        out.append(Strategy(key, [{"k": "transmute_augment", "n": [f"{grade}Orb of Transmutation",
+                                                                  f"{grade}Orb of Augmentation"]},
+                                  {"k": "regal", "n": [f"{grade}Regal Orb"]}, exalt_greater if greater else exalt]))
         if essence:
-            key = "essence_omens" if omens else "essence"
-            plays[key] = essence_start(omens)
+            key = "essence_greater" if greater else "essence"
+            plays[key] = essence_start(greater)
             name, given = essence
             out.append(Strategy(key, [{"k": "transmute", "n": [f"{grade}Orb of Transmutation"]},
                                       {"k": "essence", "n": [name], "mod": " / ".join(given.lines)},
-                                      exalt_omens if omens else exalt]))
-    for whittle in (True, False):
+                                      exalt_greater if greater else exalt]))
+    for whittle in (False, True):
         key = "alchemy_whittle" if whittle else "alchemy"
         plays[key] = alchemy(whittle)
         out.append(Strategy(key, [{"k": "alchemy", "n": ["Orb of Alchemy"]},
@@ -308,8 +291,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
         dmods = [m for m in desecrated.mods if any(m.group == t.group and m.patterns == t.patterns for t in targets)]
         if dmods:
             for s in out:
-                s.steps.append({"k": "desecrate", "n": [bone, SIDE_OMEN[("Necromancy", "Prefix")],
-                                                        SIDE_OMEN[("Necromancy", "Suffix")]]})
+                s.steps.append({"k": "desecrate", "n": [bone, "Omen of Abyssal Echoes"]})
 
     rng = random.Random(7)
     for s in out:
@@ -329,7 +311,7 @@ def price(strategies_: list[Strategy], prices) -> None:
         s.cost_p90 = sum(s.p90[k] * found[k].divine for k in items if found[k])
 
 
-def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 4, top_tiers: int = 3) -> list[Target]:
+def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 6, top_tiers: int = 3) -> list[Target]:
     """The mod families the slot plan values most (what the item has that carries value, then what it could roll),
     each at its top tiers for the item level; `count` of them, at most three per side."""
     by_lines = {}
@@ -352,6 +334,17 @@ def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 4, to
         if len(out) >= count:
             break
     return out
+
+
+# how good a target mod must be: its tier among the top N the item level allows (players usually settle for "good")
+QUALITY_TIERS = {"top": 2, "good": 4, "any": 99}
+
+# the currency the crafting guide names (poe2lab.web: "Как крафтить"), priced for it
+GUIDE_ITEMS = ["Orb of Transmutation", "Orb of Augmentation", "Regal Orb", "Exalted Orb", GREATER_EXALT,
+               "Orb of Alchemy", "Chaos Orb", "Orb of Annulment", "Fracturing Orb", "Omen of Abyssal Echoes",
+               "Omen of Sinistral Annulment", "Omen of Dextral Annulment", "Omen of Homogenising Exaltation",
+               "Greater Exalted Orb", "Perfect Exalted Orb", "Gnawed Rib", "Gnawed Jawbone", "Gnawed Collarbone",
+               "Greater Essence of the Body", "Perfect Essence of the Body"]
 
 
 def bone_for(item_type: str) -> str | None:

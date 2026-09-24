@@ -459,3 +459,11 @@ details > summary .ico { margin-left: 2px; }
 .card.collapsed > :not(.fold-head) { display: none; }
 .card.collapsed > .fold-head { margin-bottom: 0; }
 .card.collapsed > .fold-head::after { content: "▸"; }
+
+/* the crafting guide: principles from cheap to expensive */
+.craft-guide .guide-level { margin: 10px 0 12px; }
+.craft-guide ul { margin: 4px 0 4px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.craft-guide .named { display: inline; }
+.craft-guide .named .ico, .guide-price .ico { width: 20px; height: 20px; vertical-align: middle; margin-right: 3px; }
+.guide-prices { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+.guide-price { white-space: nowrap; }

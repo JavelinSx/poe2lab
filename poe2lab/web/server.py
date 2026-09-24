@@ -785,12 +785,13 @@ def send_feedback(req: FeedbackRequest):
 
 
 @app.get("/api/craft")
-def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, mode: str = "balanced",
-          build: str | None = None):
+def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quality: str = "good",
+          mode: str = "balanced", build: str | None = None):
     """Ways to craft the slot's item from a white or blue base: strategies played out on the base's mod pool, with
     the chance, the currency and its price (see poe2lab.crafting)."""
     grade = {"greater": "Greater ", "perfect": "Perfect "}.get(grade.lower(), "")
     item_level = max(1, min(int(item_level), 100))
+    top_tiers = crafting.QUALITY_TIERS.get(quality, crafting.QUALITY_TIERS["good"])
     if mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {mode!r}")
     with session.lock:
@@ -804,7 +805,7 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, mode:
             db, prices = session.db(), session.prices()
             weights = defence_weights(survivable_hits(e, prof))
             plan = plan_slot(e, db, prof.config(), item, mode, weights, top=8, check_mana=not prof.mana_sustained)
-            targets = crafting.pick_targets(db, plan, item["tags"], item_level)
+            targets = crafting.pick_targets(db, plan, item["tags"], item_level, top_tiers=top_tiers)
             if not targets:
                 return {"slot": slot, "base": item["baseName"], "targets": [], "strategies": []}
             # an essence (not Perfect/Corrupted: those work on rares) that guarantees a target at its wanted tier:
@@ -839,7 +840,18 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, mode:
                     "league": prices.league if prices else None,
                     "estimatedWeights": not crafting.WEIGHTS_FILE.is_file()}
 
-        return _json(session.cached(("craft", slot, need, grade, item_level, mode), compute))
+        return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode), compute))
+
+
+@app.get("/api/craft/guide")
+def craft_guide():
+    """Prices of the currency the crafting guide names (the guide's text is the page's own)."""
+    prices = session.prices()
+    if prices is None:
+        return {"prices": {}, "league": None, "exaltedPerDivine": None}
+    found = {n: prices.get(n) for n in crafting.GUIDE_ITEMS}
+    return {"prices": {n: prices.describe(p) for n, p in found.items() if p},
+            "league": prices.league, "exaltedPerDivine": prices.exalted_per_divine}
 
 
 @app.get("/api/lootfilter")

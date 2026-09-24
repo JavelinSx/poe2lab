@@ -447,7 +447,9 @@ function setFolded(card, head, on, remember = true) {
   card.classList.toggle("collapsed", on);
   head.setAttribute("aria-expanded", String(!on));
   if (!remember) return;
-  if (on) folded.add(foldKey(head)); else folded.delete(foldKey(head));
+  // a card folded by default remembers being opened instead
+  const [key, keep] = card.dataset.foldDefault ? ["!" + foldKey(head), !on] : [foldKey(head), on];
+  if (keep) folded.add(key); else folded.delete(key);
   saveFolded();
 }
 
@@ -464,7 +466,7 @@ function applyFolding(root) {
       if (e.target.closest("button, a, input, select, textarea, label, .info")) return;  // the heading's own controls
       setFolded(card, head, !card.classList.contains("collapsed"));
     });
-    setFolded(card, head, folded.has(foldKey(head)), false);
+    setFolded(card, head, card.dataset.foldDefault ? !folded.has("!" + foldKey(head)) : folded.has(foldKey(head)), false);
   });
 }
 new MutationObserver(() => applyFolding($("#view"))).observe($("#view"), { childList: true, subtree: true });
@@ -674,9 +676,51 @@ TABS.gear = async (view) => {
       craftBlock(p.slot));
   });
 
-  return h("div", { class: "stack" }, h("div", { class: "grid two" }, path, socketCard),
+  return h("div", { class: "stack" }, craftGuide(), h("div", { class: "grid two" }, path, socketCard),
     h("div", { class: "section-title" }, t("slots")), h("div", { class: "grid cards" }, cards));
 };
+
+// ---------- how to craft: the general principles, cheap to expensive ----------
+// The same for armour, weapons and jewellery; the currency rules come from the game's own descriptions. Each step
+// names its items in English ({0}, {1}...) for icons and translation; prices come live from poe.ninja.
+const CRAFT_GUIDE = [
+  ["cheap", [["g_bases", []], ["g_transmute", ["Orb of Transmutation", "Orb of Augmentation"]],
+    ["g_regal", ["Regal Orb", "Exalted Orb", "Omen of Greater Exaltation"]], ["g_goal", []]]],
+  ["essence", [["g_essence", ["Greater Essence of the Body"]], ["g_bone", ["Gnawed Rib", "Omen of Abyssal Echoes"]]]],
+  ["fracture", [["g_fracture", ["Fracturing Orb"]], ["g_after_fracture", ["Chaos Orb", "Orb of Annulment"]]]],
+  ["expensive", [["g_perfect", ["Perfect Essence of the Body"]], ["g_grades", ["Greater Exalted Orb", "Perfect Exalted Orb"]],
+    ["g_annul_side", ["Orb of Annulment", "Omen of Sinistral Annulment", "Omen of Dextral Annulment"]],
+    ["g_homog", ["Omen of Homogenising Exaltation"]]]],
+];
+
+// "{0} and {1}": the placeholders become the items' pictures and names
+const namedItem = (n) => h("span", { class: "named" }, icon(n), trName(n));
+const withItems = (text, names) => text.split(/(\{\d\})/).map((part) => {
+  const m = part.match(/^\{(\d)\}$/);
+  return m ? namedItem(names[Number(m[1])]) : part;
+});
+
+function craftGuide() {
+  const priceLines = [];  // one per level: filled once the prices come
+  const levels = CRAFT_GUIDE.map(([level, steps]) => {
+    const names = [...new Set(steps.flatMap(([, n]) => n))];
+    const priceLine = h("div", { class: "guide-prices small muted" });
+    priceLines.push([priceLine, names]);
+    return h("div", { class: "guide-level" }, h("b", {}, t("g_level_" + level)),
+      h("ul", {}, steps.map(([k, n]) => h("li", {}, withItems(t(k), n)))), priceLine);
+  });
+  const card = h("div", { class: "card craft-guide", "data-fold-default": "1" },
+    h("h3", {}, t("crGuideTitle")), h("div", { class: "sub" }, t("crGuideSub")), levels,
+    h("p", { class: "small" }, withItems(t("g_classes"), ["Gnawed Rib", "Gnawed Jawbone", "Gnawed Collarbone"])));
+  cached("craftGuide", () => api("/api/craft/guide")).then((r) => {
+    for (const [line, names] of priceLines) {
+      const known = names.filter((n) => r.prices[n]);
+      if (known.length) line.replaceChildren(t("g_prices"), " ", ...known.map((n) => h("span", { class: "guide-price" }, icon(n), trFree(r.prices[n]))));
+    }
+    card.querySelector(".sub").append(r.league ? t("prices", trName(r.league)) : "");
+  }).catch(() => { /* no prices: the guide still reads */ });
+  return card;
+}
 
 // ---------- crafting a slot's item from a white base ----------
 const craftState = {};  // per slot: the settings last used, so a re-render keeps them
@@ -690,21 +734,22 @@ function craftBlock(slot) {
 }
 
 function openCraft(box, slot) {
-  const st = craftState[slot] = craftState[slot] || { need: 3, grade: "", itemLevel: 82 };
+  const st = craftState[slot] = craftState[slot] || { need: 3, grade: "", itemLevel: 82, quality: "good" };
   const out = h("div", {});
   const select = (key, options) => h("select", { onchange: (e) => { st[key] = e.target.value; run(); } },
     options.map(([v, label]) => h("option", { value: v, selected: String(st[key]) === String(v) }, label)));
   const ilvl = h("input", { type: "number", min: 1, max: 100, value: st.itemLevel, style: "width:64px",
     onchange: (e) => { st.itemLevel = Math.max(1, Math.min(100, Number(e.target.value) || 82)); run(); } });
   const controls = h("div", { class: "row craft-controls" },
-    h("label", {}, t("crNeed"), " ", select("need", [1, 2, 3, 4].map((n) => [n, t("crNeedN", n)]))),
+    h("label", {}, t("crNeed"), " ", select("need", [1, 2, 3, 4, 5].map((n) => [n, t("crNeedN", n)]))),
+    h("label", {}, t("crQuality"), " ", select("quality", [["good", t("crQualityGood")], ["top", t("crQualityTop")], ["any", t("crQualityAny")]])),
     h("label", {}, t("crGrade"), " ", select("grade", [["", t("crGradeNormal")], ["greater", t("crGradeGreater")], ["perfect", t("crGradePerfect")]])),
     h("label", {}, t("crIlvl"), " ", ilvl));
   box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("crTitle")), h("div", { class: "sub" }, t("crSub"))), controls, out);
 
   async function run() {
     out.replaceChildren(loading(t("crLoading")));
-    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&mode=${state.mode}`;
+    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&quality=${st.quality}&mode=${state.mode}`;
     try {
       const r = await cached(`craft:${q}`, () => api(`/api/craft?${q}&${buildQuery()}`));
       out.replaceChildren(renderCraft(r));
@@ -717,7 +762,7 @@ function openCraft(box, slot) {
 
 function renderCraft(r) {
   if (!r.targets.length) return h("p", { class: "muted" }, t("crNoTargets"));
-  const named = (n) => h("span", { class: "named" }, icon(n), trName(n));
+  const named = namedItem;
   // a price in divines, or in exalted orbs when it is under one divine
   const money = (div) => {
     if (div === null || div === undefined) return "—";
@@ -725,13 +770,7 @@ function renderCraft(r) {
     return `${fmt(div, div < 10 ? 2 : 0)} div`;
   };
   // "{0} with {1}": the placeholders become the items' pictures and names
-  const stepText = (s) => {
-    const text = t("crStep_" + s.k, s.mod ? trMod(s.mod) : "");
-    return text.split(/(\{\d\})/).map((part) => {
-      const m = part.match(/^\{(\d)\}$/);
-      return m ? named(s.n[Number(m[1])]) : part;
-    });
-  };
+  const stepText = (s) => withItems(t("crStep_" + s.k, s.mod ? trMod(s.mod) : ""), s.n);
   const targets = h("div", {}, h("div", { class: "sub" }, t("crTargets", r.need, r.targets.length)),
     h("ul", { class: "craft-targets" }, r.targets.map((x) => h("li", {},
       chip("tag", x.side === "Prefix" ? t("prefix") : t("suffix")), " ", h("span", { class: "mod" }, trMod(x.label)),
@@ -751,7 +790,8 @@ function renderCraft(r) {
           s.successes < 10 ? h("span", { class: "muted", title: t("crRoughHint", s.successes, s.attempts) }, " " + t("crRough")) : null),
         h("span", {}, t("crBases"), " ", h("b", {}, fmt(s.bases, s.bases < 10 ? 1 : 0)), h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${s.bases_p90}`)),
         s.cost !== null && s.cost !== undefined ? h("span", {}, t("crCost"), " ", h("b", {}, money(s.cost)),
-          h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${money(s.cost_p90)}`), s.priced ? null : h("span", { class: "muted" }, " " + t("crPartPriced"))) : null),
+          h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${money(s.cost_p90)}`), s.priced ? null : h("span", { class: "muted" }, " " + t("crPartPriced"))) : null,
+        r.exaltedPerDivine ? h("span", {}, t("crBasesCost"), " ", h("b", {}, `${money(s.bases * 10 / r.exaltedPerDivine)} – ${money(s.bases * 20 / r.exaltedPerDivine)}`)) : null),
       h("ol", { class: "craft-steps" }, s.steps.map((x) => h("li", {}, stepText(x)))),
       h("details", {}, h("summary", {}, t("crUse")),
         h("table", {}, h("thead", {}, h("tr", {}, h("th", {}), h("th", { class: "num" }, t("crColAvg")),

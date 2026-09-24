@@ -71,20 +71,20 @@ def test_strategies_with_an_essence_and_bones():
     found = crafting.strategies(Pool(d, TAGS, 82), targets, 2, "", ("Essence of the Body", life_top),
                                 Pool(d, TAGS, 82, sets=("Desecrated",)), crafting.bone_for("Boots"))
     by_key = {s.key: s for s in found}
-    assert set(by_key) == {"magic", "magic_omens", "essence", "essence_omens", "alchemy", "alchemy_whittle"}
+    assert set(by_key) == {"magic", "magic_greater", "essence", "essence_greater", "alchemy", "alchemy_whittle"}
     # the essence gives one target for sure: it beats plain exalting
     assert by_key["essence"].per_base > by_key["magic"].per_base > 0
-    # side omens do not change the chance (the side fills with random mods either way), but a dud shows sooner:
-    # fewer exalts wasted per finished item
-    omens, plain = by_key["essence_omens"], by_key["essence"]
-    assert abs(omens.per_base - plain.per_base) < 0.05
-    assert omens.use["Exalted Orb"] < plain.use["Exalted Orb"]
+    # Omen of Greater Exaltation: two mods for one exalt - once per item, so fewer exalts for the same chance
+    greater, plain = by_key["essence_greater"], by_key["essence"]
+    assert greater.use["Omen of Greater Exaltation"] <= greater.bases + 1e-9
+    assert greater.use["Exalted Orb"] < plain.use["Exalted Orb"]
+    assert abs(greater.per_base - plain.per_base) < 0.05
     assert by_key["essence"].use["Essence of the Body"] == pytest.approx(by_key["essence"].bases)
     assert by_key["essence"].bases_p90 >= by_key["essence"].bases
     # every step says its text by key and names real items; bones finish every strategy
     for s in found:
         assert all(set(step) <= {"k", "n", "mod"} and step["n"] for step in s.steps)
-        assert s.steps[-1]["n"][0] == "Gnawed Rib"
+        assert s.steps[-1]["n"] == ["Gnawed Rib", "Omen of Abyssal Echoes"]
 
 
 def test_price_in_divines():
@@ -107,10 +107,21 @@ def client():
     session.engine = None
 
 
+def test_craft_guide_prices(client):
+    r = client.get("/api/craft/guide").json()
+    assert set(r) == {"prices", "league", "exaltedPerDivine"}
+    assert set(r["prices"]) <= set(crafting.GUIDE_ITEMS)
+
+
 def test_craft_endpoint(client):
     client.post("/api/load", json={"name": "titan"}, headers=H)
     r = client.get("/api/craft?slot=Boots&need=2&item_level=82").json()
-    assert r["base"] and 1 <= len(r["targets"]) <= 4 and r["need"] == 2
+    assert r["base"] and 1 <= len(r["targets"]) <= 6 and r["need"] == 2
     assert {s["key"] for s in r["strategies"]} >= {"magic", "alchemy"}
     assert any(s["per_base"] > 0 for s in r["strategies"])
+    # looser targets ("any" tier of the wanted mods) are easier to hit than the top tiers
+    top = client.get("/api/craft?slot=Boots&need=2&quality=top").json()
+    loose = client.get("/api/craft?slot=Boots&need=2&quality=any").json()
+    best = lambda x: max(s["per_base"] for s in x["strategies"])
+    assert best(loose) > best(top)
     assert client.get("/api/craft?slot=Nowhere").status_code == 400
