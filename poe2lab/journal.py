@@ -335,57 +335,70 @@ class Sample:
 
 
 def interpret(records: list[dict], db: ModDB, names: Names, cache: dict | None = None):
-    """Each record with how it counts, and the draws. Records are read in order: a copy continues the previous
-    copy of the same base and item level when one mod was added (or one swapped on a rare)."""
+    """Each record with how it counts, and the draws. Records are read in order. Players craft in batches (six
+    bases transmuted, then all six augmented...), so every item seen stays open: a copy continues the most recent
+    open item of the same base and item level it can come from - one or two mods added (augmentation, regal,
+    exalt) or one swapped on a rare (chaos). A copy with exactly the text of an open item is a repeat; two items
+    may well roll the same mod, so the same mods alone are not."""
     cache = {} if cache is None else cache
-    state: dict[tuple, Parsed] = {}
+    state: dict[tuple, list[dict]] = {}  # (base, item level) -> open items: {"p": Parsed, "text": str}
     out, samples = [], []
     for r in records:
         if r["id"] not in cache:
             cache[r["id"]] = parse(r["text"], db, names)
         p = cache[r["id"]]
-        how, drawn = _read(p, state.get(p.key), db)
+        items = state.setdefault(p.key, [])
+        how, drawn, parent = _read(p, r["text"].strip(), items, db)
         if drawn:
             samples.append(drawn)
-        if not p.problems:
-            state[p.key] = p
+        if not p.problems and how[0] != "repeat":
+            if parent is not None:
+                parent["p"], parent["text"] = p, r["text"].strip()
+            else:
+                items.append({"p": p, "text": r["text"].strip()})
         out.append({"id": r["id"], "t": r["t"], "source": r.get("source", ""), "parsed": p, "how": how[0],
                     "detail": how[1], "draws": len(drawn.added) if drawn else 0})
     return out, samples
 
 
-def _read(p: Parsed, prev: Parsed | None, db: ModDB):
-    """How a record counts: (code, detail) and its draws. Codes: unread, skip, white, repeat, augment, regal, exalt,
-    chaos, fresh_magic, fresh_rare, rare_unknown, nothing."""
+STEP = {("magic", "magic"): "augment", ("magic", "rare"): "regal", ("rare", "rare"): "exalt"}
+
+
+def _read(p: Parsed, text: str, items: list[dict], db: ModDB):
+    """How a record counts: (code, detail), its draws and the open item it continues. Codes: unread, skip, white,
+    repeat, augment, regal, exalt, chaos, fresh_magic, fresh_rare, rare_unknown, nothing."""
     if p.problems:
-        return ("unread", "; ".join(p.problems)), None
+        return ("unread", "; ".join(p.problems)), None, None
+    if any(it["text"] == text for it in items):
+        return ("repeat", ""), None, None
     if p.skip:
-        return ("skip", p.skip), None
+        return ("skip", p.skip), None, None
     if p.rarity == "normal":
-        return ("white", ""), None
+        return ("white", ""), None, None
     base = db.bases[p.base]
     tags, cls = tuple(base["tags"]), base["type"]
     now = {x.mod.id: x.mod for x in p.mods}
-    before = {x.mod.id: x.mod for x in prev.mods} if prev and not prev.skip else None
-    if before is not None and prev.rarity in ("magic", "rare"):
+    for it in reversed(items):
+        prev = it["p"]
+        if prev.skip or prev.rarity not in ("magic", "rare"):
+            continue
+        before = {x.mod.id for x in prev.mods}
         added = [m for i, m in now.items() if i not in before]
-        removed = [m for i, m in before.items() if i not in now]
-        if not added and not removed:
-            return ("repeat", ""), None
-        step = {("magic", "magic"): "augment", ("magic", "rare"): "regal", ("rare", "rare"): "exalt"}
+        removed = [i for i in before if i not in now]
         given = [m for i, m in now.items() if i in before]
-        if (prev.rarity, p.rarity) in step and not removed and 1 <= len(added) <= 2:
-            return (step[(prev.rarity, p.rarity)], len(added)), Sample(tags, p.item_level, p.rarity, given, added, cls)
+        if (prev.rarity, p.rarity) in STEP and not removed and 1 <= len(added) <= 2:
+            code = STEP[(prev.rarity, p.rarity)]
+            return (code, len(added)), Sample(tags, p.item_level, p.rarity, given, added, cls), it
         if (prev.rarity, p.rarity) == ("rare", "rare") and len(removed) == 1 and len(added) == 1:
-            return ("chaos", 1), Sample(tags, p.item_level, "rare", given, added, cls)
+            return ("chaos", 1), Sample(tags, p.item_level, "rare", given, added, cls), it
     mods = list(now.values())
     if p.rarity == "magic" and 1 <= len(mods) <= 2:
-        return ("fresh_magic", len(mods)), Sample(tags, p.item_level, "magic", [], mods, cls)
+        return ("fresh_magic", len(mods)), Sample(tags, p.item_level, "magic", [], mods, cls), None
     if p.rarity == "rare" and 1 <= len(mods) <= 4:
-        return ("fresh_rare", len(mods)), Sample(tags, p.item_level, "rare", [], mods, cls)
+        return ("fresh_rare", len(mods)), Sample(tags, p.item_level, "rare", [], mods, cls), None
     if p.rarity == "rare":
-        return ("rare_unknown", len(mods)), None
-    return ("nothing", ""), None
+        return ("rare_unknown", len(mods)), None, None
+    return ("nothing", ""), None, None
 
 
 # ---------- estimating the weights ----------

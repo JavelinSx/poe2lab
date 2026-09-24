@@ -100,6 +100,19 @@ def test_a_crafting_session_becomes_draws(db, names):
     assert chaos.rarity == "rare" and len(chaos.given) == 3 and len(chaos.added) == 1
 
 
+def test_a_batch_of_the_same_base(db, names):
+    """Players transmute a stack of bases, then augment them all: each copy continues its own item, and two items
+    that rolled the same mod (other values) are two items, not a repeat."""
+    a1 = ru_item(db, "magic", ["IncreasedLife2"])
+    b1 = ru_item(db, "magic", ["IncreasedLife2"]).replace("+20 to maximum", "+21 to maximum")
+    a2 = ru_item(db, "magic", ["IncreasedLife2", "Strength1"])
+    b2 = ru_item(db, "magic", ["IncreasedLife2", "Dexterity1"]).replace("+20 to maximum", "+21 to maximum")
+    records = [{"id": str(i), "t": i, "text": t} for i, t in enumerate([a1, b1, a2, b2, a2])]
+    rows, samples = journal.interpret(records, db, names)
+    assert [r["how"] for r in rows] == ["fresh_magic", "fresh_magic", "augment", "augment", "repeat"]
+    assert sum(len(x.added) for x in samples) == 4
+
+
 def test_estimate_moves_towards_what_rolls(db):
     """Transmutations where life always shows up: life's weight rises, the others fall."""
     tags = tuple(db.bases[BASE]["tags"])
