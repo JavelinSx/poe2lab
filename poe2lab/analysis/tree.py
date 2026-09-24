@@ -8,6 +8,7 @@ the stat ranking (goal mode, weaker damage types count more). Allocated branches
 import random
 import re
 
+from .fit import build_topics, fit
 from .gradients import metric_changes
 from .report import defence_weights, score
 from .threats import MapProfile, survivable_hits
@@ -26,16 +27,29 @@ def _value(changes: dict, mode: str, weights: dict) -> float:
     return score(_Change(changes), mode, weights)
 
 
-def growth_options(engine, cfg: dict, mode: str, weights: dict, max_points: int) -> list[dict]:
-    """Reachable notables and keystones priced by their whole path, best value per point first."""
+# a notable whose own share of its path's value is below this is not for the build: only the road to it pays
+# (PoB sees its conditions unmet - no ignite, no shock, another weapon...)
+ROAD_ONLY_SHARE = 0.1
+
+
+def growth_options(engine, cfg: dict, mode: str, weights: dict, max_points: int, own: bool = True) -> list[dict]:
+    """Reachable notables and keystones priced by their whole path, best value per point first. With `own`, also
+    what the notable itself adds (the path without it priced too): `roadOnly` when the travel nodes do all the
+    work - the notable's name would then recommend something the build gets nothing from."""
     base = engine.what_if(config=cfg)
     out = []
     for t in engine.tree_reach(max_points):
         changes = metric_changes(engine.what_if(config=cfg, add_nodes=t["path"]), base)
         value = _value(changes, mode, weights)
+        own_value = value
+        if own and len(t["path"]) > 1:
+            road = [n for n in t["path"] if n != t["id"]]
+            own_value = value - _value(metric_changes(engine.what_if(config=cfg, add_nodes=road), base), mode, weights)
         out.append({"id": t["id"], "name": t["name"], "type": t["type"], "points": len(t["path"]),
                     "via": [n for nid, n in zip(t["path"], t["pathNames"]) if nid != t["id"] and n],
-                    "stats": t["stats"], "changes": changes, "value": value, "perPoint": value / len(t["path"])})
+                    "stats": t["stats"], "changes": changes, "value": value, "perPoint": value / len(t["path"]),
+                    "own": own_value, "ownShare": own_value / value if value > 0 else 0.0,
+                    "roadOnly": own and value > 0 and own_value < ROAD_ONLY_SHARE * value})
     return sorted(out, key=lambda g: -g["perPoint"])
 
 
@@ -57,14 +71,26 @@ def branch_options(engine, cfg: dict, mode: str, weights: dict) -> list[dict]:
 def analyse(engine, profile: MapProfile, mode: str = "balanced", max_points: int = 6, top: int = 15) -> dict:
     cfg = profile.config()
     weights = defence_weights(survivable_hits(engine, profile))
-    growth = growth_options(engine, cfg, mode, weights, max_points)
+    options = growth_options(engine, cfg, mode, weights, max_points)
+    # how each node's topics meet the build's (damage, mechanics, defences, skills, weapons): the reason a node
+    # worth nothing is either off-build or on-build but outside what PoB models
+    have = build_topics(engine, engine.what_if(config=cfg))
+    for g in options:
+        g["fit"] = fit(g["stats"], have)
+    growth = [g for g in options if not g["roadOnly"]]
+    road_only = [g for g in options if g["roadOnly"]]
+    for g in road_only:
+        f = g["fit"]
+        g["verdict"] = "offBuild" if f["misses"] else "onBuild" if f["fits"] else "unknown"
+    road_only.sort(key=lambda g: ({"onBuild": 0, "unknown": 1, "offBuild": 2}[g["verdict"]], -g["perPoint"]))
     branches = branch_options(engine, cfg, mode, weights)
     # A branch whose points are worth less than the best growth option per point is a respec candidate - unless
     # PoB sees no effect at all (utility PoB does not model: warcry speed, Rage on hit...) or it holds attributes
     # (their worth is gem requirements, which PoB does not turn into numbers). Those are listed apart, to check.
     best_growth = growth[0]["perPoint"] if growth else 0.0
     low = [b for b in branches if b["kind"] == "value" and b["lossPerPoint"] < best_growth]
-    return {"mode": mode, "maxPoints": max_points, "growth": growth[:top], "respec": low[:top],
+    return {"mode": mode, "maxPoints": max_points, "growth": growth[:top], "roadOnly": road_only[:top * 2],
+            "buildTopics": sorted(have), "respec": low[:top],
             "unseen": [b for b in branches if b["kind"] == "unseen"],
             "attributes": [b for b in branches if b["kind"] == "attributes"],
             "allocated": len(branches), "bestGrowthPerPoint": best_growth}
@@ -89,7 +115,7 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
     def spend() -> list[str]:
         added = []
         while (free := budget - engine.tree_points()) > 0:
-            options = [g for g in growth_options(engine, cfg, mode, weights, min(max_points, free))
+            options = [g for g in growth_options(engine, cfg, mode, weights, min(max_points, free), own=False)
                        if g["points"] <= free and g["perPoint"] > 0]
             if not options:
                 break

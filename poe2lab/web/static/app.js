@@ -1040,19 +1040,41 @@ TABS.tree = async (view) => {
   const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
 
+  // how a node's topics meet the build's (damage, mechanics, defences, skills, weapons)
+  const fitChips = (f) => (f && (f.fits.length || f.misses.length) ? h("div", { class: "fit-chips" },
+    f.fits.map((k) => chip("ok", "✓ " + t("topic_" + k))), f.misses.map((k) => chip("warn", t("topicMissing", t("topic_" + k))))) : null);
+
   const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth")),
     h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
+    r.buildTopics && r.buildTopics.length ? h("div", { class: "small", style: "margin-bottom:8px" }, t("treeBuildTopics"), " ",
+      r.buildTopics.map((k) => t("topic_" + k)).join(", ")) : null,
     h("label", { class: "field", style: "max-width:220px;margin-bottom:10px" }, h("span", {}, t("reach")), pointsSel),
     r.growth.length ? h("table", { class: "versus-items" },
       h("thead", {}, h("tr", {}, h("th", {}, t("node")), h("th", { class: "num" }, t("points")), h("th", {}, t("perPoint")), h("th", {}, t("treeGives")), h("th", {}, ""))),
       h("tbody", {}, r.growth.map((g) => h("tr", {},
-        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats),
-          g.via.length ? h("div", { class: "hint" }, t("via", [...new Set(g.via.map(trName))].join(", "))) : null),
+        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats), fitChips(g.fit),
+          g.via.length ? h("div", { class: "hint" }, t("via", [...new Set(g.via.map(trName))].join(", ")),
+            g.ownShare !== undefined ? " · " + t("treeOwnShare", Math.round(Math.min(1, Math.max(0, g.ownShare)) * 100)) : "") : null),
         h("td", { class: "num" }, g.points),
         h("td", {}, scoreBar(g.perPoint, maxValue)),
         h("td", {}, deltas(g.changes, METRIC, 0.3)),
         h("td", {}, editButton("add", g))))))
       : h("p", { class: "muted" }, t("treeNothing")));
+
+  // notables worth nothing by themselves (only the road pays): on the build's topics but outside PoB's model -
+  // worth a look; or asking for what the build lacks - not for it
+  const roadRow = (g) => h("tr", {},
+    h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats), fitChips(g.fit),
+      g.via.length ? h("div", { class: "hint" }, t("treeRoadGives", [...new Set(g.via.map(trName))].join(", "))) : null),
+    h("td", { class: "num" }, g.points),
+    h("td", {}, editButton("add", g)));
+  const onBuild = (r.roadOnly || []).filter((g) => g.verdict !== "offBuild");
+  const offBuild = (r.roadOnly || []).filter((g) => g.verdict === "offBuild");
+  const roadOnly = h("div", { class: "stack" },
+    onBuild.length ? h("div", { class: "card" }, h("h3", {}, t("treeOnBuild")), h("div", { class: "sub" }, t("treeOnBuildSub")),
+      h("table", { class: "versus-items" }, h("tbody", {}, onBuild.map(roadRow)))) : null,
+    offBuild.length ? h("div", { class: "card" }, h("h3", {}, t("treeOffBuild")), h("div", { class: "sub" }, t("treeOffBuildSub")),
+      h("table", { class: "versus-items" }, h("tbody", {}, offBuild.map(roadRow)))) : null);
 
   // the other nodes that go with a branch (only reachable through it): they explain uneven numbers
   const alongWith = (names) => {
@@ -1079,7 +1101,7 @@ TABS.tree = async (view) => {
 
   return h("div", { class: "stack" },
     h("div", { class: "sub" }, t("treeIntro", r.allocated)),
-    planCard(r.plan), growth, respec,
+    planCard(r.plan), growth, roadOnly, respec,
     listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
     listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
 };

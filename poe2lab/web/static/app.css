@@ -492,3 +492,5 @@ details > summary .ico { margin-left: 2px; }
 .neg-text { color: var(--bad); }
 .craft-dear { margin-top: 2px; }
 .craft-dear .craft-list { margin-top: 8px; }
+.fit-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.fit-chips .chip { font-size: 12px; font-weight: 500; padding: 1px 7px; }

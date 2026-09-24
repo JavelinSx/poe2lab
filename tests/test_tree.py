@@ -24,6 +24,37 @@ def test_growth_is_priced_per_point_including_travel(titan_tree):
     assert growth[0]["value"] > 0
 
 
+def test_a_notable_that_gives_nothing_is_not_advice():
+    """A monk levelling without ignite: "30% increased Elemental Damage if you've Ignited an Enemy Recently" is worth
+    nothing to it - only the small node on the way pays. It must not be offered by its name."""
+    engine, bp = open_build(BUILDS / "monk.txt")
+    tree = analyse(engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained), max_points=6, top=40)
+    assert all(g["own"] >= 0.1 * g["value"] for g in tree["growth"])
+    assert all(g["roadOnly"] and g["own"] < 0.1 * g["value"] and g["via"] for g in tree["roadOnly"])
+    named = {g["name"] for g in tree["growth"]}
+    assert not named & {g["name"] for g in tree["roadOnly"]}
+
+
+def test_node_topics_meet_the_build():
+    from poe2lab.analysis import fit
+    assert [t for t, _ in fit.node_topics(["30% increased maximum Energy Shield"])] == ["energy_shield"]
+    assert "shield" in [t for t, _ in fit.node_topics(["+5% Chance to Block with Shields"])]
+    engine, bp = open_build(BUILDS / "titan.txt")
+    have = fit.build_topics(engine, engine.what_if(config=MapProfile().config()))
+    assert {"armour", "attack", "melee", "slam"} <= have and not have & {"evasion", "energy_shield", "spell", "bow"}
+    f = fit.fit(["5% chance for Slam Skills you use yourself to cause an additional Aftershock",
+                 "30% increased Elemental Damage if you've Ignited an Enemy Recently while holding a Bow"], have)
+    assert "slam" in f["fits"] and "bow" in f["misses"]
+
+
+def test_zero_value_notables_are_sorted_by_fit(titan_tree):
+    road = titan_tree["roadOnly"]
+    assert road and all(g["verdict"] in ("onBuild", "offBuild", "unknown") for g in road)
+    assert all(g["fit"]["misses"] for g in road if g["verdict"] == "offBuild")
+    assert any(g["verdict"] == "onBuild" for g in road)  # slams, warcries, stun: the build's, outside PoB's model
+    assert titan_tree["buildTopics"]
+
+
 def test_nodes_pob_cannot_see_are_not_offered_for_respec(titan_tree):
     unseen = {b["name"] for b in titan_tree["unseen"]}
     respec = {b["name"] for b in titan_tree["respec"]}
