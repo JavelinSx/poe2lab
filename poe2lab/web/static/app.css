@@ -483,3 +483,9 @@ details > summary .ico { margin-left: 2px; }
 .link-btn { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; }
 .link-btn:hover { color: var(--bad); }
 .card .sub a { color: var(--gold); }
+.jn-plan .jn-bar { width: 90px; }
+.jn-plan .jn-bar .bar { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.jn-plan .jn-bar .bar span { display: block; height: 100%; background: var(--gold); }
+.jn-plan tr.done td { color: var(--muted); }
+.jn-plan tr.done .jn-bar .bar span { background: var(--good); }
+.jn-grade { gap: 10px; flex-wrap: wrap; align-items: center; margin: 4px 0 8px; }

@@ -1611,15 +1611,29 @@ async function journalPage(view) {
     h("div", { class: "row", style: "gap:12px;flex-wrap:wrap;margin:6px 0 10px" }, j.available ? recordBtn : h("span", { class: "muted" }, t("jnNoWindows")),
       j.recording ? h("span", { class: "rec-dot" }, t("jnRecording", j.recordedNow)) : h("span", { class: "muted" }, t("jnOff")),
       j.recording && j.hotkey ? chip(j.hotkey === "F2" ? "ok" : "priority", t(j.hotkey === "F2" ? "jnHotkey" : "jnHotkeyBusy")) : null),
+    h("div", { class: "row jn-grade" }, h("span", {}, t("jnGrade")), h("div", { class: "segmented small-seg" },
+      [["", "jnGradeRegular"], ["greater", "jnGradeGreater"], ["perfect", "jnGradePerfect"]].map(([g, key]) =>
+        h("button", { class: (j.grade || "") === g ? "active" : "", onclick: async () => {
+          try { await api("/api/journal/grade", { method: "POST", body: { grade: g } }); renderJournal(); }
+          catch (e) { toast(e.message); }
+        } }, t(key)))), h("span", { class: "muted small" }, t("jnGradeHint"))),
     h("ol", { class: "jn-rules" }, [1, 2, 3, 4, 5].map((i) => h("li", {}, t("jnRule" + i)))),
     h("details", {}, h("summary", {}, t("jnPaste")), paste, h("div", { style: "margin-top:6px" }, addBtn))));
 
-  const classes = Object.entries(j.classes || {}).sort((a, b) => b[1].draws - a[1].draws);
-  body.append(h("div", { class: "card" }, h("h3", {}, t("jnStatsTitle")),
-    h("div", { class: "sub" }, t("jnStats", j.total, j.draws)),
-    classes.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("jnClass")), h("th", { class: "num" }, t("jnRecords")), h("th", { class: "num" }, t("jnDraws")))),
-      h("tbody", {}, classes.map(([c, x]) => h("tr", {}, h("td", {}, slotName(c)), h("td", { class: "num" }, x.records), h("td", { class: "num" }, x.draws)))))
-      : h("p", { class: "muted" }, t("jnNoDraws")),
+  // what to record next: each goal shrinks as draws come in
+  const left = j.plan.filter((g) => g.left > 0);
+  const className = (c) => ((j.classNames || {})[c] || {})[LANG] || slotName(c);  // the game's own names
+  const goalName = (g) => (g.key === "class" ? className(g.class) : t("jnGoal_" + g.key));
+  const goalWhy = (g) => t("jnWhy_" + g.key);
+  body.append(h("div", { class: "card" }, h("h3", {}, t("jnPlanTitle")),
+    h("div", { class: "sub" }, t("jnStats", j.total, j.draws), " ", left.length ? t("jnPlanLeft", left.length) : t("jnPlanDone")),
+    h("table", { class: "jn-plan" }, h("thead", {}, h("tr", {}, h("th", {}, t("jnPlanGoal")), h("th", {}, t("jnPlanWhy")),
+      h("th", { class: "num" }, t("jnPlanHave")), h("th", {}, ""), h("th", { class: "num" }, t("jnPlanLeftCol")))),
+      h("tbody", {}, j.plan.map((g) => h("tr", { class: g.left ? "" : "done" },
+        h("td", {}, goalName(g)), h("td", { class: "muted small" }, goalWhy(g)),
+        h("td", { class: "num" }, `${g.have} / ${g.need}`),
+        h("td", { class: "jn-bar" }, h("div", { class: "bar" }, h("span", { style: `width:${Math.min(100, (g.have / g.need) * 100)}%` }))),
+        h("td", { class: "num" }, g.left ? h("b", {}, g.left) : chip("ok", "✓")))))),
     h("div", { class: "note small muted", style: "margin-top:8px" }, t("jnHowMany"))));
 
   // the estimate: how each family's chance moved from the assumption, and applying it to crafting
@@ -1642,6 +1656,10 @@ async function journalPage(view) {
       h("p", { class: "small" }, t("jnEstimated", est.draws, new Date(est.time * 1000).toLocaleString(locale())),
         est.kindDraws ? ["weapon", "other"].filter((k) => est.kindDraws[k]).map((k) =>
           " " + t("jnSlope_" + k, est.halfLevel[k] ? fmt(est.halfLevel[k]) : null)).join("") : ""),
+      Object.entries(est.thresholds || {}).map(([g, x]) => h("p", { class: "small" },
+        h("b", {}, t("jnGradeName_" + g)), " ", t("jnThreshold", x), " ",
+        h("span", { class: "muted" }, t(x.lowFamilies === null ? "jnLowUnknown" : x.lowFamilies ? "jnLowYes" : "jnLowNo")),
+        x.draws < 30 ? h("span", { class: "muted" }, " " + t("jnThresholdFew")) : null)),
       seen.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", { class: "num" }, t("jnSeen")),
         h("th", { class: "num" }, t("jnFactor")), h("th", { class: "num" }, t("jnSpread")))),
         h("tbody", {}, seen.slice(0, 40).map((f) => h("tr", {}, h("td", { class: "mod" }, trMod(f.family)),
@@ -1656,6 +1674,7 @@ async function journalPage(view) {
         h("span", { class: "muted small" }, new Date(e.t * 1000).toLocaleTimeString(locale())),
         e.base ? h("b", {}, trName(e.base)) : null, e.itemLevel ? h("span", { class: "muted small" }, t("jnIlvl", e.itemLevel)) : null,
         chip(HOW_CHIP[e.how] || "ok", t("jnHow_" + e.how, e.detail)), e.draws ? h("span", { class: "small" }, t("jnDrawsN", e.draws)) : null,
+        e.grade ? chip("priority", t("jnGradeName_" + e.grade)) : null,
         h("button", { class: "link-btn", title: t("jnDelete"), onclick: async () => {
           try { await api(`/api/journal/entry/${e.id}`, { method: "DELETE" }); renderJournal(); } catch (err) { toast(err.message); }
         } }, "×")),

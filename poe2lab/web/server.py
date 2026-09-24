@@ -1081,7 +1081,7 @@ def _estimate_summary(est):
 @app.get("/api/journal")
 def journal_view(limit: int = 40):
     out = {"recording": recorder.on, "available": recorder.available(), "recordedNow": recorder.count,
-           "hotkey": recorder.hotkey,
+           "hotkey": recorder.hotkey, "grade": recorder.grade,
            "estimate": _estimate_summary(journal.load_estimate()), "applied": crafting.WEIGHTS_FILE.is_file()}
     with session.lock:
         rows, samples = _journal_rows()
@@ -1096,10 +1096,17 @@ def journal_view(limit: int = 40):
         shown.append({"id": r["id"], "t": r["t"], "source": r["source"], "how": r["how"], "detail": r["detail"],
                       "draws": r["draws"],
                       "rarity": p.rarity, "base": p.base, "itemLevel": p.item_level, "problems": p.problems,
+                      "grade": r["grade"],
                       "mods": [{"side": m.side, "tier": m.tier, "kind": m.kind, "lines": list(m.mod.lines)}
                                for m in p.mods]})
     return _json(out | {"total": len(rows), "draws": sum(len(s.added) for s in samples), "classes": classes,
-                        "entries": shown})
+                        "entries": shown, "plan": journal.plan(rows, samples), "classNames": _class_names()})
+
+
+def _class_names():
+    if "classes" not in _bare:
+        _bare["classes"] = journal.class_names()
+    return _bare["classes"]
 
 
 class RecordRequest(BaseModel):
@@ -1114,6 +1121,18 @@ def journal_record(req: RecordRequest):
     return {"recording": recorder.on}
 
 
+class GradeRequest(BaseModel):
+    grade: str
+
+
+@app.post("/api/journal/grade")
+def journal_grade(req: GradeRequest):
+    if req.grade not in journal.GRADES:
+        raise HTTPException(400, f"неизвестный вид сфер: {req.grade}")
+    recorder.grade = req.grade
+    return {"grade": recorder.grade}
+
+
 class JournalText(BaseModel):
     text: str
 
@@ -1122,7 +1141,7 @@ class JournalText(BaseModel):
 def journal_add(req: JournalText):
     if not journal.is_item_text(req.text):
         raise HTTPException(400, "это не текст предмета: в игре наведи на вещь и нажми Ctrl+Alt+C")
-    return journal.add(req.text, "manual")
+    return journal.add(req.text, "manual", recorder.grade)
 
 
 @app.delete("/api/journal/entry/{entry_id}")
@@ -1154,7 +1173,11 @@ def journal_apply():
     if not est:
         raise HTTPException(400, "сначала посчитай веса")
     crafting.WEIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    crafting.WEIGHTS_FILE.write_text(json.dumps(est["weights"]), encoding="utf-8")
+    applied = dict(est["weights"])
+    # measured thresholds of Greater / Perfect orbs, once there are enough draws to trust them
+    applied["grades"] = {g: {"minLevel": t["minLevel"], "lowFamilies": True if t["lowFamilies"] is None else t["lowFamilies"]}
+                         for g, t in (est.get("thresholds") or {}).items() if t["draws"] >= journal.MIN_GRADE_DRAWS}
+    crafting.WEIGHTS_FILE.write_text(json.dumps(applied), encoding="utf-8")
     with session.lock:
         _drop_craft_results()
     return {"applied": True}

@@ -141,6 +141,39 @@ def test_estimate_moves_towards_what_rolls(db):
     assert all(w > 0 for w in result["weights"]["other"].values())
 
 
+def greater_draws(db, level, low, n=80, seed=2):
+    """Transmutations by an orb that adds nothing below `level`; with `low`, a mod with no tier that high rolls."""
+    tags = tuple(db.bases[BASE]["tags"])
+    pool = db.rollable(tags, 80)
+    top = {}
+    for m in pool:
+        top[journal.family(m)] = max(top.get(journal.family(m), 0), m.level)
+    ok = [m for m in pool if m.level >= level or (low and top[journal.family(m)] < level)]
+    rng = random.Random(seed)
+    return [journal.Sample(tags, 80, "magic", [], [rng.choice(ok)], "Gloves", "greater") for _ in range(n)]
+
+
+@pytest.mark.parametrize("low", [True, False])
+def test_thresholds_of_greater_orbs(db, low):
+    draws = greater_draws(db, 35, low)
+    result = journal.estimate(db, draws)
+    t = result["thresholds"]["greater"]
+    assert t["draws"] == 80 and t["range"][0] <= 35 <= t["range"][1] and t["guide"] == 35
+    assert t["lowFamilies"] in (low, None) and result["draws"] == 0  # graded draws do not feed the weights
+
+
+def test_the_plan_shrinks(db, names):
+    rows, samples = journal.interpret([{"id": "1", "t": 0, "text": ru_item(db, "magic", ["IncreasedLife2"]),
+                                        "grade": "greater"},
+                                       {"id": "2", "t": 1, "text": ru_item(db, "magic", ["IncreasedLife2", "Strength1"])}],
+                                      db, names)
+    assert samples[0].grade == "greater" and samples[1].grade == ""
+    goals = {(g["key"], g.get("class")): g for g in journal.plan(rows, samples)}
+    assert goals[("grade_greater", None)]["have"] == 1 and goals[("grade_greater", None)]["left"] == 79
+    assert goals[("class", "Gloves")]["have"] == 1 and goals[("total", None)]["have"] == 2
+    assert goals[("class", "Helmet")]["left"] == journal.PER_CLASS
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path))
@@ -167,3 +200,9 @@ def test_journal_endpoints(client, db):
     assert client.delete(f"/api/journal/entry/{j['entries'][0]['id']}", headers=H).status_code == 200
     assert client.get("/api/journal").json()["total"] == 1
     assert client.get("/api/journal/export").status_code == 200
+    assert client.post("/api/journal/grade", json={"grade": "perfect"}, headers=H).json()["grade"] == "perfect"
+    assert client.post("/api/journal/grade", json={"grade": "divine"}, headers=H).status_code == 400
+    client.post("/api/journal/add", json={"text": ru_item(db, "magic", ["Strength1"])}, headers=H)
+    j = client.get("/api/journal").json()
+    assert j["grade"] == "perfect" and j["entries"][0]["grade"] == "perfect" and j["plan"]
+    client.post("/api/journal/grade", json={"grade": ""}, headers=H)

@@ -28,6 +28,8 @@ from .data.moddb import Mod, ModDB
 WEIGHTS_FILE = Path(os.environ.get("APPDATA") or Path.home() / ".config") / "poe2lab" / "craft_weights.json"
 # minimum modifier level of the better currency grades (timesaver.gg, PoE2 0.5 currency guide)
 MIN_LEVEL = {"": 0, "Greater ": 35, "Perfect ": 50}
+# and whether a mod whose best tier is below that level can still roll (at any tier) - the guides do not say;
+# the craft journal measures both (poe2lab.journal.thresholds) and applied weights carry them
 SIDE_LIMIT = {"magic": 1, "rare": 3}  # modifiers per side
 # simulated attempts (one base each) per strategy: batches until enough successes for a steady chance, or the cap
 ATTEMPTS = 1500
@@ -55,6 +57,17 @@ def _weights(kind: str) -> dict[str, float]:
     except (OSError, ValueError):
         return {}
     return data.get(kind, {}) if isinstance(data.get(kind), dict) else {}
+
+
+def grade_rule(grade: str) -> tuple[int, bool]:
+    """(minimum mod level, can mods with no tier that high still roll) for "", "Greater ", "Perfect " currency:
+    measured by the craft journal once applied, else the guide's level and "yes"."""
+    try:
+        data = json.loads(WEIGHTS_FILE.read_text(encoding="utf-8")).get("grades", {})
+    except (OSError, ValueError, AttributeError):
+        data = {}
+    rule = data.get(grade.strip().lower()) or {}
+    return int(rule.get("minLevel", MIN_LEVEL[grade])), bool(rule.get("lowFamilies", True))
 
 
 def tier_weight(level: int, weapon: bool = False) -> float:
@@ -102,9 +115,10 @@ class Pool:
                       self.weight[m.id]) for m in self.mods]
         self.cumulative = list(itertools.accumulate(r[5] for r in self.rows))
 
-    def pick(self, item: Item, rng: random.Random, side: str | None = None, min_level: int = 0) -> Mod | None:
+    def pick(self, item: Item, rng: random.Random, side: str | None = None, min_level: int = 0,
+             low_families: bool = True) -> Mod | None:
         """A random new mod for the item: a family it does not have, on a side with room, not below the minimum
-        level - unless no tier of that family reaches it (then the family is not excluded)."""
+        level - unless no tier of that family reaches it and `low_families` (then the family rolls at any tier)."""
         limit = SIDE_LIMIT.get(item.rarity, 3)
         have = item.families()
         room = {k for k in ("Prefix", "Suffix") if item.side(k) < limit}
@@ -119,10 +133,11 @@ class Pool:
             if not total:
                 break
             r = self.rows[bisect.bisect_right(self.cumulative, rng.random() * total)]
-            if r[1] in room and r[2] not in have and (r[3] >= min_level or r[4] < min_level):
+            if r[1] in room and r[2] not in have and (r[3] >= min_level or (low_families and r[4] < min_level)):
                 return r[0]
         # few mods allowed (or none): pick among them directly
-        options = [r for r in self.rows if r[1] in room and r[2] not in have and (r[3] >= min_level or r[4] < min_level)]
+        options = [r for r in self.rows if r[1] in room and r[2] not in have
+                   and (r[3] >= min_level or (low_families and r[4] < min_level))]
         if not options:
             return None
         if self.uniform:
@@ -197,7 +212,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
                desecrated: Pool | None = None, bone: str | None = None) -> list[Strategy]:
     """The candidate strategies for reaching `need` of the targets. `essence`: (essence name, mod) guaranteeing a
     target on this item class, if one exists; `desecrated`: the desecrated pool (bones) for this class."""
-    lvl = MIN_LEVEL[grade]
+    lvl, low = grade_rule(grade)
     out = []
 
     def finish_with_exalts(item: Item, rng, used, greater: bool) -> bool:
@@ -211,7 +226,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
             first = False
             used[f"{grade}Exalted Orb"] += 1
             for _ in range(count):
-                mod = pool.pick(item, rng, None, lvl)
+                mod = pool.pick(item, rng, None, lvl, low)
                 if mod is None:
                     return hits(item, targets) >= need
                 item.mods.append(mod)
@@ -222,16 +237,16 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
         def attempt(rng, used) -> bool:
             item = Item("magic")
             used[f"{grade}Orb of Transmutation"] += 1
-            item.mods.append(pool.pick(item, rng, None, lvl))
+            item.mods.append(pool.pick(item, rng, None, lvl, low))
             used[f"{grade}Orb of Augmentation"] += 1
-            mod = pool.pick(item, rng, None, lvl)
+            mod = pool.pick(item, rng, None, lvl, low)
             if mod:
                 item.mods.append(mod)
             if hits(item, targets) == 0:
                 return False  # nothing worth keeping: the base stays in the pile, the next one is tried
             item.rarity = "rare"
             used[f"{grade}Regal Orb"] += 1
-            mod = pool.pick(item, rng, None, lvl)
+            mod = pool.pick(item, rng, None, lvl, low)
             if mod:
                 item.mods.append(mod)
             return finish_with_exalts(item, rng, used, greater)
@@ -243,7 +258,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
         def attempt(rng, used) -> bool:
             item = Item("magic")
             used[f"{grade}Orb of Transmutation"] += 1
-            item.mods.append(pool.pick(item, rng, None, lvl))
+            item.mods.append(pool.pick(item, rng, None, lvl, low))
             used[name] += 1
             item.rarity = "rare"
             item.mods = [m for m in item.mods if (m.group, m.patterns) != (given.group, given.patterns)]
@@ -271,7 +286,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
                 else:
                     item.mods.remove(rng.choice(item.mods))
                 used[f"{grade}Chaos Orb"] += 1
-                mod = pool.pick(item, rng, None, lvl)
+                mod = pool.pick(item, rng, None, lvl, low)
                 if mod:
                     item.mods.append(mod)
             return hits(item, targets) >= need

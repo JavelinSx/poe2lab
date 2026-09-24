@@ -72,9 +72,14 @@ def entries() -> list[dict]:
 _write = threading.Lock()
 
 
-def add(text: str, source: str = "manual") -> dict:
+GRADES = ("", "greater", "perfect")  # regular / Greater / Perfect orbs
+
+
+def add(text: str, source: str = "manual", grade: str = "") -> dict:
     entry = {"id": f"{time.time_ns():x}", "t": time.time(), "text": text.replace("\r\n", "\n").strip(),
              "source": source}
+    if grade:
+        entry["grade"] = grade  # the orbs the player said they craft with: their draws skip the low tiers
     with _write:
         journal_path().parent.mkdir(parents=True, exist_ok=True)
         with journal_path().open("a", encoding="utf-8") as f:
@@ -179,6 +184,7 @@ class Recorder:
         self.on = False
         self.count = 0  # items recorded since it was switched on
         self.hotkey = None  # "F2" when the key is ours, "busy" when another program holds it
+        self.grade = ""  # the orbs the player crafts with now (GRADES): each record keeps it
         self._stop = threading.Event()
         self._thread = None
 
@@ -230,7 +236,7 @@ class Recorder:
                 except OSError:
                     continue
                 if is_item_text(text):
-                    add(text, "clipboard")
+                    add(text, "clipboard", self.grade)
                     self.count += 1
         finally:
             if self.hotkey == "F2":
@@ -285,13 +291,26 @@ class Names:
 
 
 def _ensure_tables():
-    """The Russian mod table is not in older unpacks: unpack it when the journal first needs it."""
-    need = [p for p in ("data/balance/mods.datc64", "data/balance/russian/mods.datc64")
-            if not (gamedata.RAW / p).is_file()]
+    """The Russian mod and item class tables are not in older unpacks: unpack them when the journal first needs them."""
+    need = [f"data/balance/{lang}{t}.datc64" for t in ("mods", "itemclasses") for lang in ("", "russian/")
+            if not (gamedata.RAW / f"data/balance/{lang}{t}.datc64").is_file()]
     game = gamedata.game_dir()
     if need and game and gamedata.BUN.is_file():
         subprocess.run([str(gamedata.BUN), "extract-files", "--regex", str(game), str(gamedata.RAW),
-                        r"^data/balance/(russian/)?mods\.datc64$"], capture_output=True, text=True)
+                        r"^data/balance/(russian/)?(mods|itemclasses)\.datc64$"], capture_output=True, text=True)
+
+
+def class_names() -> dict[str, dict[str, str]]:
+    """Item class (as PoB names it: "Bow") -> the game's own plural names: {"en": "Bows", "ru": "Луки"}."""
+    _ensure_tables()
+    balance = gamedata.RAW / "data/balance"
+    try:
+        en = list(gamedata.read_table(balance / "itemclasses.datc64", ["Id", "Name"]))
+        ru = list(gamedata.read_table(balance / "russian/itemclasses.datc64", ["Name"]))
+    except (OSError, KeyError, ValueError):
+        return {}
+    return {row["Id"]: {"en": row["Name"], "ru": ru[i]["Name"] if i < len(ru) else row["Name"]}
+            for i, row in enumerate(en) if row["Name"]}
 
 
 @dataclass
@@ -403,6 +422,7 @@ class Sample:
     given: list[Mod]
     added: list[Mod]
     item_class: str
+    grade: str = ""  # "greater" / "perfect": drawn by those orbs (a minimum mod level), "" regular
 
 
 def interpret(records: list[dict], db: ModDB, names: Names, cache: dict | None = None):
@@ -420,6 +440,8 @@ def interpret(records: list[dict], db: ModDB, names: Names, cache: dict | None =
         p = cache[r["id"]]
         items = state.setdefault(p.key, [])
         how, drawn, parent = _read(p, r["text"].strip(), items, db)
+        if drawn and how[0] != "fresh_rare":  # an alchemy has no grades
+            drawn.grade = r.get("grade", "")
         if drawn:
             samples.append(drawn)
         if not p.problems and how[0] != "repeat":
@@ -428,7 +450,7 @@ def interpret(records: list[dict], db: ModDB, names: Names, cache: dict | None =
             else:
                 items.append({"p": p, "text": r["text"].strip()})
         out.append({"id": r["id"], "t": r["t"], "source": r.get("source", ""), "parsed": p, "how": how[0],
-                    "detail": how[1], "draws": len(drawn.added) if drawn else 0})
+                    "detail": how[1], "draws": len(drawn.added) if drawn else 0, "grade": r.get("grade", "")})
     return out, samples
 
 
@@ -595,6 +617,8 @@ class Model:
 
 def estimate(db: ModDB, samples: list[Sample]) -> dict:
     """The fitted weights and, per item class, how each family's chance moved from the assumption."""
+    graded = [s for s in samples if s.grade]
+    samples = [s for s in samples if not s.grade]  # the weights come from regular orbs only
     model = Model(db, samples)
     sd = model.fit()
     drawn = {}
@@ -620,7 +644,91 @@ def estimate(db: ModDB, samples: list[Sample]) -> dict:
     # a tier's weight halves every N levels (None: high tiers are no rarer); with the draws each kind had
     half = {k: (-math.log(2) * 100 / b if b < 0 else None) for k, b in model.b.items()}
     return {"time": time.time(), "draws": sum(len(s.added) for s in samples), "samples": len(samples),
-            "halfLevel": half, "kindDraws": kinds, "families": families, "classes": classes, "weights": weights}
+            "halfLevel": half, "kindDraws": kinds, "families": families, "classes": classes, "weights": weights,
+            "thresholds": thresholds(model, graded)}
+
+
+GUIDE_LEVEL = {"greater": 35, "perfect": 50}  # what the guides say (timesaver.gg): the journal checks it
+
+
+def thresholds(model: "Model", graded: list[Sample]) -> dict:
+    """For Greater / Perfect orbs: below which mod level they add nothing, and whether a mod with no tier that high
+    can still roll. Every distinct tier level is tried as the threshold L (tiers of level >= L allowed) under both
+    rules, with the weights fitted on regular draws; the likeliest wins (`minLevel`, used by crafting). `range` holds
+    every threshold the draws do not rule out: it narrows as graded draws come in."""
+    out = {}
+    for grade in ("greater", "perfect"):
+        ss = [s for s in graded if s.grade == grade]
+        if not ss:
+            continue
+        levels = sorted({m.level for s in ss for m in model._pool(s)} | {0})
+        scores = {(i, low): sum(_graded_loglik(model, s, level, low) for s in ss)
+                  for i, level in enumerate(levels) for low in (True, False)}
+        (i, low), ll = max(scores.items(), key=lambda kv: kv[1])
+        other = max(v for (_, lw), v in scores.items() if lw != low)
+        # every threshold the draws do not rule out (within e^2 of the best): the lowest level seen pulls the best
+        # one up, so the range is the honest answer; a threshold between two tier levels acts the same anywhere there
+        near = [k for (k, lw), v in scores.items() if lw == low and v >= ll - 2]
+        lo, hi = min(near), max(near)
+        out[grade] = {"draws": sum(len(s.added) for s in ss), "minLevel": levels[i],
+                      "range": [levels[lo - 1] + 1 if lo else 0, levels[hi]],
+                      "lowFamilies": low if ll - other > 2 else None,  # None: the draws cannot tell yet
+                      "lowestSeen": min(m.level for s in ss for m in s.added), "guide": GUIDE_LEVEL[grade]}
+    return out
+
+
+def _graded_loglik(model: "Model", s: Sample, level: int, low: bool) -> float:
+    pool, kind = model._pool(s), kind_of(s.item_class)
+    top = {}
+    for m in pool:
+        top[family(m)] = max(top.get(family(m), 0), m.level)
+    ok = [m for m in pool if m.level >= level or (low and top[family(m)] < level)]
+    best = None
+    for order in itertools.permutations(s.added):
+        have, lp = list(s.given), 0.0
+        for pick in order:
+            limit = SIDE_LIMIT[s.rarity]
+            fams = {family(m) for m in have}
+            room = {k for k in ("Prefix", "Suffix") if sum(m.type == k for m in have) < limit}
+            allowed = [m for m in ok if m.type in room and family(m) not in fams]
+            if pick not in allowed:
+                lp = None
+                break
+            lp += math.log(model._w(pick, kind) / sum(model._w(m, kind) for m in allowed))
+            have.append(pick)
+        if lp is not None:
+            best = lp if best is None else max(best, lp) + math.log1p(math.exp(-abs(best - lp)))
+    return best if best is not None else -1e12  # a mod that could not roll at this threshold rules it out
+
+
+# ---------- what to record next ----------
+
+# item classes worth 100 draws each: the ones players craft (other weapon classes join once recorded)
+PLAN_CLASSES = ["Helmet", "Body Armour", "Gloves", "Boots", "Shield", "Focus", "Quiver", "Amulet", "Ring", "Belt",
+                "Talisman", "Wand", "Staff", "Sceptre", "Bow", "Crossbow", "Spear", "One Hand Mace", "Two Hand Mace"]
+PER_CLASS, CHAOS, PER_GRADE, TOTAL = 100, 150, 80, 2500
+MIN_GRADE_DRAWS = 30  # a measured threshold replaces the guide's in crafting from this many draws
+
+
+def plan(rows: list[dict], samples: list[Sample]) -> list[dict]:
+    """What to record next: each goal with its target, what is collected and why - shrinking as draws come in."""
+    by_class, graded = {}, {"greater": 0, "perfect": 0}
+    for s in samples:
+        if s.grade:
+            graded[s.grade] += len(s.added)
+        else:
+            by_class[s.item_class] = by_class.get(s.item_class, 0) + len(s.added)
+    chaos = sum(r["draws"] for r in rows if r["how"] == "chaos")
+    goals = [{"key": "grade_greater", "have": graded["greater"], "need": PER_GRADE},
+             {"key": "grade_perfect", "have": graded["perfect"], "need": PER_GRADE},
+             {"key": "chaos", "have": chaos, "need": CHAOS}]
+    classes = PLAN_CLASSES + sorted(c for c in by_class if c not in PLAN_CLASSES)
+    goals += sorted(({"key": "class", "class": c, "have": by_class.get(c, 0), "need": PER_CLASS} for c in classes),
+                    key=lambda g: -(g["need"] - min(g["have"], g["need"])))
+    goals.append({"key": "total", "have": sum(len(s.added) for s in samples), "need": TOTAL})
+    for g in goals:
+        g["left"] = max(0, g["need"] - g["have"])
+    return goals
 
 
 def save_estimate(result: dict):
