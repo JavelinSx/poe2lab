@@ -30,7 +30,7 @@ from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, sav
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
-from .. import crafting, feedback, gamedata, icons, journal, library, lootfilter, pobapp
+from .. import crafting, feedback, gamedata, glossary, icons, journal, library, lootfilter, pobapp
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -1049,6 +1049,12 @@ def chat(req: ChatRequest):
 def chat_reset():
     session.assistant = session.toolbox = None
     return {"ok": True}
+
+
+@app.get("/api/glossary")
+def glossary_view(lang: str = "ru"):
+    """The beginner's glossary page: groups of terms in our own words (poe2lab.glossary)."""
+    return {"groups": glossary.groups(lang), "terms": glossary.entries(lang)}
 
 
 # ---------- craft journal: mods rolled in game -> the hidden mod weights (poe2lab.journal) ----------

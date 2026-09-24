@@ -494,3 +494,8 @@ details > summary .ico { margin-left: 2px; }
 .craft-dear .craft-list { margin-top: 8px; }
 .fit-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .fit-chips .chip { font-size: 12px; font-weight: 500; padding: 1px 7px; }
+.term-text { white-space: pre-line; }
+.gl-list { display: flex; flex-direction: column; gap: 12px; }
+.gl-entry { border-left: 2px solid var(--gold-soft); padding-left: 10px; }
+.gl-entry b { color: var(--gold); }
+.side-foot #glossary-open { text-align: left; }

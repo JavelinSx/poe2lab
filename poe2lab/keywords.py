@@ -3,7 +3,7 @@ the texts of skills, supports and unique items, so a mechanic is explained in th
 language, instead of ours."""
 import re
 
-from . import gamedata
+from . import gamedata, glossary
 
 # Terms too common or not about mechanics: item classes, currencies, leagues and map content, basic stats. They
 # stay in the glossary, but marking them in every line would bury the terms that explain something.
@@ -84,8 +84,9 @@ def find(texts, lang: str = "ru") -> list[str]:
 
 
 def entries(ids, lang: str = "ru") -> dict[str, dict]:
-    """The terms by id, with the terms their texts link to, one level deep (the popup can open those too)."""
-    keywords = load(lang)
+    """The terms by id, with the terms their texts link to, one level deep (the popup can open those too). Our own
+    beginner's explanation (poe2lab.glossary) replaces the game's where we have one."""
+    keywords = load(lang) | glossary.entries(lang)
     out = {}
     for kid in ids:
         k = keywords.get(kid)

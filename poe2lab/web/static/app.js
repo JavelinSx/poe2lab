@@ -1282,7 +1282,8 @@ function showTerm(id) {
   const text = LANG !== "en" && k.textLocal ? k.textLocal : k.text;
   box.replaceChildren(h("div", { class: "row", style: "justify-content:space-between" }, h("b", {}, termName(id)),
     h("button", { class: "bi-act", onclick: () => box.remove() }, "×")),
-    h("div", { class: "small" }, termText(text)), h("div", { class: "hint" }, t("termSource")));
+    h("div", { class: "small term-text" }, termText(text)),
+    h("div", { class: "hint" }, t(k.source === "poe2lab" ? "termSourceOwn" : "termSource")));
 }
 function termChips(ids) {
   const known = (ids || []).filter((id) => TERMS[id]);
@@ -1731,6 +1732,32 @@ async function journalPage(view) {
   }
   return body;
 }
+
+// ---------- the beginner's glossary: terms in our own words, linked to each other ----------
+async function renderGlossary() {
+  hideBuildChrome();
+  const view = $("#view");
+  view.replaceChildren(loading(t("glLoading")));
+  try {
+    const r = await api(`/api/glossary?lang=${LANG}`);
+    TERMS = { ...TERMS, ...r.terms };
+    const body = h("div", { class: "stack" });
+    if (state.build) {
+      body.append(h("div", {}, h("button", { class: "ghost small", onclick: () => { renderHeader(); switchTab(state.tab); } },
+        t("jnBack", state.build.name))));
+    }
+    body.append(h("div", { class: "card" }, h("h3", {}, t("glTitle")), h("div", { class: "sub" }, t("glSub"))));
+    for (const g of r.groups) {
+      body.append(h("div", { class: "card" }, h("h3", {}, g.name),
+        h("div", { class: "gl-list" }, g.ids.map((id) => h("div", { class: "gl-entry", id: "gl-" + id },
+          h("b", {}, termName(id)), h("div", { class: "term-text small" }, termText(r.terms[id].textLocal || r.terms[id].text)))))));
+    }
+    view.replaceChildren(body);
+  } catch (e) {
+    view.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("error")), h("p", { class: "muted" }, e.message)));
+  }
+}
+$("#glossary-open").addEventListener("click", renderGlossary);
 
 // ---------- assistant ----------
 function aiSettingsCard(settings, onSaved) {
