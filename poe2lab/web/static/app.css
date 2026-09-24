@@ -499,3 +499,4 @@ details > summary .ico { margin-left: 2px; }
 .gl-entry { border-left: 2px solid var(--gold-soft); padding-left: 10px; }
 .gl-entry b { color: var(--gold); }
 .side-foot #glossary-open { text-align: left; }
+.sk-meta { border-left: 2px solid var(--gold-soft); padding: 4px 10px; margin: 6px 0 8px; display: flex; flex-direction: column; gap: 3px; }

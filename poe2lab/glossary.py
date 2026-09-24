@@ -10,6 +10,7 @@ GROUPS = [
     ("ailments", {"ru": "Состояния врагов", "en": "Ailments"}),
     ("defence", {"ru": "Защита", "en": "Defences"}),
     ("resources", {"ru": "Ресурсы", "en": "Resources"}),
+    ("skills", {"ru": "Скиллы и камни", "en": "Skills and gems"}),
     ("crafting", {"ru": "Крафт", "en": "Crafting"}),
     ("basics", {"ru": "Основы предметов", "en": "Item basics"}),
 ]
@@ -295,6 +296,61 @@ ENTRIES = [
         "en": "The resource of some powerful skills (banners and others). Each such skill builds its own glory its "
               "own way and spends it on use. It drains after 15 seconds unused.\n"
               "When it matters: only with a skill that needs glory."}),
+    # ---------- skills and gems ----------
+    ("Meta", "skills", {"ru": "Мета-камни", "en": "Meta gems"}, {
+        "ru": "Камни, в которые вставляют другие умения. Мета-камень сам решает, когда их применить: чаще всего копит "
+              "[Energy|энергию] и на полной [Trigger|запускает] вставленные чары. Бывает и иначе: «Богохульство» "
+              "превращает вставленное [Curse|проклятие] в [Aura|ауру]. Мета-камень в мета-камень не вставить; в "
+              "большинство нужно вставить хотя бы одно умение.\n"
+              "Когда важно: это способ получить урон без нажатий — но только если в билде есть то, что копит энергию "
+              "(вкладка «Скиллы» подскажет).",
+        "en": "Gems other skills are socketed into. The meta gem decides when to use them: most gather [Energy] and "
+              "[Trigger] the socketed spells when full. Some work otherwise: Blasphemy turns a socketed [Curse] into "
+              "an [Aura]. A meta gem cannot go into another; most need at least one skill socketed.\n"
+              "When it matters: damage without pressing buttons, but only if the build has something that fills "
+              "the energy (the Skills tab tells you)."}),
+    ("Energy", "skills", {"ru": "Энергия", "en": "Energy"}, {
+        "ru": "Счётчик [Meta|мета-камня]: копится от того, что написано на камне (поджог, шок, заморозка, "
+              "критический удар, применение чар…). Когда её хватает — вставленное умение [Trigger|срабатывает]. "
+              "Более долгие умения стоят больше энергии. Сами запущенные умения энергию не дают — кормить мета-камень "
+              "должны другие твои скиллы.",
+        "en": "The [Meta|meta gem]'s counter: it fills from what the gem says (ignite, shock, freeze, critical hits, "
+              "casting spells…). When there is enough, the socketed skill [Trigger|triggers]. Longer skills cost "
+              "more energy. The triggered skills themselves give none: your other skills must feed the meta gem."}),
+    ("Trigger", "skills", {"ru": "Срабатывающие умения", "en": "Triggered skills"}, {
+        "ru": "Умение, которое применяется само, мгновенно, без анимации — обычно по цели, вызвавшей срабатывание. "
+              "Это не считается «применением» умения. Если умение пытаются запускать два разных способа сразу — оно "
+              "отключается.",
+        "en": "A skill that goes off by itself, instantly, without an animation, usually at whatever caused it. It "
+              "does not count as using the skill. If two different methods try to trigger the same skill, it is "
+              "disabled."}),
+    ("Invocation", "skills", {"ru": "Вызов", "en": "Invocation"}, {
+        "ru": "[Persistent|Постоянное] умение, которое копит [Energy|энергию] по своему условию, а потом ты сам "
+              "нажимаешь его — и оно тратит энергию, [Trigger|запуская] вставленные умения, иногда несколько раз "
+              "подряд. В отличие от «Cast on…» — срабатывает по твоему нажатию, а не само.",
+        "en": "A [Persistent] skill that gathers [Energy] by its condition; then you press it and it spends the "
+              "energy to [Trigger] the socketed skills, several times if there is enough. Unlike \"Cast on…\" gems, "
+              "it goes off when you press it, not by itself."}),
+    ("Spirit", "skills", {"ru": "Дух", "en": "Spirit"}, {
+        "ru": "Запас для [Persistent|постоянных] умений: ауры, глашатаи, мета-камни, приспешники держат (резервируют) "
+              "часть духа, пока включены. Дух дают квесты, скипетры и некоторые предметы и пассивки. Не хватает духа "
+              "— не всё можно включить сразу.",
+        "en": "The pool for [Persistent] skills: auras, heralds, meta gems and minions reserve part of it while on. "
+              "Quests, sceptres and some items and passives give spirit. Too little spirit: not everything can be on "
+              "at once."}),
+    ("Persistent", "skills", {"ru": "Постоянные умения", "en": "Persistent skills"}, {
+        "ru": "Включаются на панели умений и действуют постоянно, а не применяются нажатием. Обычно держат часть "
+              "[Spirit|духа].",
+        "en": "Switched on in the skills panel and always active rather than used by a key. They usually reserve "
+              "part of your [Spirit]."}),
+    ("Aura", "skills", {"ru": "Ауры", "en": "Auras"}, {
+        "ru": "Постоянный эффект в радиусе: усиление тебе и союзникам или ослабление врагам вокруг тебя.",
+        "en": "A constant effect in a radius: a buff for you and allies or a debuff on enemies around you."}),
+    ("Curse", "skills", {"ru": "Проклятия", "en": "Curses"}, {
+        "ru": "Сильно ослабляют врага (например, снижают сопротивления). На враге может быть только одно проклятие "
+              "сразу; на редких и уникальных врагах оно слабее.",
+        "en": "Weaken an enemy a lot (lower resistances, for example). An enemy carries one curse at a time; it is "
+              "weaker on rares and uniques."}),
     # ---------- crafting ----------
     ("CurrencyGrades", "crafting", {"ru": "Обычные, большие и совершенные сферы",
                                     "en": "Regular, greater and perfect orbs"}, {

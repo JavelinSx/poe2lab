@@ -87,3 +87,21 @@ def test_one_option_per_support_family(titan):
         for stage in plan["stages"]:
             names = [o["name"].rstrip(" I") for o in stage["options"]]
             assert len(names) == len(set(names)), (plan["skill"], stage["level"], names)
+
+
+def test_meta_gems_say_what_feeds_their_energy():
+    """Cast on Elemental Ailment gains energy on freeze, shock and ignite: the build's own skills that inflict them
+    feed it; the spell it triggers, other meta gems and curses do not."""
+    from poe2lab.analysis.skills import meta_view
+    from poe2lab.profile import open_build
+    engine, _ = open_build(Path(__file__).resolve().parent / "fixtures" / "elemental-storm.txt")
+    groups = engine.skill_groups()
+    meta_view(groups)
+    metas = {g["meta"]["gem"]: g["meta"] for g in groups if g.get("meta")}
+    coea = metas["Cast on Elemental Ailment"]
+    assert coea["kind"] == "energy" and coea["socketed"] == ["Firestorm"]
+    assert set(coea["sources"]) == {"ignite", "shock", "freeze"} and not coea["missing"]
+    fed = {n for xs in coea["feeders"].values() for n in xs}
+    assert "Frost Bomb" in fed and not fed & {"Firestorm", "Living Bomb", "Elemental Invocation", "Elemental Weakness"}
+    assert metas["Blasphemy"]["kind"] == "aura" and metas["Blasphemy"]["socketed"] == ["Temporal Chains"]
+    assert metas["Spellslinger"]["sources"] == ["spell_cast"]

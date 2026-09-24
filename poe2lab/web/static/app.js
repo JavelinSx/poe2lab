@@ -1352,11 +1352,26 @@ function renderSkillsBuild(r) {
         return shown.length ? h("div", { class: "hint" }, t("skUnseen"), " ", shown.join("; ")) : null; })(),
       mechChips(gem), termChips(gem.terms));
   };
+  // a meta gem: what it does with the gems socketed in it, what fills its energy and what in the build does that
+  const metaBlock = (g) => {
+    const m = g.meta;
+    if (!m || (m.kind === "socketed" && !m.socketed.length)) return null;
+    const list = (xs) => xs.map(trName).join(", ");
+    return h("div", { class: "sk-meta" },
+      h("div", {}, h("b", {}, t("metaTitle_" + m.kind, trName(m.gem))),
+        m.socketed.length ? " " + t("metaSocketed", list(m.socketed)) : ""),
+      m.kind === "energy" && m.sources.length ? h("div", { class: "small" }, t("metaEnergy", m.sources.map((k) => t("metaSrc_" + k)).join(", "))) : null,
+      m.kind === "energy" ? Object.entries(m.feeders).filter(([, xs]) => xs.length).map(([k, xs]) =>
+        h("div", { class: "small muted" }, t("metaFeeds", t("metaSrc_" + k), list(xs)))) : null,
+      m.missing.length ? h("div", { class: "small neg-text" }, t("metaMissing", m.missing.map((k) => t("metaSrc_" + k)).join(", "))) : null,
+      termChips(m.kind === "energy" ? ["Meta", "Energy", "Trigger", "Invocation"] : m.kind === "aura" ? ["Meta", "Curse", "Aura"] : ["Meta"]));
+  };
   const cards = r.groups.filter((g) => g.gems.length).map((g) => h("div", { class: "card sk-group" + (g.enabled ? "" : " off") },
     h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
       g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
       g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
     g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
+    metaBlock(g),
     g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
     g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
       g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));

@@ -221,6 +221,62 @@ def _measure_group(engine, config, g: dict) -> int | None:
     return g["index"] if g["enabled"] and _own_dps(engine, config, g["index"]) > 0 else None
 
 
+# what fills a meta gem's energy, by its stat ids and description: (key, pattern, mechanic the build must create)
+META_SOURCES = [
+    ("ignite", r"on_ignite|ignite", "ignite"), ("shock", r"on_shock|shock", "shock"),
+    ("freeze", r"on_freeze|freeze", "freeze"), ("bleed", r"on_bleed|bleed", "bleed"),
+    ("poison", r"on_poison|poison", "poison"), ("crit", r"on_crit|critical", None),
+    ("spell_cast", r"cast_time|when you cast spells", None), ("minion_death", r"minion_death|minion dies", None),
+    ("block", r"on_block|when you block", None), ("kill", r"on_kill|when you kill", None),
+    ("hit_taken", r"when_hit|when you are hit|taking damage", None), ("dodge", r"dodge_roll|when you dodge", None),
+]
+
+
+def meta_view(groups: list[dict]) -> None:
+    """For each group led by a meta gem: what it does with the gems socketed in it (triggers them with energy,
+    turns curses into auras, or grants them), what fills its energy, and which of the build's own skills do that.
+    Not counted as feeders: meta gems themselves (their text names what feeds them), curses and auras (they inflict
+    nothing), and skills socketed in a meta gem (the game gives no energy for direct effects of triggered skills)."""
+    def meta_of(g):
+        return next((x for x in g["gems"] if not x["support"] and "Meta" in x.get("types", [])), None)
+
+    socketed = set()
+    for g in groups:
+        m = meta_of(g)
+        if m and set(m.get("types", [])) & {"Triggers", "GeneratesEnergy", "IsBlasphemy", "Aura"}:
+            socketed |= {x["name"] for x in g["gems"] if not x["support"] and x is not m}
+
+    def feeds(x):
+        types = set(x.get("types", []))
+        return (x["enabled"] and not x["support"] and "Meta" not in types and x["name"] not in socketed
+                and not types & {"AppliesCurse", "Aura", "Mark"})
+
+    for g in groups:
+        meta = meta_of(g)
+        if not meta:
+            continue
+        types = set(meta.get("types", []))
+        text = " ".join([meta.get("description", ""), *meta.get("stats", [])]).lower()
+        kind = ("energy" if types & {"Triggers", "GeneratesEnergy"} else
+                "aura" if types & {"IsBlasphemy", "Aura"} else "socketed")
+        info = {"gem": meta["name"], "kind": kind,
+                "socketed": [a["name"] for a in g["actives"] if a["name"] != meta["name"]],
+                "sources": [], "feeders": {}, "missing": []}
+        if kind == "energy":
+            others = [x for h in groups if h["enabled"] for x in h["gems"] if feeds(x)]
+            for key, pattern, mechanic in META_SOURCES:
+                if not re.search(pattern, text):
+                    continue
+                info["sources"].append(key)
+                if mechanic:
+                    info["feeders"][key] = sorted({x["name"] for x in others if mechanic in mechanics_of(x)["creates"]})
+                elif key == "spell_cast":
+                    info["feeders"][key] = sorted({x["name"] for x in others if "Spell" in x.get("types", [])})
+            mechanic_sources = [k for k, _, m in META_SOURCES if m and k in info["sources"]]
+            info["missing"] = [k for k in mechanic_sources if not info["feeders"].get(k)]
+        g["meta"] = info
+
+
 def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques: list[dict] = (),
                item_gaps: list[dict] = ()) -> dict:
     """Every socket group with its gems, what each support is worth, the unique items and the mechanics they take
@@ -269,7 +325,9 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
         for x in g["gems"]:
             x["mechanics"]["uses"] = [k for k in x["mechanics"]["uses"] if k not in generic or k in created]
     found = links(groups, items)
+    meta_view(groups)
     terms = {t for g in groups for x in g["gems"] for t in x["terms"]} | {t for it in items for t in it["terms"]}
+    terms |= {"Meta", "Energy", "Trigger", "Invocation", "Curse", "Aura"} if any(g.get("meta") for g in groups) else set()
     terms |= {t for l in found for t in l["terms"]}
     return {"groups": groups, "items": items, "links": found, "terms": kw.entries(terms),
             "mechanics": {m.key: {"name": m.name, "explain": m.explain} for m in MECHANICS}}
