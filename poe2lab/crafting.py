@@ -7,9 +7,10 @@ will add only prefix modifiers", "Perfect Essence: removes a random modifier and
 guaranteed modifier". Which mods can roll comes from PoB's data (base tags, item level, families); the minimum
 modifier level of Greater / Perfect currency (35 / 50) is not in the client files, it comes from public guides.
 
-PoE2 does not ship mod weights (the client's weight columns are empty). Here a tier's weight falls with its mod
-level - halving every TIER_HALF_LEVEL levels - after PoE1, where the high tiers are the rare ones. So chances are
-estimates; weights estimated from the player's own craft journal (poe2lab.journal) replace them once applied
+PoE2 does not ship mod weights (the client's weight columns only say whether a mod can roll). The craft journal
+(poe2lab.journal) measured them: in the first 458 draws (body armour, amulets, rings) the tiers of a family roll
+equally often - the top tier as often as any - while families differ (life, all resistances ~2.5x the average). So
+every tier weighs the same here unless weights estimated from the journal are applied; chances are estimates; weights estimated from the player's own craft journal (poe2lab.journal) replace them once applied
 (%APPDATA%/poe2lab/craft_weights.json: {mod id: weight})."""
 import bisect
 import itertools
@@ -26,8 +27,6 @@ from .data.moddb import Mod, ModDB
 WEIGHTS_FILE = Path(os.environ.get("APPDATA") or Path.home() / ".config") / "poe2lab" / "craft_weights.json"
 # minimum modifier level of the better currency grades (timesaver.gg, PoE2 0.5 currency guide)
 MIN_LEVEL = {"": 0, "Greater ": 35, "Perfect ": 50}
-# assumed weight of a tier: 0.5 ** (mod level / TIER_HALF_LEVEL), so a level 80 tier is ~9x rarer than a level 1 one
-TIER_HALF_LEVEL = 25
 SIDE_LIMIT = {"magic": 1, "rare": 3}  # modifiers per side
 # simulated attempts (one base each) per strategy: batches until enough successes for a steady chance, or the cap
 ATTEMPTS = 1500
@@ -46,7 +45,8 @@ def _weights() -> dict[str, float]:
 
 
 def tier_weight(level: int) -> float:
-    return 0.5 ** (level / TIER_HALF_LEVEL)
+    """A tier's weight without the journal's estimate: all alike (measured, see the module's note)."""
+    return 1.0
 
 
 @dataclass(frozen=True)

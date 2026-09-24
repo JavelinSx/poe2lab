@@ -52,11 +52,12 @@ def test_pick_keeps_sides_families_and_min_level():
     assert pool.pick(Item("rare", list(item.mods)), rng, side="Prefix") is None  # no room left
 
 
-def test_high_tiers_are_rarer():
+def test_tiers_roll_alike():
+    """Measured by the craft journal: the top tier rolls as often as the lowest."""
     pool = Pool(db(), TAGS, 82)
     rng = random.Random(3)
     got = Counter(pool.pick(Item("rare"), rng).level for _ in range(6000))
-    assert got[1] > 3 * got[80] > 0  # level 80 weighs 0.5 ** (79 / 25) ~ 1/9 of level 1
+    assert 0.8 < got[80] / got[1] < 1.25
 
 
 def test_item_level_limits_the_pool():
@@ -96,9 +97,8 @@ def test_changing_a_mod_on_a_worn_item():
     swap = crafting.modify_routes(d, pool, dese, [], "Boots", TAGS, 82, life, have, 3, 6, True, "Gnawed Rib")
     exalt = next(r for r in add["routes"] if r["k"] == "exalt_side")
     annul = next(r for r in swap["routes"] if r["k"] == "annul_exalt")
-    # with the prefix omen, one exalt hits life among the three free prefix families - its top 4 tiers of 5,
-    # the rarer ones (the lowest tier, left out, weighs most)
-    assert 0.1 < exalt["chance"] < 1 / 3 and exalt["risk"] == "slot"
+    # with the prefix omen, one exalt hits life among the three free prefix families - its top 4 tiers of 5
+    assert exalt["chance"] == pytest.approx(1 / 3 * 4 / 5) and exalt["risk"] == "slot"
     # a swap first has to annul the right one of three prefixes
     assert annul["chance"] == pytest.approx(exalt["chance"] / 3) and annul["risk"] == "mod"
     assert {r["k"] for r in add["routes"]} == {"exalt_side", "desecrate"}  # desecrated life exists

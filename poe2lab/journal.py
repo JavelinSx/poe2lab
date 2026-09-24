@@ -18,8 +18,8 @@ the journal but not counted: their mods did not roll freely.
 
 A draw picks mod m with chance w(m) / (sum of w over the mods allowed then: a family not yet on the item, a side
 with room). The weights are modelled as w(m) = exp(a[family] + b * level / 100): one number per mod family and a
-shared fall-off with the tier's level. The prior is the assumption crafting used so far (every family alike, a tier
-halving every 25 levels), so with few draws the estimate stays near it and moves as draws come in."""
+shared slope with the tier's level. The prior is what the first 458 draws showed and crafting assumes without an
+estimate: every family alike, every tier alike (no slope); with few draws the estimate stays near it."""
 import ctypes
 import ctypes.wintypes
 import itertools
@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import gamedata
-from .crafting import SIDE_LIMIT, TIER_HALF_LEVEL
+from .crafting import SIDE_LIMIT
 from .data.moddb import Mod, ModDB
 
 
@@ -473,7 +473,7 @@ def _read(p: Parsed, text: str, items: list[dict], db: ModDB):
 
 # ---------- estimating the weights ----------
 
-PRIOR_SLOPE = -math.log(2) * 100 / TIER_HALF_LEVEL  # b in w = exp(a + b * level / 100): halving every 25 levels
+PRIOR_SLOPE = 0.0  # b in w = exp(a + b * level / 100): tiers alike, as measured
 PRIOR_SD_FAMILY = 1.5  # a family's weight within ~x4.5 of the average, a priori
 PRIOR_SD_SLOPE = 1.5
 
