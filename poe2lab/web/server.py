@@ -21,7 +21,6 @@ from ..analysis.tree import analyse as analyse_tree
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.slots import craft_path, plan_all, plan_slot
 from ..analysis.sockets import plan_sockets
-from ..analysis.sources import describe as describe_sources
 from ..analysis.threats import MapProfile, survivable_hits
 from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
@@ -565,9 +564,29 @@ def gear(mode: str = "balanced", build: str | None = None):
             plans = plan_all(e, db, prof.config(), mode, weights, top=4, check_mana=check_mana)
             plans.sort(key=lambda p: SLOTS_ORDER.index(p.slot) if p.slot in SLOTS_ORDER else 99)
             path = []
+            by_slot = {p.slot: p for p in plans}
+            items = {i["slot"]: i for i in e.equipped_item_details()}
+            by_lines = {}
+            for m in db.mods:
+                by_lines.setdefault(tuple(m.lines), m)
+            pools = {}
             for s in craft_path(e, db, prof.config(), mode, weights, steps=6, check_mana=check_mana):
-                mod = by_id.get(s.mod_id)
-                path.append(asdict(s) | {"sources": describe_sources(db, essences, mod, s.item_type, prices) if mod else []})
+                mod, plan, item = by_id.get(s.mod_id), by_slot.get(s.slot), items.get(s.slot)
+                how = None
+                if mod and plan and item:
+                    # how to get it on the worn item: the chance per try (poe2lab.crafting.modify_routes)
+                    if s.slot not in pools:
+                        pools[s.slot] = (crafting.Pool(db, item["tags"], item["itemLevel"]),
+                                         crafting.Pool(db, item["tags"], item["itemLevel"], sets=("Desecrated",)))
+                    stay = [a for a in plan.affixes if a.lines != s.removed]
+                    have = {(m.group, m.patterns) for m in (by_lines.get(tuple(a.template)) for a in stay) if m}
+                    how = crafting.modify_routes(db, *pools[s.slot], essences, item["type"], item["tags"],
+                                                 item["itemLevel"], mod, have, plan.count(mod.type),
+                                                 len(plan.affixes), bool(s.removed), crafting.bone_for(item["type"]))
+                    for r in how["routes"]:
+                        found = [prices.get(n) if prices else None for n in r["n"]]
+                        r["prices"] = [prices.describe(x) if x else None for x in found]
+                path.append(asdict(s) | {"how": how})
             sockets = []
             for s in plan_sockets(e, prof.config(), mode, weights):
                 entry = asdict(s)

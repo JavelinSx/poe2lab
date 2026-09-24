@@ -638,15 +638,13 @@ TABS.gear = async (view) => {
   // the item a step is about, as its picture: many slots, so the eye finds the right one at once
   const slotItem = (slot) => (state.build.items || []).find((i) => i.slot === slot);
   const slotIcon = (slot) => { const it = slotItem(slot); return it ? itemIcon(it.name, it.baseName, it.rarity) : null; };
-  // "эссенция X: ..." gets the essence's picture
-  const source = (src) => { const m = src.match(/^эссенция (.+?):/); return h("span", { class: "named" }, m ? icon(m[1]) : null, trSource(src)); };
   const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
     g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", { class: "step-body" },
       h("div", { class: "what" }, slotIcon(s.slot), chip("tag", slotName(s.slot)), " ",
         s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, trMod(s.removed.join(" / "))), " → ") : t("craftAdd"),
         h("span", { class: "mod" }, trMod(s.added.join(" / ")))),
       deltas(s.changes),
-      s.sources.length ? h("div", { class: "src" }, t("from"), h("ul", { class: "src-list" }, s.sources.map((x) => h("li", {}, source(x))))) : null)))) : h("p", { class: "muted" }, t("nothingToCraft")));
+      howBlock(s.how))))) : h("p", { class: "muted" }, t("nothingToCraft")));
 
   const socketCard = h("div", { class: "card" }, h("h3", {}, t("socketsTitle")),
     h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", trName(g.prices.league)) : "")),
@@ -720,6 +718,23 @@ function craftGuide() {
     card.querySelector(".sub").append(r.league ? t("prices", trName(r.league)) : "");
   }).catch(() => { /* no prices: the guide still reads */ });
   return card;
+}
+
+// ---------- changing a mod on a worn item: the ways, the chance per try, a verdict ----------
+const VERDICT_CHIP = { worth: "ok", risky: "priority", lottery: "must" };
+const chanceText = (p) => `${fmt(p * 100, p >= 0.1 ? 0 : p >= 0.01 ? 1 : 2)}%`;
+
+function howBlock(how) {
+  if (!how) return null;
+  return h("div", { class: "src" },
+    h("div", { class: "how-verdict" }, chip(VERDICT_CHIP[how.verdict], t("rtVerdict_" + how.verdict)), " ",
+      h("span", { class: "muted small" }, t("rtVerdictHint_" + how.verdict))),
+    how.routes.length ? h("ul", { class: "src-list how-routes" }, how.routes.map((r) => h("li", {},
+      withItems(t("rt_" + r.k, r.mod ? trMod(r.mod) : ""), r.n), " — ", h("b", {}, t("rtChance", chanceText(r.chance))),
+      r.echoes ? h("span", { class: "muted" }, " " + t("rtEchoes", chanceText(r.echoes))) : null,
+      h("span", { class: "muted" }, " " + t("rtRisk_" + r.risk)),
+      h("div", { class: "muted small" }, t("g_prices"), " ", r.n.map((n, i) => r.prices[i]
+        ? h("span", { class: "guide-price" }, icon(n), trFree(r.prices[i]), " ") : null))))) : null);
 }
 
 // ---------- crafting a slot's item from a white base ----------

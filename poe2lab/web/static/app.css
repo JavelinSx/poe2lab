@@ -467,3 +467,7 @@ details > summary .ico { margin-left: 2px; }
 .craft-guide .named .ico, .guide-price .ico { width: 20px; height: 20px; vertical-align: middle; margin-right: 3px; }
 .guide-prices { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
 .guide-price { white-space: nowrap; }
+.chip.ok { background: rgba(95, 201, 141, .14); color: var(--good); }
+.how-verdict { margin: 4px 0 2px; }
+.how-routes .named { display: inline; }
+.how-routes .named .ico, .how-routes .guide-price .ico { width: 18px; height: 18px; vertical-align: middle; margin-right: 2px; }

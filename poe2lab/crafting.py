@@ -347,6 +347,57 @@ GUIDE_ITEMS = ["Orb of Transmutation", "Orb of Augmentation", "Regal Orb", "Exal
                "Greater Essence of the Body", "Perfect Essence of the Body"]
 
 
+# changing a mod on an item already worn: each way's chance per try, and what a miss costs
+SIDE_EXALT = {"Prefix": "Omen of Sinistral Exaltation", "Suffix": "Omen of Dextral Exaltation"}
+SIDE_ANNUL = {"Prefix": "Omen of Sinistral Annulment", "Suffix": "Omen of Dextral Annulment"}
+SIDE_NECRO = {"Prefix": "Omen of Sinistral Necromancy", "Suffix": "Omen of Dextral Necromancy"}
+WORTH, RISKY = 0.25, 0.08  # best chance per try: worth a try / risky / a lottery (buy or craft from a white base)
+
+
+def modify_routes(db: ModDB, pool: Pool, desecrated: Pool | None, essences: list[dict], item_type: str,
+                  base_tags, item_level: int, mod: Mod, have: set, side_count: int, total_mods: int,
+                  replace: bool, bone: str | None = None) -> dict:
+    """The ways to get `mod`'s family (at a good tier for the item level) onto a worn rare, with the chance per try.
+    `have`: the item's mod families that stay; `side_count` / `total_mods`: its mods on that side / in all.
+    Adding to a free slot: an exalt with the side omen - a miss takes the slot. Replacing: annul with the side omen
+    (removes the wrong mod 1 time in side_count) and then exalt; or a perfect essence (removes a random mod of all)."""
+    tiers = [m for m in db.tiers_of(mod, base_tags) if m.level <= item_level][:QUALITY_TIERS["good"]]
+    if not tiers:
+        return {"routes": [], "verdict": "lottery", "chance": 0.0, "minLevel": None}
+    family, side, min_level = (mod.group, mod.patterns), mod.type, tiers[-1].level
+    rows = [r for r in pool.rows if r[1] == side and r[2] not in have]
+    total = sum(r[5] for r in rows)
+    exalt = sum(r[5] for r in rows if r[2] == family and r[3] >= min_level) / total if total else 0.0
+    routes = []
+    if replace:
+        routes.append({"k": "annul_exalt", "n": ["Orb of Annulment", SIDE_ANNUL[side], "Exalted Orb", SIDE_EXALT[side]],
+                       "chance": exalt / max(side_count, 1), "risk": "mod"})
+        by_id = {m.id: m for m in db.mods}
+        for es in essences:
+            given = by_id.get(es["mods"].get(item_type, ""))
+            if (es["name"].startswith("Perfect") and given and (given.group, given.patterns) == family
+                    and given.level >= min_level):
+                routes.append({"k": "perfect_essence", "n": [es["name"]], "chance": 1 / max(total_mods, 1),
+                               "risk": "mod", "mod": " / ".join(given.lines)})
+                break
+    else:
+        routes.append({"k": "exalt_side", "n": ["Exalted Orb", SIDE_EXALT[side]], "chance": exalt, "risk": "slot"})
+    if desecrated and bone:
+        drows = [r for r in desecrated.rows if r[1] == side and r[2] not in have]
+        dtotal = sum(r[5] for r in drows)
+        q = sum(r[5] for r in drows if r[2] == family) / dtotal if dtotal else 0.0
+        if q:  # three options revealed, one chosen; the echoes omen rerolls them once
+            room = 1 / max(side_count, 1) if replace else 1.0  # replacing: the annul must hit the right mod first
+            necro = [bone, SIDE_NECRO[side], "Omen of Abyssal Echoes"]
+            routes.append({"k": "annul_desecrate" if replace else "desecrate",
+                           "n": (["Orb of Annulment", SIDE_ANNUL[side]] if replace else []) + necro,
+                           "chance": room * (1 - (1 - q) ** 3), "echoes": room * (1 - (1 - q) ** 6),
+                           "risk": "mod" if replace else "slot"})
+    best = max((r["chance"] for r in routes), default=0.0)
+    verdict = "worth" if best >= WORTH else "risky" if best >= RISKY else "lottery"
+    return {"routes": routes, "verdict": verdict, "chance": best, "minLevel": min_level}
+
+
 def bone_for(item_type: str) -> str | None:
     if item_type in ("Ring", "Amulet", "Belt"):
         return BONE["Jewellery"]

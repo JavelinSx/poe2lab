@@ -87,6 +87,25 @@ def test_strategies_with_an_essence_and_bones():
         assert s.steps[-1]["n"] == ["Gnawed Rib", "Omen of Abyssal Echoes"]
 
 
+def test_changing_a_mod_on_a_worn_item():
+    d = db()
+    pool, dese = Pool(d, TAGS, 82), Pool(d, TAGS, 82, sets=("Desecrated",))
+    life = next(m for m in d.mods if m.id == "Life4")
+    have = {("Armour", next(m for m in d.mods if m.group == "Armour").patterns)}
+    add = crafting.modify_routes(d, pool, dese, [], "Boots", TAGS, 82, life, have, 1, 4, False, "Gnawed Rib")
+    swap = crafting.modify_routes(d, pool, dese, [], "Boots", TAGS, 82, life, have, 3, 6, True, "Gnawed Rib")
+    exalt = next(r for r in add["routes"] if r["k"] == "exalt_side")
+    annul = next(r for r in swap["routes"] if r["k"] == "annul_exalt")
+    # with the prefix omen, one exalt hits life among the three free prefix families - its top 4 tiers of 5,
+    # the rarer ones (the lowest tier, left out, weighs most)
+    assert 0.1 < exalt["chance"] < 1 / 3 and exalt["risk"] == "slot"
+    # a swap first has to annul the right one of three prefixes
+    assert annul["chance"] == pytest.approx(exalt["chance"] / 3) and annul["risk"] == "mod"
+    assert {r["k"] for r in add["routes"]} == {"exalt_side", "desecrate"}  # desecrated life exists
+    # a swap is always a worse bet than filling a free slot
+    assert swap["chance"] < add["chance"] and add["verdict"] in ("worth", "risky")
+
+
 def test_price_in_divines():
     s = crafting.Strategy("x", [], use={"Exalted Orb": 10, "Omen": 1}, p90={"Exalted Orb": 30, "Omen": 3})
     prices = {"Exalted Orb": Price(0.01, False)}

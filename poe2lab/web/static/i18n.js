@@ -264,8 +264,19 @@ const I18N = {
     condOff: "Выключены в PoB — если в игре это обычно правда, урон выше:", condOn: "Включены — PoB считает выполненными:",
     investTitle: "Куда вкладываться", investSub: "Ценность одного типичного аффикса для выбранной цели.",
     calcGear: "Разбираю аффиксы, путь крафта и сокеты (~20 с, дальше из кэша)…",
-    craftTitle: "Путь крафта по всем слотам", craftSub: "Только предметы без порчи. Целевой набор аффиксов, не процедура крафта.",
-    craftAdd: "докрафтить ", from: "откуда: ", nothingToCraft: "Улучшать крафтом нечего.",
+    craftTitle: "Что улучшить в снаряжении", craftSub: "Какой мод на какой сменить — по пользе для билда, каждый шаг с учётом предыдущих. Предметы с порчей пропущены. Это прежде всего цели для покупки: менять мод на готовой вещи — лотерея (отмена снимает случайный мод, возвышение добавляет случайный), у каждого шага указан шанс. Если вещь уже почти вся из нужных модов, выгоднее купить готовую с нужным модом или скрафтить новую с белой базы.",
+    craftAdd: "добавить ", nothingToCraft: "Улучшать нечего.",
+    rtVerdict_worth: "стоит попробовать", rtVerdict_risky: "рискованно", rtVerdict_lottery: "лотерея",
+    rtVerdictHint_worth: "хороший шанс с первой попытки",
+    rtVerdictHint_risky: "может не выйти с нескольких попыток — прикинь цену готовой вещи",
+    rtVerdictHint_lottery: "дешевле купить вещь с этим модом или скрафтить с белой базы (кнопка в карточке слота)",
+    rtChance: (p) => `шанс ~${p} за попытку`, rtEchoes: (p) => `(с переброской — ~${p})`,
+    rtRisk_slot: "· промах займёт свободное место", rtRisk_mod: "· промах может снять нужный мод", rtRisk_: "",
+    rt_exalt_side: "{0} с {1} на свободное место",
+    rt_annul_exalt: "{0} с {1} (снимет случайный мод этой стороны), затем {2} с {3}",
+    rt_perfect_essence: (mod) => `{0}: снимет случайный мод из всех и добавит «${mod}»`,
+    rt_desecrate: "{0} с {1}: при раскрытии выбрать нужный из трёх; {2} — перебросить варианты",
+    rt_annul_desecrate: "{0} с {1}, затем {2} с {3}: выбрать нужный из трёх; {4} — перебросить варианты",
     socketsTitle: "Руны и соул-коры", socketsSub: "Предметы с порчей пропущены.", prices: (l) => ` Цены: poe.ninja, ${l}.`,
     socketNow: (i) => ` сокет ${i}: сейчас `, gives: (v) => ` (даёт ${v})`, nothingBetter: "лучше текущей вставки ничего нет",
     noSockets: "Сокетов на предметах, которые можно менять, нет.",
@@ -571,8 +582,19 @@ const I18N = {
     condOff: "Off in PoB — if usually true in game, damage is higher:", condOn: "On — PoB assumes them:",
     investTitle: "Where to invest", investSub: "Value of one typical affix for the chosen goal.",
     calcGear: "Analysing affixes, crafting path and sockets (~20 s, cached afterwards)…",
-    craftTitle: "Crafting path across slots", craftSub: "Uncorrupted items only. A target affix set, not a crafting procedure.",
-    craftAdd: "craft ", from: "from: ", nothingToCraft: "Nothing to improve by crafting.",
+    craftTitle: "What to improve in the gear", craftSub: "Which mod to change for which, by value to the build, each step counting the ones before. Corrupted items are skipped. These are first of all things to buy: changing a mod on a finished item is a lottery (annulment removes a random mod, an exalt adds a random one), each step shows its chance. If the item is already nearly all wanted mods, buying one with the mod or crafting a new one from a white base is cheaper.",
+    craftAdd: "add ", nothingToCraft: "Nothing to improve.",
+    rtVerdict_worth: "worth a try", rtVerdict_risky: "risky", rtVerdict_lottery: "lottery",
+    rtVerdictHint_worth: "a good chance on the first try",
+    rtVerdictHint_risky: "may take several tries: compare with the price of a finished item",
+    rtVerdictHint_lottery: "buying an item with this mod or crafting from a white base is cheaper (button in the slot card)",
+    rtChance: (p) => `~${p} chance per try`, rtEchoes: (p) => `(with the reroll ~${p})`,
+    rtRisk_slot: "· a miss takes the free slot", rtRisk_mod: "· a miss may remove a wanted mod", rtRisk_: "",
+    rt_exalt_side: "{0} with {1} into the free slot",
+    rt_annul_exalt: "{0} with {1} (removes a random mod of that side), then {2} with {3}",
+    rt_perfect_essence: (mod) => `{0}: removes a random mod of all and adds "${mod}"`,
+    rt_desecrate: "{0} with {1}: on reveal pick the right one of three; {2} rerolls the options",
+    rt_annul_desecrate: "{0} with {1}, then {2} with {3}: pick the right one of three; {4} rerolls the options",
     socketsTitle: "Runes and soul cores", socketsSub: "Corrupted items are skipped.", prices: (l) => ` Prices: poe.ninja, ${l}.`,
     socketNow: (i) => ` socket ${i}: now `, gives: (v) => ` (gives ${v})`, nothingBetter: "nothing beats the current one",
     noSockets: "No sockets on items that can be changed.",
@@ -775,18 +797,6 @@ const FREE_RU = [
   [/(\d) div\b/g, "$1 бож."],
   [/(\d|<1) ex\b/g, "$1 возв."],
 ];
-
-// "обычный ролл: MOD (нужен уровень предмета N+)" / "эссенция NAME: MOD — price" / "desecration: MOD"
-function trSource(src) {
-  if (LANG === "en") return src;
-  let m = src.match(/^обычный ролл: (.+?)( \(нужен уровень предмета \d+\+\))?$/);
-  if (m) return `обычный ролл: ${trMod(m[1])}${m[2] || ""}`;
-  m = src.match(/^эссенция (.+?): (.+?)( — .+)?$/);
-  if (m) return `эссенция ${trName(m[1])}: ${trMod(m[2])}${trFree(m[3] || "")}`;
-  m = src.match(/^desecration: (.+)$/);
-  if (m) return `осквернение: ${trMod(m[1])}`;
-  return trFree(src);
-}
 
 let LANG = "ru";
 try { LANG = localStorage.getItem("poe2lab.lang") || "ru"; } catch (_) { /* storage blocked */ }
