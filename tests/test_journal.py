@@ -132,7 +132,8 @@ def test_estimate_moves_towards_what_rolls(db):
     others = [f for f in result["families"] if f["group"] != "IncreasedLife"]
     assert all(f["factor"] < 1 for f in others)
     assert result["classes"]["Gloves"] == {"records": 40, "draws": 40}
-    assert result["weights"] and all(w > 0 for w in result["weights"].values())
+    assert set(result["weights"]) == {"weapon", "other"} and result["kindDraws"] == {"weapon": 0, "other": 40}
+    assert all(w > 0 for w in result["weights"]["other"].values())
 
 
 @pytest.fixture

@@ -576,8 +576,9 @@ def gear(mode: str = "balanced", build: str | None = None):
                 if mod and plan and item:
                     # how to get it on the worn item: the chance per try (poe2lab.crafting.modify_routes)
                     if s.slot not in pools:
-                        pools[s.slot] = (crafting.Pool(db, item["tags"], item["itemLevel"]),
-                                         crafting.Pool(db, item["tags"], item["itemLevel"], sets=("Desecrated",)))
+                        pools[s.slot] = (crafting.Pool(db, item["tags"], item["itemLevel"], item_type=item["type"]),
+                                         crafting.Pool(db, item["tags"], item["itemLevel"], sets=("Desecrated",),
+                                                       item_type=item["type"]))
                     stay = [a for a in plan.affixes if a.lines != s.removed]
                     have = {(m.group, m.patterns) for m in (by_lines.get(tuple(a.template)) for a in stay) if m}
                     how = crafting.modify_routes(db, *pools[s.slot], essences, item["type"], item["tags"],
@@ -838,8 +839,8 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quali
                                 m.patterns == t.patterns and m.level >= t.min_level), None)
                 if essence:
                     break
-            pool = crafting.Pool(db, item["tags"], item_level)
-            desecrated = crafting.Pool(db, item["tags"], item_level, sets=("Desecrated",))
+            pool = crafting.Pool(db, item["tags"], item_level, item_type=item["type"])
+            desecrated = crafting.Pool(db, item["tags"], item_level, sets=("Desecrated",), item_type=item["type"])
             wanted = max(1, min(need, len(targets)))
             found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated,
                                         crafting.bone_for(item["type"]))

@@ -8,10 +8,11 @@ guaranteed modifier". Which mods can roll comes from PoB's data (base tags, item
 modifier level of Greater / Perfect currency (35 / 50) is not in the client files, it comes from public guides.
 
 PoE2 does not ship mod weights (the client's weight columns only say whether a mod can roll). The craft journal
-(poe2lab.journal) measured them: in the first 458 draws (body armour, amulets, rings) the tiers of a family roll
-equally often - the top tier as often as any - while families differ (life, all resistances ~2.5x the average). So
-every tier weighs the same here unless weights estimated from the journal are applied; chances are estimates; weights estimated from the player's own craft journal (poe2lab.journal) replace them once applied
-(%APPDATA%/poe2lab/craft_weights.json: {mod id: weight})."""
+(poe2lab.journal) measured them. In 1285 draws the tiers of a mod roll equally often on armour and jewellery (the top
+tier as often as any), while on weapons a tier's weight halves about every 50 mod levels; mod families differ (life,
+all resistances ~2.5x the average). That is the default here; weights estimated from the player's own journal replace
+it once applied (%APPDATA%/poe2lab/craft_weights.json: {"weapon" | "other": {mod id: weight}}). Chances are
+estimates."""
 import bisect
 import itertools
 import json
@@ -37,16 +38,28 @@ GREATER_EXALT = "Omen of Greater Exaltation"  # the next Exalted Orb adds two ra
 BONE = {"Weapon": "Gnawed Jawbone", "Armour": "Gnawed Rib", "Jewellery": "Gnawed Collarbone"}
 
 
-def _weights() -> dict[str, float]:
+# item classes counted as weapons: their tiers fall with level (measured), the rest's do not
+WEAPONS = {"Bow", "Claw", "Crossbow", "Dagger", "Flail", "One Hand Axe", "One Hand Mace", "One Hand Sword", "Sceptre",
+           "Spear", "Staff", "Talisman", "Two Hand Axe", "Two Hand Mace", "Two Hand Sword", "Wand"}
+WEAPON_HALF_LEVEL = 50
+
+
+def is_weapon(item_type: str) -> bool:
+    return item_type in WEAPONS
+
+
+def _weights(kind: str) -> dict[str, float]:
+    """The applied journal weights for "weapon" or "other" items ({} when none)."""
     try:
-        return json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return data.get(kind, {}) if isinstance(data.get(kind), dict) else {}
 
 
-def tier_weight(level: int) -> float:
-    """A tier's weight without the journal's estimate: all alike (measured, see the module's note)."""
-    return 1.0
+def tier_weight(level: int, weapon: bool = False) -> float:
+    """A tier's weight without the journal's estimate (measured, see the module's note)."""
+    return 0.5 ** (level / WEAPON_HALF_LEVEL) if weapon else 1.0
 
 
 @dataclass(frozen=True)
@@ -74,10 +87,11 @@ class Item:
 class Pool:
     """The mods that can roll on one base at one item level, with their weights."""
 
-    def __init__(self, db: ModDB, base_tags, item_level: int, sets=("Item",)):
-        weights = _weights()
+    def __init__(self, db: ModDB, base_tags, item_level: int, sets=("Item",), item_type: str = ""):
+        weapon = is_weapon(item_type)
+        weights = _weights("weapon" if weapon else "other")
         self.mods = [m for m in db.rollable(base_tags, item_level, sets)]
-        self.weight = {m.id: float(weights.get(m.id, tier_weight(m.level))) for m in self.mods}
+        self.weight = {m.id: float(weights.get(m.id, tier_weight(m.level, weapon))) for m in self.mods}
         self.family_top = {}
         for m in self.mods:
             key = (m.group, m.patterns)

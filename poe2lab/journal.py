@@ -17,9 +17,10 @@ Items with essence, desecrated, fractured or crafted mods, uniques, corrupted an
 the journal but not counted: their mods did not roll freely.
 
 A draw picks mod m with chance w(m) / (sum of w over the mods allowed then: a family not yet on the item, a side
-with room). The weights are modelled as w(m) = exp(a[family] + b * level / 100): one number per mod family and a
-shared slope with the tier's level. The prior is what the first 458 draws showed and crafting assumes without an
-estimate: every family alike, every tier alike (no slope); with few draws the estimate stays near it."""
+with room). The weights are modelled as w(m) = exp(a[family] + b[kind] * level / 100): one number per mod family
+and a slope with the tier's level for weapons and one for the other items. The prior is what 1285 draws showed and
+crafting assumes without an estimate: families alike, a weapon tier halving every 50 levels, other tiers alike; with
+few draws the estimate stays near it."""
 import ctypes
 import ctypes.wintypes
 import itertools
@@ -34,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import gamedata
-from .crafting import SIDE_LIMIT
+from .crafting import SIDE_LIMIT, WEAPON_HALF_LEVEL, is_weapon
 from .data.moddb import Mod, ModDB
 
 
@@ -473,13 +474,18 @@ def _read(p: Parsed, text: str, items: list[dict], db: ModDB):
 
 # ---------- estimating the weights ----------
 
-PRIOR_SLOPE = 0.0  # b in w = exp(a + b * level / 100): tiers alike, as measured
+# b in w = exp(a + b * level / 100), as measured: weapons halve every 50 levels, the other items' tiers are alike
+PRIOR_SLOPE = {"weapon": -math.log(2) * 100 / WEAPON_HALF_LEVEL, "other": 0.0}
 PRIOR_SD_FAMILY = 1.5  # a family's weight within ~x4.5 of the average, a priori
 PRIOR_SD_SLOPE = 1.5
 
 
 def family(m: Mod) -> tuple:
     return m.group, m.patterns
+
+
+def kind_of(item_class: str) -> str:
+    return "weapon" if is_weapon(item_class) else "other"
 
 
 class Model:
@@ -492,7 +498,7 @@ class Model:
             for m in self._pool(s):
                 self.families.setdefault(family(m), len(self.families))
         self.a = [0.0] * len(self.families)
-        self.b = PRIOR_SLOPE
+        self.b = dict(PRIOR_SLOPE)
 
     def _pool(self, s: Sample) -> list[Mod]:
         key = (s.tags, s.item_level)
@@ -500,28 +506,31 @@ class Model:
             self.pools[key] = self.db.rollable(s.tags, s.item_level)
         return self.pools[key]
 
-    def _draw(self, pool, have: list[Mod], rarity: str, pick: Mod):
+    def _w(self, m: Mod, kind: str) -> float:
+        i = self.families.get(family(m))
+        return math.exp((self.a[i] if i is not None else 0.0) + self.b[kind] * m.level / 100)
+
+    def _draw(self, pool, have: list[Mod], rarity: str, pick: Mod, kind: str):
         """log p(pick) and its gradient pieces: the allowed mods' probabilities."""
         limit = SIDE_LIMIT[rarity]
         fams = {family(m) for m in have}
         room = {k for k in ("Prefix", "Suffix") if sum(m.type == k for m in have) < limit}
         allowed = [m for m in pool if m.type in room and family(m) not in fams]
-        ws = [math.exp(self.a[self.families[family(m)]] + self.b * m.level / 100) for m in allowed]
+        ws = [self._w(m, kind) for m in allowed]
         total = sum(ws)
         if pick not in allowed or total <= 0:
             return None
-        w = math.exp(self.a[self.families[family(pick)]] + self.b * pick.level / 100)
-        return math.log(w / total), allowed, [x / total for x in ws]
+        return math.log(self._w(pick, kind) / total), allowed, [x / total for x in ws]
 
     def _sample(self, s: Sample):
         """log-likelihood of one sample (summed over the orders its mods may have come in) and, per order, the
         draws with their weight in that sum - for the gradient."""
-        pool = self._pool(s)
+        pool, kind = self._pool(s), kind_of(s.item_class)
         orders = []
         for order in itertools.permutations(s.added):
             have, logp, draws = list(s.given), 0.0, []
             for pick in order:
-                d = self._draw(pool, have, s.rarity, pick)
+                d = self._draw(pool, have, s.rarity, pick, kind)
                 if d is None:
                     logp = None
                     break
@@ -542,14 +551,14 @@ class Model:
         sd = [PRIOR_SD_FAMILY] * n
         for _ in range(iterations):
             ga, ha = [0.0] * n, [0.0] * n
-            gb, hb = 0.0, 0.0
+            gb, hb = {k: 0.0 for k in self.b}, {k: 0.0 for k in self.b}
             for s in self.samples:
+                kind = kind_of(s.item_class)
                 _, orders = self._sample(s)
                 for weight, draws in orders:
                     for pick, allowed, probs in draws:
                         i = self.families[family(pick)]
                         ga[i] += weight
-                        gb += weight * pick.level / 100
                         mean_level = sum(p * m.level / 100 for m, p in zip(allowed, probs))
                         share = {}
                         for m, p in zip(allowed, probs):
@@ -558,8 +567,8 @@ class Model:
                         for j, q in share.items():
                             ga[j] -= weight * q
                             ha[j] += weight * q * (1 - q)
-                        gb -= weight * mean_level
-                        hb += weight * sum(p * (m.level / 100 - mean_level) ** 2 for m, p in zip(allowed, probs))
+                        gb[kind] += weight * (pick.level / 100 - mean_level)
+                        hb[kind] += weight * sum(p * (m.level / 100 - mean_level) ** 2 for m, p in zip(allowed, probs))
             step = 0.0
             for j in range(n):
                 g = ga[j] - self.a[j] / PRIOR_SD_FAMILY ** 2
@@ -568,16 +577,15 @@ class Model:
                 self.a[j] += d
                 step = max(step, abs(d))
                 sd[j] = 1 / math.sqrt(h)
-            g = gb - (self.b - PRIOR_SLOPE) / PRIOR_SD_SLOPE ** 2
-            h = hb + 1 / PRIOR_SD_SLOPE ** 2
-            self.b += max(-1.0, min(1.0, g / h))
+            for k in self.b:
+                g = gb[k] - (self.b[k] - PRIOR_SLOPE[k]) / PRIOR_SD_SLOPE ** 2
+                h = hb[k] + 1 / PRIOR_SD_SLOPE ** 2
+                d = max(-1.0, min(1.0, g / h))
+                self.b[k] += d
+                step = max(step, abs(d))
             if step < 1e-3:
                 break
         return sd
-
-    def weight(self, m: Mod) -> float:
-        i = self.families.get(family(m))
-        return math.exp((self.a[i] if i is not None else 0.0) + self.b * m.level / 100)
 
 
 def estimate(db: ModDB, samples: list[Sample]) -> dict:
@@ -596,15 +604,18 @@ def estimate(db: ModDB, samples: list[Sample]) -> dict:
         families.append({"family": names.get(f, f[0]), "group": f[0], "factor": math.exp(model.a[i]),
                          "spread": math.exp(sd[i]) - 1, "seen": drawn.get(f, 0)})
     families.sort(key=lambda x: (-x["seen"], x["family"]))
-    classes = {}
+    classes, kinds = {}, {"weapon": 0, "other": 0}
     for s in samples:
         c = classes.setdefault(s.item_class, {"records": 0, "draws": 0})
         c["records"] += 1
         c["draws"] += len(s.added)
-    weights = {m.id: model.weight(m) for m in db.mods if m.set == "Item"}
+        kinds[kind_of(s.item_class)] += len(s.added)
+    items = [m for m in db.mods if m.set == "Item"]
+    weights = {k: {m.id: model._w(m, k) for m in items} for k in model.b}
+    # a tier's weight halves every N levels (None: high tiers are no rarer); with the draws each kind had
+    half = {k: (-math.log(2) * 100 / b if b < 0 else None) for k, b in model.b.items()}
     return {"time": time.time(), "draws": sum(len(s.added) for s in samples), "samples": len(samples),
-            "halfLevel": -math.log(2) * 100 / model.b if model.b < 0 else None,
-            "families": families, "classes": classes, "weights": weights}
+            "halfLevel": half, "kindDraws": kinds, "families": families, "classes": classes, "weights": weights}
 
 
 def save_estimate(result: dict):

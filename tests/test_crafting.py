@@ -60,6 +60,14 @@ def test_tiers_roll_alike():
     assert 0.8 < got[80] / got[1] < 1.25
 
 
+def test_weapon_tiers_fall_with_level():
+    """Measured by the craft journal: on weapons a tier weighs half as much every 50 levels."""
+    pool = Pool(db(), TAGS, 82, item_type="Two Hand Mace")
+    by_level = {m.level: pool.weight[m.id] for m in pool.mods}
+    assert by_level[80] / by_level[1] == pytest.approx(0.5 ** (79 / 50))
+    assert crafting.is_weapon("Wand") and not crafting.is_weapon("Focus") and not crafting.is_weapon("Ring")
+
+
 def test_item_level_limits_the_pool():
     pool = Pool(db(), TAGS, 30)
     assert max(m.level for m in pool.mods) == 20
