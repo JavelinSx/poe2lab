@@ -1639,7 +1639,7 @@ async function journalPage(view) {
       j.applied ? chip("ok", t("jnApplied")) : null),
     est ? h("div", {},
       h("p", { class: "small" }, t("jnEstimated", est.draws, new Date(est.time * 1000).toLocaleString(locale())),
-        est.halfLevel ? " " + t("jnHalfLevel", fmt(est.halfLevel)) : ""),
+        " " + (est.halfLevel ? t("jnHalfLevel", fmt(est.halfLevel)) : t("jnNoFalloff"))),
       seen.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", { class: "num" }, t("jnSeen")),
         h("th", { class: "num" }, t("jnFactor")), h("th", { class: "num" }, t("jnSpread")))),
         h("tbody", {}, seen.slice(0, 40).map((f) => h("tr", {}, h("td", { class: "mod" }, trMod(f.family)),
