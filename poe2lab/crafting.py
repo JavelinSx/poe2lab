@@ -7,8 +7,11 @@ will add only prefix modifiers", "Perfect Essence: removes a random modifier and
 guaranteed modifier". Which mods can roll comes from PoB's data (base tags, item level, families); the minimum
 modifier level of Greater / Perfect currency (35 / 50) is not in the client files, it comes from public guides.
 
-PoE2 does not ship mod weights: every tier weighs the same here (as most tiers did in PoE1). So chances are
+PoE2 does not ship mod weights (the client's weight columns are empty). Here a tier's weight falls with its mod
+level - halving every TIER_HALF_LEVEL levels - after PoE1, where the high tiers are the rare ones. So chances are
 estimates; a file with real weights (data/craft_weights.json: {mod id: weight}) replaces them when present."""
+import bisect
+import itertools
 import json
 import math
 import random
@@ -22,8 +25,13 @@ from .pobfiles import REPO_ROOT
 WEIGHTS_FILE = REPO_ROOT / "data" / "craft_weights.json"
 # minimum modifier level of the better currency grades (timesaver.gg, PoE2 0.5 currency guide)
 MIN_LEVEL = {"": 0, "Greater ": 35, "Perfect ": 50}
+# assumed weight of a tier: 0.5 ** (mod level / TIER_HALF_LEVEL), so a level 80 tier is ~9x rarer than a level 1 one
+TIER_HALF_LEVEL = 25
 SIDE_LIMIT = {"magic": 1, "rare": 3}  # modifiers per side
-ATTEMPTS = 1500  # simulated attempts (one base each) per strategy
+# simulated attempts (one base each) per strategy: batches until enough successes for a steady chance, or the cap
+ATTEMPTS = 1500
+MAX_ATTEMPTS = 15000
+ENOUGH_SUCCESSES = 40
 MAX_TRIES = 40  # fresh bases a player would burn before giving up on a strategy
 SIDE_OMEN = {("Exalted", "Prefix"): "Omen of Sinistral Exaltation", ("Exalted", "Suffix"): "Omen of Dextral Exaltation",
              ("Regal", "Prefix"): "Omen of Sinistral Coronation", ("Regal", "Suffix"): "Omen of Dextral Coronation",
@@ -38,6 +46,10 @@ def _weights() -> dict[str, float]:
         return json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+
+
+def tier_weight(level: int) -> float:
+    return 0.5 ** (level / TIER_HALF_LEVEL)
 
 
 @dataclass(frozen=True)
@@ -68,7 +80,7 @@ class Pool:
     def __init__(self, db: ModDB, base_tags, item_level: int, sets=("Item",)):
         weights = _weights()
         self.mods = [m for m in db.rollable(base_tags, item_level, sets)]
-        self.weight = {m.id: float(weights.get(m.id, 1.0)) for m in self.mods}
+        self.weight = {m.id: float(weights.get(m.id, tier_weight(m.level))) for m in self.mods}
         self.family_top = {}
         for m in self.mods:
             key = (m.group, m.patterns)
@@ -77,6 +89,7 @@ class Pool:
         # (mod, side, family, level, family's best level, weight): what pick() filters, precomputed
         self.rows = [(m, m.type, (m.group, m.patterns), m.level, self.family_top[(m.group, m.patterns)],
                       self.weight[m.id]) for m in self.mods]
+        self.cumulative = list(itertools.accumulate(r[5] for r in self.rows))
 
     def pick(self, item: Item, rng: random.Random, side: str | None = None, min_level: int = 0) -> Mod | None:
         """A random new mod for the item: a family it does not have, on a side with room, not below the minimum
@@ -86,6 +99,18 @@ class Pool:
         room = {k for k in ("Prefix", "Suffix") if item.side(k) < limit}
         if side:
             room &= {side}
+        if not room:
+            return None
+        # rejection sampling: draw from the whole pool by weight until the mod is allowed - the same distribution as
+        # drawing among the allowed ones, without building that list for every orb
+        total = self.cumulative[-1] if self.rows else 0
+        for _ in range(64):
+            if not total:
+                break
+            r = self.rows[bisect.bisect_right(self.cumulative, rng.random() * total)]
+            if r[1] in room and r[2] not in have and (r[3] >= min_level or r[4] < min_level):
+                return r[0]
+        # few mods allowed (or none): pick among them directly
         options = [r for r in self.rows if r[1] in room and r[2] not in have and (r[3] >= min_level or r[4] < min_level)]
         if not options:
             return None
@@ -138,25 +163,30 @@ class Strategy:
     cost: float | None = None  # average price in divines
     cost_p90: float | None = None
     priced: bool = False  # every item used has a price
+    attempts: int = 0  # attempts played
+    successes: int = 0  # of them worked: under ~10 the chance is rough
 
 
 def _measure(s: "Strategy", attempt, rng: random.Random):
     """Play single attempts (one base each): the chance p that a base works and the currency an attempt eats.
     Bases until success are then geometric: 1/p on average, and 9 of 10 players finish within
     ln(0.1) / ln(1 - p) bases - so a rare success costs no more time to estimate than a common one."""
-    total, ok = Counter(), 0
-    for _ in range(ATTEMPTS):
-        used = Counter()
-        ok += attempt(rng, used)
-        total.update(used)
-    s.per_base = ok / ATTEMPTS
+    total, ok, n = Counter(), 0, 0
+    while n < MAX_ATTEMPTS and (n == 0 or ok < ENOUGH_SUCCESSES):
+        for _ in range(ATTEMPTS):
+            used = Counter()
+            ok += attempt(rng, used)
+            total.update(used)
+        n += ATTEMPTS
+    s.attempts, s.successes = n, ok
+    s.per_base = ok / n
     if not ok:
         return
     p = s.per_base
     s.success = 1 - (1 - p) ** MAX_TRIES
     s.bases = 1 / p
     s.bases_p90 = 1 if p >= 0.9 else math.ceil(math.log(0.1) / math.log(1 - p))
-    per_attempt = {k: v / ATTEMPTS for k, v in total.items()}
+    per_attempt = {k: v / n for k, v in total.items()}
     s.use = {k: v * s.bases for k, v in per_attempt.items()}
     s.p90 = {k: v * s.bases_p90 for k, v in per_attempt.items()}
 

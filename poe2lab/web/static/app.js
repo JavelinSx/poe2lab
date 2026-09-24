@@ -114,6 +114,11 @@ function applyStaticTexts() {
     el.onclick = () => toast(el.title, true);  // a hover tooltip is easy to miss: a click shows it too
   });
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === LANG));
+  for (const id of ["foldAll", "unfoldAll"]) {  // icon buttons: the words are their tooltip
+    const el = $("#" + id.replace(/[A-Z]/, (c) => "-" + c.toLowerCase()));
+    el.title = t(id);
+    el.setAttribute("aria-label", t(id));
+  }
 }
 
 $("#lang").addEventListener("click", async (e) => {
@@ -422,6 +427,53 @@ $("#mode").addEventListener("click", (e) => {
 });
 
 $("#tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) switchTab(e.target.dataset.tab); });
+
+// ---------- folding cards ----------
+// Every card with a heading folds by a click on it: long tabs become a list of headings to open what is needed.
+// What is folded is remembered per tab and heading. Cards drawn later (a crafting panel, a chat) fold too.
+const FOLD_KEY = "poe2lab.folded";
+let folded = new Set();
+try { folded = new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (_) { /* storage blocked */ }
+const saveFolded = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded].slice(-500))); } catch (_) { /* storage blocked */ } };
+const foldKey = (head) => `${state.tab}|${head.textContent.trim().slice(0, 80)}`;
+
+function foldable(card) {
+  if (card.classList.contains("kpi") || card.children.length < 2) return null;
+  const first = card.firstElementChild;
+  return first.tagName === "H3" || first.classList.contains("slot-head") || first.querySelector(":scope > h3") ? first : null;
+}
+
+function setFolded(card, head, on, remember = true) {
+  card.classList.toggle("collapsed", on);
+  head.setAttribute("aria-expanded", String(!on));
+  if (!remember) return;
+  if (on) folded.add(foldKey(head)); else folded.delete(foldKey(head));
+  saveFolded();
+}
+
+function applyFolding(root) {
+  root.querySelectorAll(".card").forEach((card) => {
+    if (card.dataset.fold) return;
+    const head = foldable(card);
+    if (!head) return;
+    card.dataset.fold = "1";
+    head.classList.add("fold-head");
+    head.setAttribute("role", "button");
+    head.title = t("foldHint");
+    head.addEventListener("click", (e) => {
+      if (e.target.closest("button, a, input, select, textarea, label, .info")) return;  // the heading's own controls
+      setFolded(card, head, !card.classList.contains("collapsed"));
+    });
+    setFolded(card, head, folded.has(foldKey(head)), false);
+  });
+}
+new MutationObserver(() => applyFolding($("#view"))).observe($("#view"), { childList: true, subtree: true });
+
+function foldAll(on) {
+  $("#view").querySelectorAll(".card[data-fold]").forEach((card) => setFolded(card, card.querySelector(".fold-head"), on));
+}
+$("#fold-all").addEventListener("click", () => foldAll(true));
+$("#unfold-all").addEventListener("click", () => foldAll(false));
 $("#refresh-builds").addEventListener("click", loadBuildList);
 
 const TABS = {};
@@ -695,7 +747,8 @@ function renderCraft(r) {
       h("div", { class: "row", style: "justify-content:space-between" }, h("b", {}, t("crStrategy_" + s.key)),
         best ? chip("tag", t("crBest")) : null),
       h("div", { class: "craft-nums" },
-        h("span", {}, t("crPerBase"), " ", h("b", {}, `${fmt(s.per_base * 100, s.per_base < 0.1 ? 1 : 0)}%`)),
+        h("span", {}, t("crPerBase"), " ", h("b", {}, `${fmt(s.per_base * 100, s.per_base < 0.01 ? 2 : s.per_base < 0.1 ? 1 : 0)}%`),
+          s.successes < 10 ? h("span", { class: "muted", title: t("crRoughHint", s.successes, s.attempts) }, " " + t("crRough")) : null),
         h("span", {}, t("crBases"), " ", h("b", {}, fmt(s.bases, s.bases < 10 ? 1 : 0)), h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${s.bases_p90}`)),
         s.cost !== null && s.cost !== undefined ? h("span", {}, t("crCost"), " ", h("b", {}, money(s.cost)),
           h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${money(s.cost_p90)}`), s.priced ? null : h("span", { class: "muted" }, " " + t("crPartPriced"))) : null),

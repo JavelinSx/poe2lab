@@ -1,5 +1,6 @@
 """Crafting from a white base: the mod pool obeys the game's rules, strategies are played out and priced."""
 import random
+from collections import Counter
 
 import pytest
 from fastapi.testclient import TestClient
@@ -49,6 +50,13 @@ def test_pick_keeps_sides_families_and_min_level():
     assert len(item.mods) == 6 and len(item.families()) == 6
     assert all(m.level >= 50 for m in item.mods)
     assert pool.pick(Item("rare", list(item.mods)), rng, side="Prefix") is None  # no room left
+
+
+def test_high_tiers_are_rarer():
+    pool = Pool(db(), TAGS, 82)
+    rng = random.Random(3)
+    got = Counter(pool.pick(Item("rare"), rng).level for _ in range(6000))
+    assert got[1] > 3 * got[80] > 0  # level 80 weighs 0.5 ** (79 / 25) ~ 1/9 of level 1
 
 
 def test_item_level_limits_the_pool():
