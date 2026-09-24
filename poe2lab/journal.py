@@ -130,6 +130,7 @@ def _read_clipboard() -> str | None:
 # poe2lab only answers the player's own key press; it never presses anything by itself.
 HOTKEY_VK = 0x71  # F2
 GAME_TITLES = ("Path of Exile",)
+KEY_GAP = 0.025  # seconds between the copy's key events: longer than a frame at 60 fps
 _KEYS = [(0x1D, 0), (0x38, 0), (0x2E, 0), (0x2E, 2), (0x38, 2), (0x1D, 2)]  # Ctrl, Alt, C down; then up (scan codes)
 
 
@@ -201,9 +202,11 @@ class Recorder:
     def _copy(self):
         if not is_game_title(_foreground_title()):
             return  # F2 outside the game does nothing
-        inputs = copy_inputs()
-        array = (_INPUT * len(inputs))(*inputs)
-        ctypes.windll.user32.SendInput(len(inputs), array, ctypes.sizeof(_INPUT))
+        # one key at a time, a few frames apart: the game reads the keyboard once a frame, and a press and release
+        # of Alt inside one frame left it seeing Alt held - the advanced tooltip stayed pinned
+        for key in copy_inputs():
+            ctypes.windll.user32.SendInput(1, ctypes.byref(key), ctypes.sizeof(_INPUT))
+            time.sleep(KEY_GAP)
 
     def _run(self):
         user32 = ctypes.windll.user32
