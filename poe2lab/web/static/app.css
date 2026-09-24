@@ -489,3 +489,6 @@ details > summary .ico { margin-left: 2px; }
 .jn-plan tr.done td { color: var(--muted); }
 .jn-plan tr.done .jn-bar .bar span { background: var(--good); }
 .jn-grade { gap: 10px; flex-wrap: wrap; align-items: center; margin: 4px 0 8px; }
+.neg-text { color: var(--bad); }
+.craft-dear { margin-top: 2px; }
+.craft-dear .craft-list { margin-top: 8px; }

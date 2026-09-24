@@ -115,10 +115,11 @@ def test_changing_a_mod_on_a_worn_item():
 
 
 def test_price_in_divines():
-    s = crafting.Strategy("x", [], use={"Exalted Orb": 10, "Omen": 1}, p90={"Exalted Orb": 30, "Omen": 3})
+    s = crafting.Strategy("x", [], use={"Exalted Orb": 10, "Omen": 1}, p90={"Exalted Orb": 30, "Omen": 3}, bases=4)
     prices = {"Exalted Orb": Price(0.01, False)}
     crafting.price([s], prices)
     assert s.cost == pytest.approx(0.1) and s.cost_p90 == pytest.approx(0.3) and not s.priced
+    assert s.cost_per_base == pytest.approx(0.025)  # what one base of the batch eats
 
 
 def test_bones_by_item_class():

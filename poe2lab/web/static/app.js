@@ -749,18 +749,28 @@ function craftBlock(slot) {
 }
 
 function openCraft(box, slot) {
-  const st = craftState[slot] = craftState[slot] || { need: 3, grade: "", itemLevel: 82, quality: "good" };
+  // players craft items of level 65+ with perfect orbs all the way (league start aside): that is the default
+  const gradeFor = (level) => (level >= 65 ? "perfect" : "");
+  const st = craftState[slot] = craftState[slot] || { need: 3, grade: gradeFor(82), itemLevel: 82, quality: "good" };
   const out = h("div", {});
-  const select = (key, options) => h("select", { onchange: (e) => { st[key] = e.target.value; run(); } },
-    options.map(([v, label]) => h("option", { value: v, selected: String(st[key]) === String(v) }, label)));
+  const select = (key, options) => h("select", { onchange: (e) => {
+    st[key] = e.target.value;
+    if (key === "grade") st.gradeChosen = true;
+    run();
+  } }, options.map(([v, label]) => h("option", { value: v, selected: String(st[key]) === String(v) }, label)));
   const ilvl = h("input", { type: "number", min: 1, max: 100, value: st.itemLevel, style: "width:64px",
-    onchange: (e) => { st.itemLevel = Math.max(1, Math.min(100, Number(e.target.value) || 82)); run(); } });
+    onchange: (e) => {
+      st.itemLevel = Math.max(1, Math.min(100, Number(e.target.value) || 82));
+      if (!st.gradeChosen && st.grade !== gradeFor(st.itemLevel)) { st.grade = gradeFor(st.itemLevel); openCraft(box, slot); return; }
+      run();
+    } });
   const controls = h("div", { class: "row craft-controls" },
     h("label", {}, t("crNeed"), " ", select("need", [1, 2, 3, 4, 5].map((n) => [n, t("crNeedN", n)]))),
     h("label", {}, t("crQuality"), " ", select("quality", [["good", t("crQualityGood")], ["top", t("crQualityTop")], ["any", t("crQualityAny")]])),
     h("label", {}, t("crGrade"), " ", select("grade", [["", t("crGradeNormal")], ["greater", t("crGradeGreater")], ["perfect", t("crGradePerfect")]])),
     h("label", {}, t("crIlvl"), " ", ilvl));
-  box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("crTitle")), h("div", { class: "sub" }, t("crSub"))), controls, out);
+  box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("crTitle")), h("div", { class: "sub" }, t("crSub"))), controls,
+    h("div", { class: "muted small", style: "margin:-2px 0 8px" }, t("crGradeHint")), out);
 
   async function run() {
     out.replaceChildren(loading(t("crLoading")));
@@ -790,8 +800,11 @@ function renderCraft(r) {
     h("ul", { class: "craft-targets" }, r.targets.map((x) => h("li", {},
       chip("tag", x.side === "Prefix" ? t("prefix") : t("suffix")), " ", h("span", { class: "mod" }, trMod(x.label)),
       h("span", { class: "muted small" }, " " + t("crFromLevel", x.min_level))))));
-  const working = r.strategies.filter((s) => s.per_base > 0);
-  const cards = r.strategies.map((s) => {
+  // a way that costs more than the budget (~100 div of currency until the item is done) is not how anyone crafts
+  const budget = r.budget || 100;
+  const tooDear = (s) => s.cost !== null && s.cost !== undefined && s.cost > budget;
+  const working = r.strategies.filter((s) => s.per_base > 0 && !tooDear(s));
+  const card = (s) => {
     const best = working.length && s === working[0];
     if (!s.per_base) {
       return h("div", { class: "sk-item craft-never" }, h("b", {}, t("crStrategy_" + s.key)), h("div", { class: "muted small" }, t("crNever")));
@@ -806,7 +819,8 @@ function renderCraft(r) {
         h("span", {}, t("crBases"), " ", h("b", {}, fmt(s.bases, s.bases < 10 ? 1 : 0)), h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${s.bases_p90}`)),
         s.cost !== null && s.cost !== undefined ? h("span", {}, t("crCost"), " ", h("b", {}, money(s.cost)),
           h("span", { class: "muted" }, ` / ${t("crBadLuck")} ${money(s.cost_p90)}`), s.priced ? null : h("span", { class: "muted" }, " " + t("crPartPriced"))) : null,
-        r.exaltedPerDivine ? h("span", {}, t("crBasesCost"), " ", h("b", {}, `${money(s.bases * 10 / r.exaltedPerDivine)} – ${money(s.bases * 20 / r.exaltedPerDivine)}`)) : null),
+        r.exaltedPerDivine ? h("span", {}, t("crBasesCost"), " ", h("b", {}, `${money(s.bases * 10 / r.exaltedPerDivine)} – ${money(s.bases * 20 / r.exaltedPerDivine)}`)) : null,
+        s.cost_per_base !== null && s.cost_per_base !== undefined ? h("span", {}, t("crPerBaseCost"), " ", h("b", {}, money(s.cost_per_base))) : null),
       h("ol", { class: "craft-steps" }, s.steps.map((x) => h("li", {}, stepText(x)))),
       h("details", {}, h("summary", {}, t("crUse")),
         h("table", {}, h("thead", {}, h("tr", {}, h("th", {}), h("th", { class: "num" }, t("crColAvg")),
@@ -814,10 +828,13 @@ function renderCraft(r) {
         h("tbody", {}, uses.map(([n, v]) => h("tr", {}, h("td", {}, named(n)),
           h("td", { class: "num" }, fmt(v, v < 10 ? 1 : 0)), h("td", { class: "num muted" }, fmt(s.p90[n], s.p90[n] < 10 ? 1 : 0)),
           h("td", { class: "num muted small" }, r.prices[n] ? trFree(r.prices[n]) : "—")))))));
-  });
+  };
+  const dear = r.strategies.filter(tooDear);
   return h("div", { class: "stack", style: "gap:10px" }, targets,
     r.essence ? h("div", { class: "small" }, t("crEssence"), " ", named(r.essence)) : null,
-    h("div", { class: "craft-list" }, cards),
+    h("div", { class: "craft-list" }, r.strategies.filter((s) => !tooDear(s)).map(card)),
+    dear.length ? h("details", { class: "craft-dear" }, h("summary", {}, t("crExpensive", dear.length, money(budget))),
+      h("div", { class: "craft-list" }, dear.map(card))) : null,
     h("div", { class: "note small muted" }, t(r.estimatedWeights ? "crWeightsNote" : "crWeightsReal") +
       (r.league ? " " + t("prices", trName(r.league)) : "")));
 }

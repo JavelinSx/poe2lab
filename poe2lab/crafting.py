@@ -179,6 +179,7 @@ class Strategy:
     p90: dict = field(default_factory=dict)  # the same for the bad-luck run
     cost: float | None = None  # average price in divines
     cost_p90: float | None = None
+    cost_per_base: float | None = None  # currency one base eats on average: what a batch of bases costs
     priced: bool = False  # every item used has a price
     attempts: int = 0  # attempts played
     successes: int = 0  # of them worked: under ~10 the chance is rough
@@ -339,6 +340,13 @@ def price(strategies_: list[Strategy], prices) -> None:
         s.priced = all(found.values())
         s.cost = sum(s.use[k] * found[k].divine for k in items if found[k])
         s.cost_p90 = sum(s.p90[k] * found[k].divine for k in items if found[k])
+        s.cost_per_base = s.cost / s.bases if s.bases else None
+
+
+# what players spend: a craft within ~100 divines of currency until the item is done (the player's rule: a batch of
+# bases for up to 100 div, then think further); a way that costs more on average is not how anyone crafts - it stays
+# shown, folded, as "expensive"
+BUDGET = 100.0
 
 
 def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 6, top_tiers: int = 3) -> list[Target]:

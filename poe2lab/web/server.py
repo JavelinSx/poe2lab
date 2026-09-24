@@ -858,7 +858,8 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quali
                     "essence": essence[0] if essence else None, "strategies": [asdict(x) for x in found],
                     "prices": priced, "exaltedPerDivine": prices.exalted_per_divine if prices else None,
                     "league": prices.league if prices else None,
-                    "estimatedWeights": not crafting.WEIGHTS_FILE.is_file()}
+                    "estimatedWeights": not crafting.WEIGHTS_FILE.is_file(),
+                    "budget": crafting.BUDGET}
 
         return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode), compute))
 
