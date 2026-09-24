@@ -6,6 +6,7 @@ player's game files are not needed for them.
 Text markup: "[Id|shown words]" links another term (the page and the popups open it)."""
 
 GROUPS = [
+    ("damage", {"ru": "Урон: как он считается", "en": "Damage: how it adds up"}),
     ("ailments", {"ru": "Состояния врагов", "en": "Ailments"}),
     ("defence", {"ru": "Защита", "en": "Defences"}),
     ("resources", {"ru": "Ресурсы", "en": "Resources"}),
@@ -15,6 +16,88 @@ GROUPS = [
 
 # id (the game's keyword id where it has one, so its mentions link here), group, names, text
 ENTRIES = [
+    # ---------- damage ----------
+    ("DamageFormula", "damage", {"ru": "Как складывается урон", "en": "How damage adds up"}, {
+        "ru": "Урон удара считается по шагам:\n"
+              "1. Основа: урон оружия плюс [AddedDamage|добавленный урон] (у чар — урон самого камня).\n"
+              "2. Для атак — множитель скилла «[AttackMultiplier|урон атаки: N% от базового]».\n"
+              "3. Все «увеличения» складываются в одно число и умножают: ×(1 + сумма). См. "
+              "[IncreasedMore|увеличение и «больше»].\n"
+              "4. Каждое «больше» умножает отдельно.\n"
+              "5. Крит, затем [Resistances|сопротивление] врага.\n"
+              "Отсюда главное: сильнее всего помогает мод, который двигает шаг, где у тебя пока мало. Точно для "
+              "твоего билда это считает вкладка «Урон» → «Куда вкладываться».",
+        "en": "A hit's damage is worked out in steps:\n"
+              "1. The base: the weapon's damage plus [AddedDamage|added damage] (for spells, the gem's own damage).\n"
+              "2. For attacks, the skill's \"[AttackMultiplier|attack damage: N% of base]\".\n"
+              "3. All \"increased\" add up into one number and multiply: ×(1 + total). See "
+              "[IncreasedMore|increased and more].\n"
+              "4. Each \"more\" multiplies on its own.\n"
+              "5. Crits, then the enemy's [Resistances|resistance].\n"
+              "So the mod that moves the step you have least of helps most. The Damage tab → \"Where to invest\" "
+              "works it out for your build exactly."}),
+    ("AddedDamage", "damage", {"ru": "Добавленный урон («добавляет от X до Y»)", "en": "Added damage (\"adds X to Y\")"}, {
+        "ru": "Прибавляет числа к основе урона. Дальше их умножают все проценты билда, скорость атаки и множитель "
+              "скилла. На оружии добавляется к урону этого оружия, на кольцах, перчатках, амулете — ко всем атакам "
+              "(см. [LocalGlobal|локальные и глобальные моды]).\n"
+              "Когда важно: чем больше у тебя уже набрано «увеличений», тем ценнее добавленный урон. Стихийный "
+              "добавленный урон ещё и накладывает состояния: больше огня — чаще [Ignite|поджог].",
+        "en": "Adds numbers to the base damage. Every percentage of the build, attack speed and the skill's multiplier "
+              "then scale them. On a weapon it adds to that weapon's damage; on rings, gloves or an amulet to all "
+              "attacks (see [LocalGlobal|local and global mods]).\n"
+              "When it matters: the more \"increased\" you already have, the more added damage is worth. Elemental "
+              "added damage also applies ailments: more fire, more [Ignite]."}),
+    ("IncreasedMore", "damage", {"ru": "Увеличение и «больше»", "en": "Increased and more"}, {
+        "ru": "Два разных вида процентов.\n"
+              "• «Увеличение» (и «снижение») подходящего урона складываются в одну сумму. Если уже набрано 150%, "
+              "ещё +30% даёт ×2,8 вместо ×2,5 — прибавка всего около 12%.\n"
+              "• «Больше» (и «меньше») умножает отдельно: на 30% больше — это ровно +30% урона, сколько бы ни было "
+              "остального. Такие моды реже (часто в поддержках) и ценнее.\n"
+              "Внимание: «увеличение урона от стихий от умений атак» усиливает только стихийную часть и только "
+              "атаки. Нет стихийного урона — мод даёт ноль.",
+        "en": "Two different kinds of percentages.\n"
+              "• \"Increased\" (and \"reduced\") of matching damage add up into one total. With 150% already, "
+              "another 30% makes ×2.8 instead of ×2.5: only about 12% more.\n"
+              "• \"More\" (and \"less\") multiplies on its own: 30% more is exactly 30% more damage whatever else "
+              "you have. Such mods are rarer (often on supports) and worth more.\n"
+              "Note: \"increased elemental damage with attacks\" boosts only the elemental part and only attacks. "
+              "No elemental damage: the mod gives nothing."}),
+    ("AttackMultiplier", "damage", {"ru": "Урон атаки «N% от базового»", "en": "Attack damage \"N% of base\""}, {
+        "ru": "В описании атакующего скилла написано «Урон атаки: N% от базового». Это множитель ко всему урону "
+              "оружия, включая [AddedDamage|добавленный]. У сильного медленного удара он высокий — каждый пункт "
+              "добавленного урона стоит больше. Чары урон оружия не используют: моды на урон оружия им не помогают.",
+        "en": "An attack skill says \"Attack Damage: N% of base\". It multiplies all the weapon's damage, "
+              "[AddedDamage|added] included. A slow heavy attack has a high one: each point of added damage is worth "
+              "more. Spells do not use weapon damage: weapon damage mods do not help them."}),
+    ("LocalGlobal", "damage", {"ru": "Локальные и глобальные моды", "en": "Local and global mods"}, {
+        "ru": "Моды оружия и брони на её собственные числа — «локальные»: «% увеличение физического урона» и "
+              "«добавляет X–Y урона» на оружии меняют только это оружие, «% увеличение брони» на нагруднике — только "
+              "его броню. Такой же текст на кольце или амулете — «глобальный» и действует на всё.",
+        "en": "Mods of a weapon or armour piece on its own numbers are local: \"% increased Physical Damage\" and "
+              "\"adds X–Y damage\" on a weapon change only that weapon, \"% increased Armour\" on a body armour only "
+              "its armour. The same text on a ring or amulet is global and applies to everything."}),
+    ("Gain", "damage", {"ru": "Дополнительный урон в виде X", "en": "Damage gained as extra X"}, {
+        "ru": "«Получает N% физического урона в виде дополнительного урона огнём»: к удару добавляется новый огонь, "
+              "равный N% физического. Физический урон при этом не убывает. Новый огонь усиливается только модами на "
+              "огонь и стихии, а не на физический урон.",
+        "en": "\"Gain N% of physical damage as extra fire damage\": the hit gets new fire damage equal to N% of the "
+              "physical. The physical damage stays. The new fire scales only with fire and elemental mods, not "
+              "physical ones."}),
+    ("Penetration", "damage", {"ru": "Пробивание сопротивлений", "en": "Resistance penetration"}, {
+        "ru": "Твои удары считают [Resistances|сопротивление] врага ниже на указанное число, но не ниже нуля. "
+              "Действует только на удары — не на [Ignite|поджог] и [Poison|яд]. [Exposure|Восприимчивость], наоборот, "
+              "снижает само сопротивление — для всего урона и даже ниже нуля.",
+        "en": "Your hits treat the enemy's [Resistances|resistance] as lower by the stated amount, down to zero. It "
+              "works on hits only, not on [Ignite] or [Poison]. [Exposure] instead lowers the resistance itself, for "
+              "all damage and even below zero."}),
+    ("Resistances", "damage", {"ru": "Сопротивления", "en": "Resistances"}, {
+        "ru": "Снижают урон своего типа: огонь, холод, молния (это стихии) и хаос. У тебя максимум — 75% (выше не "
+              "работает, пока не поднят сам максимум). По ходу кампании сопротивления получают штраф — поэтому "
+              "поздним актам и картам нужно больше сопротивлений на шмоте. Вкладка «Обзор» показывает, где у тебя "
+              "дыра.",
+        "en": "Reduce damage of their type: fire, cold, lightning (the elements) and chaos. Yours cap at 75% (more "
+              "does nothing until the maximum itself rises). The campaign adds a resistance penalty as you go, so "
+              "late acts and maps need more resistances on gear. The Overview tab shows where yours are short."}),
     # ---------- ailments ----------
     ("ElementalColdChain", "ailments", {"ru": "Холод: охлаждение и заморозка", "en": "Cold: chill and freeze"}, {
         "ru": "Урон холодом делает с врагом две разные вещи сразу.\n"

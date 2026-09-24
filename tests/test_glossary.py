@@ -34,4 +34,4 @@ def test_every_group_is_listed_on_the_page():
     assert sum(len(g["ids"]) for g in groups) == len(glossary.ENTRIES)
     with TestClient(app) as c:
         r = c.get("/api/glossary?lang=en").json()
-        assert r["groups"][0]["name"] == "Ailments" and r["terms"]["Freeze"]["nameLocal"] == "Freeze"
+        assert r["groups"][0]["name"] == "Damage: how it adds up" and r["terms"]["Freeze"]["nameLocal"] == "Freeze"

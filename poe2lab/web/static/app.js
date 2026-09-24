@@ -435,7 +435,8 @@ const FOLD_KEY = "poe2lab.folded";
 let folded = new Set();
 try { folded = new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (_) { /* storage blocked */ }
 const saveFolded = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded].slice(-500))); } catch (_) { /* storage blocked */ } };
-const foldKey = (head) => `${state.tab}|${head.textContent.trim().slice(0, 80)}`;
+// per page: a build tab, or a page of its own (journal, glossary, feedback)
+const foldKey = (head) => `${state.page || state.tab}|${head.textContent.trim().slice(0, 80)}`;
 
 function foldable(card) {
   if (card.classList.contains("kpi") || card.children.length < 2) return null;
@@ -502,6 +503,7 @@ function readHash() {
 }
 
 async function switchTab(tab) {
+  state.page = null;
   if (tab !== state.tab) document.querySelector("main").scrollTop = 0;  // a new tab starts at its top
   state.tab = tab;
   writeHash();
@@ -1618,6 +1620,7 @@ const HOW_CHIP = { unread: "must", skip: "warn", white: "warn", repeat: "warn", 
 
 // A page of its own (from the sidebar), not a build tab: the journal is about the game, not about one build.
 async function renderJournal() {
+  state.page = "journal";
   hideBuildChrome();
   const view = $("#view");
   try {
@@ -1735,6 +1738,7 @@ async function journalPage(view) {
 
 // ---------- the beginner's glossary: terms in our own words, linked to each other ----------
 async function renderGlossary() {
+  state.page = "glossary";
   hideBuildChrome();
   const view = $("#view");
   view.replaceChildren(loading(t("glLoading")));
@@ -1902,6 +1906,7 @@ document.addEventListener("paste", (e) => {
 });
 
 async function renderFeedback() {
+  state.page = "feedback";
   const back = state.build ? () => { renderHeader(); switchTab(state.tab); } : renderEmpty;
   hideBuildChrome();
   $("#view").replaceChildren(loading(""));
