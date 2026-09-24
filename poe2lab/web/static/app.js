@@ -1573,7 +1573,8 @@ function modSearch(onPick) {
 }
 
 // ---------- craft journal: mods rolled in game -> the hidden mod weights ----------
-const HOW_CHIP = { unread: "must", skip: "warn", white: "warn", repeat: "warn", rare_unknown: "warn", nothing: "warn" };
+const HOW_CHIP = { unread: "must", skip: "warn", white: "warn", repeat: "warn", same_mods: "warn", rare_unknown: "warn",
+  nothing: "warn" };
 
 // A page of its own (from the sidebar), not a build tab: the journal is about the game, not about one build.
 async function renderJournal() {

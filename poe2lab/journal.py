@@ -437,7 +437,8 @@ STEP = {("magic", "magic"): "augment", ("magic", "rare"): "regal", ("rare", "rar
 
 def _read(p: Parsed, text: str, items: list[dict], db: ModDB):
     """How a record counts: (code, detail), its draws and the open item it continues. Codes: unread, skip, white,
-    repeat, augment, regal, exalt, chaos, fresh_magic, fresh_rare, rare_unknown, nothing."""
+    repeat, same_mods (only values changed, e.g. a divine orb), augment, regal, exalt, chaos, fresh_magic, fresh_rare,
+    rare_unknown, nothing."""
     if p.problems:
         return ("unread", "; ".join(p.problems)), None, None
     if any(it["text"] == text for it in items):
@@ -457,6 +458,10 @@ def _read(p: Parsed, text: str, items: list[dict], db: ModDB):
         added = [m for i, m in now.items() if i not in before]
         removed = [i for i in before if i not in now]
         given = [m for i, m in now.items() if i in before]
+        # the same mods with other values: a divine orb on this item - unless it has so few mods that another item
+        # of the batch may well have rolled the same ones
+        if not added and not removed and prev.rarity == p.rarity and len(now) >= 3:
+            return ("same_mods", ""), None, it
         if (prev.rarity, p.rarity) in STEP and not removed and 1 <= len(added) <= 2:
             code = STEP[(prev.rarity, p.rarity)]
             return (code, len(added)), Sample(tags, p.item_level, p.rarity, given, added, cls), it

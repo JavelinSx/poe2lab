@@ -111,6 +111,11 @@ def test_a_batch_of_the_same_base(db, names):
     rows, samples = journal.interpret(records, db, names)
     assert [r["how"] for r in rows] == ["fresh_magic", "fresh_magic", "augment", "augment", "repeat"]
     assert sum(len(x.added) for x in samples) == 4
+    # a rare with the same mods and other values is the same item after a divine orb
+    rare = ru_item(db, "rare", ["IncreasedLife2", "Strength1", "Dexterity1"])
+    divined = rare.replace("+20 to maximum", "+25 to maximum")
+    rows, _ = journal.interpret([{"id": "r", "t": 0, "text": rare}, {"id": "d", "t": 1, "text": divined}], db, names)
+    assert [r["how"] for r in rows] == ["fresh_rare", "same_mods"]
 
 
 def test_f2_is_one_advanced_copy_in_the_game_only():
