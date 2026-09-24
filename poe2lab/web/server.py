@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -29,8 +29,8 @@ from ..assistant.agent import STYLES
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
 from ..economy.ninja import PriceBook
-from ..engine import PobError
-from .. import crafting, feedback, gamedata, icons, library, lootfilter, pobapp
+from ..engine import PobEngine, PobError
+from .. import crafting, feedback, gamedata, icons, journal, library, lootfilter, pobapp
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -1047,6 +1047,131 @@ def chat(req: ChatRequest):
 def chat_reset():
     session.assistant = session.toolbox = None
     return {"ok": True}
+
+
+# ---------- craft journal: mods rolled in game -> the hidden mod weights (poe2lab.journal) ----------
+
+recorder = journal.Recorder()
+_parsed: dict = {}  # journal record id -> its parsed item: records never change, parsing them once is enough
+
+
+_bare: dict = {}  # the mod data without a build: the journal does not need one open
+
+
+def _journal_db() -> ModDB:
+    if session.engine is not None:
+        return session.db()
+    if "db" not in _bare:
+        _bare["db"] = ModDB.from_engine(PobEngine())
+    return _bare["db"]
+
+
+def _journal_rows():
+    db = _journal_db()
+    if "names" not in _bare:
+        _bare["names"] = journal.Names(db)  # names do not depend on the build
+    return journal.interpret(journal.entries(), db, _bare["names"], _parsed)
+
+
+def _estimate_summary(est):
+    return {k: v for k, v in est.items() if k != "weights"} if est else None
+
+
+@app.get("/api/journal")
+def journal_view(limit: int = 40):
+    out = {"recording": recorder.on, "available": recorder.available(), "recordedNow": recorder.count,
+           "estimate": _estimate_summary(journal.load_estimate()), "applied": crafting.WEIGHTS_FILE.is_file()}
+    with session.lock:
+        rows, samples = _journal_rows()
+    classes = {}
+    for s in samples:
+        c = classes.setdefault(s.item_class, {"records": 0, "draws": 0})
+        c["records"] += 1
+        c["draws"] += len(s.added)
+    shown = []
+    for r in rows[::-1][:limit]:
+        p = r["parsed"]
+        shown.append({"id": r["id"], "t": r["t"], "source": r["source"], "how": r["how"], "detail": r["detail"],
+                      "draws": r["draws"],
+                      "rarity": p.rarity, "base": p.base, "itemLevel": p.item_level, "problems": p.problems,
+                      "mods": [{"side": m.side, "tier": m.tier, "kind": m.kind, "lines": list(m.mod.lines)}
+                               for m in p.mods]})
+    return _json(out | {"total": len(rows), "draws": sum(len(s.added) for s in samples), "classes": classes,
+                        "entries": shown})
+
+
+class RecordRequest(BaseModel):
+    on: bool
+
+
+@app.post("/api/journal/record")
+def journal_record(req: RecordRequest):
+    if req.on and not recorder.available():
+        raise HTTPException(400, "запись буфера обмена работает только в Windows")
+    recorder.start() if req.on else recorder.stop()
+    return {"recording": recorder.on}
+
+
+class JournalText(BaseModel):
+    text: str
+
+
+@app.post("/api/journal/add")
+def journal_add(req: JournalText):
+    if not journal.is_item_text(req.text):
+        raise HTTPException(400, "это не текст предмета: в игре наведи на вещь и нажми Ctrl+Alt+C")
+    return journal.add(req.text, "manual")
+
+
+@app.delete("/api/journal/entry/{entry_id}")
+def journal_remove(entry_id: str):
+    if not journal.remove(entry_id):
+        raise HTTPException(404, "такой записи нет")
+    return {"ok": True}
+
+
+@app.post("/api/journal/estimate")
+def journal_estimate():
+    with session.lock:
+        _, samples = _journal_rows()
+        if not samples:
+            raise HTTPException(400, "в журнале нет ни одной пробы — сначала запиши несколько вещей")
+        result = journal.estimate(_journal_db(), samples)
+    journal.save_estimate(result)
+    return _json(_estimate_summary(result))
+
+
+def _drop_craft_results():
+    for key in [k for k in session.cache if isinstance(k, tuple) and k[0] == "craft"]:
+        del session.cache[key]
+
+
+@app.post("/api/journal/apply")
+def journal_apply():
+    est = journal.load_estimate()
+    if not est:
+        raise HTTPException(400, "сначала посчитай веса")
+    crafting.WEIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    crafting.WEIGHTS_FILE.write_text(json.dumps(est["weights"]), encoding="utf-8")
+    with session.lock:
+        _drop_craft_results()
+    return {"applied": True}
+
+
+@app.delete("/api/journal/apply")
+def journal_unapply():
+    crafting.WEIGHTS_FILE.unlink(missing_ok=True)
+    with session.lock:
+        _drop_craft_results()
+    return {"applied": False}
+
+
+@app.get("/api/journal/export")
+def journal_export():
+    path = journal.journal_path()
+    if not path.is_file():
+        raise HTTPException(404, "журнал пуст")
+    return FileResponse(path, filename="poe2lab-craft-journal.jsonl", media_type="application/jsonl")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

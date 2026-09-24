@@ -1572,6 +1572,104 @@ function modSearch(onPick) {
   return h("div", { class: "suggest" }, input, list);
 }
 
+// ---------- craft journal: mods rolled in game -> the hidden mod weights ----------
+const HOW_CHIP = { unread: "must", skip: "warn", white: "warn", repeat: "warn", rare_unknown: "warn", nothing: "warn" };
+
+// A page of its own (from the sidebar), not a build tab: the journal is about the game, not about one build.
+async function renderJournal() {
+  hideBuildChrome();
+  const view = $("#view");
+  try {
+    view.replaceChildren(await journalPage(view));
+  } catch (e) {
+    view.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("error")), h("p", { class: "muted" }, e.message)));
+  }
+}
+$("#journal-open").addEventListener("click", renderJournal);
+
+async function journalPage(view) {
+  if (!view.querySelector(".jn-rules")) view.replaceChildren(loading(t("jnLoading")));  // a refresh does not blink
+  const j = await api("/api/journal");
+  const body = h("div", { class: "stack" });
+  if (state.build) {
+    body.append(h("div", {}, h("button", { class: "ghost small", onclick: () => { renderHeader(); switchTab(state.tab); } },
+      t("jnBack", state.build.name))));
+  }
+  const recordBtn = h("button", { class: j.recording ? "ghost" : "primary",
+    onclick: async () => {
+      try { await api("/api/journal/record", { method: "POST", body: { on: !j.recording } }); renderJournal(); }
+      catch (e) { toast(e.message); }
+    } }, j.recording ? t("jnStop") : t("jnStart"));
+  const paste = h("textarea", { rows: 5, placeholder: t("jnPastePh"), style: "width:100%" });
+  const addBtn = h("button", { class: "ghost small", onclick: async () => {
+    try { await api("/api/journal/add", { method: "POST", body: { text: paste.value } }); renderJournal(); }
+    catch (e) { toast(e.message); }
+  } }, t("jnAdd"));
+
+  body.append(h("div", { class: "card" }, h("h3", {}, t("jnTitle")), h("div", { class: "sub" }, t("jnSub")),
+    h("div", { class: "row", style: "gap:12px;flex-wrap:wrap;margin:6px 0 10px" }, j.available ? recordBtn : h("span", { class: "muted" }, t("jnNoWindows")),
+      j.recording ? h("span", { class: "rec-dot" }, t("jnRecording", j.recordedNow)) : h("span", { class: "muted" }, t("jnOff"))),
+    h("ol", { class: "jn-rules" }, [1, 2, 3, 4, 5].map((i) => h("li", {}, t("jnRule" + i)))),
+    h("details", {}, h("summary", {}, t("jnPaste")), paste, h("div", { style: "margin-top:6px" }, addBtn))));
+
+  const classes = Object.entries(j.classes || {}).sort((a, b) => b[1].draws - a[1].draws);
+  body.append(h("div", { class: "card" }, h("h3", {}, t("jnStatsTitle")),
+    h("div", { class: "sub" }, t("jnStats", j.total, j.draws)),
+    classes.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("jnClass")), h("th", { class: "num" }, t("jnRecords")), h("th", { class: "num" }, t("jnDraws")))),
+      h("tbody", {}, classes.map(([c, x]) => h("tr", {}, h("td", {}, slotName(c)), h("td", { class: "num" }, x.records), h("td", { class: "num" }, x.draws)))))
+      : h("p", { class: "muted" }, t("jnNoDraws")),
+    h("div", { class: "note small muted", style: "margin-top:8px" }, t("jnHowMany"))));
+
+  // the estimate: how each family's chance moved from the assumption, and applying it to crafting
+  const est = j.estimate;
+  const estimateBtn = h("button", { class: "primary", onclick: async () => {
+    estimateBtn.disabled = true;
+    estimateBtn.textContent = t("jnEstimating");
+    try { await api("/api/journal/estimate", { method: "POST" }); renderJournal(); }
+    catch (e) { toast(e.message); estimateBtn.disabled = false; estimateBtn.textContent = t("jnEstimate"); }
+  } }, t("jnEstimate"));
+  const applyBtn = est ? h("button", { class: "ghost", onclick: async () => {
+    try { await api("/api/journal/apply", { method: j.applied ? "DELETE" : "POST" }); resetCache(); renderJournal(); }
+    catch (e) { toast(e.message); }
+  } }, j.applied ? t("jnUnapply") : t("jnApply")) : null;
+  const seen = est ? est.families.filter((f) => f.seen > 0) : [];
+  body.append(h("div", { class: "card" }, h("h3", {}, t("jnWeightsTitle")), h("div", { class: "sub" }, t("jnWeightsSub")),
+    h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-bottom:10px" }, estimateBtn, applyBtn,
+      j.applied ? chip("ok", t("jnApplied")) : null),
+    est ? h("div", {},
+      h("p", { class: "small" }, t("jnEstimated", est.draws, new Date(est.time * 1000).toLocaleString(locale())),
+        est.halfLevel ? " " + t("jnHalfLevel", fmt(est.halfLevel)) : ""),
+      seen.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", { class: "num" }, t("jnSeen")),
+        h("th", { class: "num" }, t("jnFactor")), h("th", { class: "num" }, t("jnSpread")))),
+        h("tbody", {}, seen.slice(0, 40).map((f) => h("tr", {}, h("td", { class: "mod" }, trMod(f.family)),
+          h("td", { class: "num" }, f.seen), h("td", { class: "num" }, `×${fmt(f.factor, 2)}`),
+          h("td", { class: "num muted" }, `±${fmt(f.spread * 100)}%`))))) : null) : h("p", { class: "muted" }, t("jnNoEstimate"))));
+
+  // the latest records and how each one counted
+  body.append(h("div", { class: "card" }, h("h3", {}, t("jnLatest")),
+    h("div", { class: "sub" }, t("jnLatestSub"), " ", h("a", { href: "/api/journal/export" }, t("jnExport"))),
+    j.entries.length ? h("div", { class: "jn-list" }, j.entries.map((e) => h("div", { class: "jn-entry" },
+      h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" },
+        h("span", { class: "muted small" }, new Date(e.t * 1000).toLocaleTimeString(locale())),
+        e.base ? h("b", {}, trName(e.base)) : null, e.itemLevel ? h("span", { class: "muted small" }, t("jnIlvl", e.itemLevel)) : null,
+        chip(HOW_CHIP[e.how] || "ok", t("jnHow_" + e.how, e.detail)), e.draws ? h("span", { class: "small" }, t("jnDrawsN", e.draws)) : null,
+        h("button", { class: "link-btn", title: t("jnDelete"), onclick: async () => {
+          try { await api(`/api/journal/entry/${e.id}`, { method: "DELETE" }); renderJournal(); } catch (err) { toast(err.message); }
+        } }, "×")),
+      e.mods.length ? h("ul", { class: "jn-mods" }, e.mods.map((m) => h("li", {},
+        chip("tag", m.side === "Prefix" ? t("prefix") : t("suffix")), " ", h("span", { class: "mod" }, trMod(m.lines.join(" / "))),
+        m.tier ? h("span", { class: "tier" }, `${LANG === "ru" ? "тир " : "T"}${m.tier}`) : null,
+        m.kind ? h("span", { class: "muted small" }, ` (${m.kind})`) : null))) : null)))
+      : h("p", { class: "muted" }, t("jnEmpty"))));
+
+  // while recording, the page follows what comes in - as long as it is the page shown
+  clearTimeout(journalPage.timer);
+  if (j.recording) {
+    journalPage.timer = setTimeout(() => { if (document.querySelector(".jn-rules")) renderJournal(); }, 2500);
+  }
+  return body;
+}
+
 // ---------- assistant ----------
 function aiSettingsCard(settings, onSaved) {
   let current = settings.providers.find((p) => p.id === settings.provider) || settings.providers[0];

@@ -9,20 +9,21 @@ modifier level of Greater / Perfect currency (35 / 50) is not in the client file
 
 PoE2 does not ship mod weights (the client's weight columns are empty). Here a tier's weight falls with its mod
 level - halving every TIER_HALF_LEVEL levels - after PoE1, where the high tiers are the rare ones. So chances are
-estimates; a file with real weights (data/craft_weights.json: {mod id: weight}) replaces them when present."""
+estimates; weights estimated from the player's own craft journal (poe2lab.journal) replace them once applied
+(%APPDATA%/poe2lab/craft_weights.json: {mod id: weight})."""
 import bisect
 import itertools
 import json
 import math
+import os
 import random
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .data.moddb import Mod, ModDB
-from .pobfiles import REPO_ROOT
 
-WEIGHTS_FILE = REPO_ROOT / "data" / "craft_weights.json"
+WEIGHTS_FILE = Path(os.environ.get("APPDATA") or Path.home() / ".config") / "poe2lab" / "craft_weights.json"
 # minimum modifier level of the better currency grades (timesaver.gg, PoE2 0.5 currency guide)
 MIN_LEVEL = {"": 0, "Greater ": 35, "Perfect ": 50}
 # assumed weight of a tier: 0.5 ** (mod level / TIER_HALF_LEVEL), so a level 80 tier is ~9x rarer than a level 1 one
