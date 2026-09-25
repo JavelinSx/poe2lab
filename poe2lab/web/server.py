@@ -666,7 +666,17 @@ def tree_graph(build: str | None = None):
     with session.lock:
         session.require(build)
         edits = len(session.plan["log"]) if session.plan else -1
-        return _json(session.cached(("tree-graph", edits), session.engine.tree_graph))
+        return _json(session.cached(("tree-graph", edits), _tree_graph_with_icons))
+
+
+def _tree_graph_with_icons() -> dict:
+    """Each node gets its own picture (by the icon path PoB keeps for it), when the icons are unpacked."""
+    graph = session.engine.tree_graph()
+    have = {p.name for p in icons.ICONS.glob("*.png")} if icons.ICONS.is_dir() else set()
+    for n in graph["nodes"]:
+        file = icons._file_name(n.pop("icon")) if n.get("icon") else ""
+        n["img"] = file if file in have else ""
+    return graph
 
 
 @app.get("/api/ascendancy")

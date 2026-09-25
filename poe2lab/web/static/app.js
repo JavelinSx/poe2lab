@@ -1329,6 +1329,21 @@ function openTreeViewer(graph, tree, asc) {
   const respec = new Set((tree.respec || []).map((b) => b.id));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const R = { Normal: 22, Notable: 36, Keystone: 52, Socket: 30, ClassStart: 46, AscendClassStart: 46, Mastery: 30 };
+  // each node's own picture (unpacked from the game), loaded once and drawn when the node is big enough to see it
+  const pictures = new Map();
+  const picture = (file) => {
+    if (!file) return null;
+    let img = pictures.get(file);
+    if (!img) {
+      img = new Image();
+      img.onload = () => scheduleDraw();
+      img.src = `/icons/${file}`;
+      pictures.set(file, img);
+    }
+    return img.complete && img.naturalWidth ? img : null;
+  };
+  let queued = false;
+  const scheduleDraw = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; draw(); }); } };
 
   const overlay = h("div", { class: "tree-overlay" });
   const canvas = h("canvas", { class: "tree-canvas" });
@@ -1399,10 +1414,30 @@ function openTreeViewer(graph, tree, asc) {
       }
     }
     for (const n of ns) {
+      const x = sx(n), y = sy(n);
       const r = Math.max(n.type === "Normal" ? 1.2 : 2.2, (R[n.type] || 22) * scale);
+      if (x < -r || y < -r || x > w + r || y > hgt + r) continue;  // off screen
+      const status = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.6)" : null;
+      const img = r >= 5 ? picture(n.img) : null;
       ctx.beginPath();
-      ctx.arc(sx(n), sy(n), r, 0, 2 * Math.PI);
-      ctx.fillStyle = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.45)" : C.node;
+      ctx.arc(x, y, r, 0, 2 * Math.PI);
+      if (img) {
+        // the game's look: taken and suggested nodes in colour, the rest dimmed and grey
+        ctx.save();
+        ctx.clip();
+        ctx.fillStyle = C.node;
+        ctx.fill();
+        if (!status) ctx.filter = "grayscale(1) brightness(0.55)";
+        ctx.drawImage(img, x - r, y - r, 2 * r, 2 * r);
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, 2 * Math.PI);
+        ctx.lineWidth = n.type === "Keystone" ? 3 : n.type === "Notable" ? 2.5 : 1.5;
+        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : status || C.nodeEdge;
+        ctx.stroke();
+        continue;
+      }
+      ctx.fillStyle = status || C.node;
       ctx.fill();
       if (n.type !== "Normal" || respec.has(n.id) || n === hover || n === pinned) {
         ctx.lineWidth = respec.has(n.id) || n === hover || n === pinned ? 2 : 1;
@@ -1424,7 +1459,9 @@ function openTreeViewer(graph, tree, asc) {
     if (!n) { tip.classList.add("hidden"); return; }
     const tags = [n.alloc ? t("tvAlloc") : null, growth.has(n.id) ? t("tvGrowth") : null, road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
-    tip.replaceChildren(h("b", {}, trName(n.name) || "—"), tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
+    tip.replaceChildren(h("div", { class: "row", style: "gap:8px;align-items:center" },
+      n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
+      tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       h("ul", { class: "item-lines small" }, n.stats.map((l) => h("li", {}, trMod(l)))));
     tip.classList.remove("hidden");
     const bw = overlay.clientWidth;

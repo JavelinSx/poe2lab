@@ -307,7 +307,7 @@ for id, node in pairs(spec.nodes) do
     local links = _poe2lab_array({})
     for _, other in ipairs(node.linked or {}) do links[#links + 1] = other.id end
     local g = node.group
-    nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "",
+    nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "", icon = node.icon or "",
       stats = _poe2lab_array(node.sd or {}), asc = node.ascendancyName or "", alloc = node.alloc and true or false,
       links = links, group = g and g.id or 0, gx = g and g.x * tree.scaleImage or 0, gy = g and g.y * tree.scaleImage or 0,
       r = node.o and tree.orbitRadii[node.o + 1] and tree.orbitRadii[node.o + 1] * tree.scaleImage or 0 }
