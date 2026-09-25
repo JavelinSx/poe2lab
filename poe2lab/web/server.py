@@ -18,6 +18,7 @@ from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
+from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.slots import craft_path, plan_all, plan_slot
 from ..analysis.sockets import plan_sockets
@@ -657,6 +658,27 @@ def tree(mode: str = "balanced", points: int = 6, build: str | None = None):
         result = session.cached(("tree", mode, points), lambda: analyse_tree(
             session.engine, session.profile, mode=mode, max_points=points))
         return _json(result | {"plan": _plan_view()})
+
+
+@app.get("/api/tree/graph")
+def tree_graph(build: str | None = None):
+    """The passive tree to draw: nodes with positions, links and what is allocated (the plan's edits included)."""
+    with session.lock:
+        session.require(build)
+        edits = len(session.plan["log"]) if session.plan else -1
+        return _json(session.cached(("tree-graph", edits), session.engine.tree_graph))
+
+
+@app.get("/api/ascendancy")
+def ascendancy_view(mode: str = "balanced", build: str | None = None):
+    """The ascendancy's allocated notables and the ones not taken, priced by PoB on the build."""
+    if mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    with session.lock:
+        session.require(build)
+        edits = len(session.plan["log"]) if session.plan else -1
+        return _json(session.cached(("ascendancy", mode, edits),
+                                    lambda: tree_ascendancy(session.engine, session.profile, mode)))
 
 
 # ---- tree plans: edits of the passive tree in the engine only; the build file is never changed ----

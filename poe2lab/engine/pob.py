@@ -294,6 +294,43 @@ for id, node in pairs(build.spec.allocNodes) do
 end
 return _poe2lab_json(out)""")
 
+    def tree_graph(self) -> dict:
+        """The passive tree to draw: every node of the main tree and of the build's own ascendancy with its position
+        (PoB's own layout), type, name, stat lines, links, group centre and orbit radius (links along one orbit are
+        arcs) and whether it is allocated; plus the class, ascendancy and points used."""
+        return self._json("""
+local spec, tree = build.spec, build.spec.tree
+local asc = spec.curAscendClassName
+local nodes = _poe2lab_array({})
+for id, node in pairs(spec.nodes) do
+  if node.x and node.type ~= "OnlyImage" and (not node.ascendancyName or node.ascendancyName == asc) then
+    local links = _poe2lab_array({})
+    for _, other in ipairs(node.linked or {}) do links[#links + 1] = other.id end
+    local g = node.group
+    nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "",
+      stats = _poe2lab_array(node.sd or {}), asc = node.ascendancyName or "", alloc = node.alloc and true or false,
+      links = links, group = g and g.id or 0, gx = g and g.x * tree.scaleImage or 0, gy = g and g.y * tree.scaleImage or 0,
+      r = node.o and tree.orbitRadii[node.o + 1] and tree.orbitRadii[node.o + 1] * tree.scaleImage or 0 }
+  end
+end
+local used, ascUsed = spec:CountAllocNodes()
+return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
+  ascendancyPoints = ascUsed })""")
+
+    def ascendancy_reach(self) -> list[dict]:
+        """Unallocated notables of the build's own ascendancy with the path PoB would allocate to them."""
+        return self._json("""
+local out, asc = _poe2lab_array({}), build.spec.curAscendClassName
+for id, node in pairs(build.spec.nodes) do
+  if not node.alloc and node.type == "Notable" and asc and node.ascendancyName == asc and node.path and #node.path > 0 then
+    local path, names = _poe2lab_array({}), _poe2lab_array({})
+    for i, n in ipairs(node.path) do path[i] = n.id; names[i] = n.dn or "" end
+    out[#out + 1] = { id = id, name = node.dn or "", type = node.type, path = path, pathNames = names,
+                      stats = _poe2lab_array(node.sd or {}) }
+  end
+end
+return _poe2lab_json(out)""")
+
     def tree_reach(self, max_points: int = 6) -> list[dict]:
         """Unallocated notables and keystones of the main tree reachable within max_points, with the path PoB
         would allocate (its shortest path from the current tree, target included) and the target's stat lines."""

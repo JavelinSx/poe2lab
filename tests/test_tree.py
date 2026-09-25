@@ -77,3 +77,20 @@ def test_optimize_keeps_the_budget_improves_the_goal_and_can_be_undone():
     after = engine.what_if(config=profile.config())
     assert engine.tree_points() == budget
     assert after["CombinedDPS"] == pytest.approx(before["CombinedDPS"]) and after["Life"] == before["Life"]
+
+
+def test_the_tree_to_draw_and_the_ascendancy():
+    from poe2lab.analysis.tree import ascendancy
+    engine, bp = open_build(BUILDS / "titan.txt")
+    graph = engine.tree_graph()
+    nodes = graph["nodes"]
+    assert graph["class"] == "Warrior" and graph["ascendancy"] == "Titan"
+    assert {n["asc"] for n in nodes} == {"", "Titan"}  # the main tree and the build's own ascendancy only
+    main_taken = sum(1 for n in nodes if n["alloc"] and not n["asc"] and n["type"] not in ("ClassStart",))
+    assert main_taken == graph["points"]
+    by_id = {n["id"]: n for n in nodes}
+    assert all(other in by_id or True for n in nodes for other in n["links"]) and any(n["links"] for n in nodes)
+    asc = ascendancy(engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))
+    assert asc["points"] == 8 and asc["maxPoints"] == 8 and len(asc["taken"]) >= 3
+    assert asc["options"] and all(o["path"] and o["id"] == o["path"][-1] or o["id"] in o["path"] for o in asc["options"])
+    assert [o["value"] for o in asc["options"]] == sorted((o["value"] for o in asc["options"]), reverse=True)

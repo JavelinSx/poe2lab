@@ -1031,6 +1031,10 @@ function renderItemResult(r) {
 }
 
 // ---------- passive tree ----------
+// how a node's topics meet the build's (damage, mechanics, defences, skills, weapons)
+const fitChips = (f) => (f && (f.fits.length || f.misses.length) ? h("div", { class: "fit-chips" },
+  f.fits.map((k) => chip("ok", "✓ " + t("topic_" + k))), f.misses.map((k) => chip("warn", t("topicMissing", t("topic_" + k))))) : null);
+
 TABS.tree = async (view) => {
   view.replaceChildren(loading(t("treeLoading")));
   const points = state.treePoints || 6;
@@ -1042,11 +1046,10 @@ TABS.tree = async (view) => {
   const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
 
-  // how a node's topics meet the build's (damage, mechanics, defences, skills, weapons)
-  const fitChips = (f) => (f && (f.fits.length || f.misses.length) ? h("div", { class: "fit-chips" },
-    f.fits.map((k) => chip("ok", "✓ " + t("topic_" + k))), f.misses.map((k) => chip("warn", t("topicMissing", t("topic_" + k))))) : null);
-
-  const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth")),
+  const openTree = h("button", { class: "ghost small", style: "float:right", onclick: async () => {
+    try { openTreeViewer(await treeGraph(), r); } catch (e) { toast(e.message); }
+  } }, t("psOpenTree"));
+  const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth"), openTree),
     h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
     r.buildTopics && r.buildTopics.length ? h("div", { class: "small", style: "margin-bottom:8px" }, t("treeBuildTopics"), " ",
       r.buildTopics.map((k) => t("topic_" + k)).join(", ")) : null,
@@ -1240,17 +1243,228 @@ TABS.loot = async (view) => {
 // ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
 TABS.skills = async (view) => {
   const mode = state.skillsMode || "build";
-  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["leveling", t("skLeveling")], ["uniques", t("skUniquesTab")]].map(([k, label]) =>
+  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["leveling", t("skLeveling")], ["uniques", t("skUniquesTab")],
+    ["passives", t("skPassives")]].map(([k, label]) =>
     h("button", { class: mode === k ? "active" : "", onclick: () => { state.skillsMode = k; switchTab("skills"); } }, label)));
   const scope = state.uniqueScope || "level";
-  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "uniques" ? "unLoading" : "skLoadingLevel")));
+  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "uniques" ? "unLoading" :
+    mode === "passives" ? "psLoading" : "skLoadingLevel")));
   view.replaceChildren(h("div", { class: "stack" }, h("div", { class: "row" }, seg), body));
+  if (mode === "passives") {
+    try { body.replaceChildren(...await renderPassives()); } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+    return;
+  }
   try {
     const key = mode === "uniques" ? `skills:uniques:${scope}` : `skills:${mode}`;
     const r = await cached(key, () => api(`/api/skills?view=${mode}&scope=${scope}&${buildQuery()}`));
     body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : mode === "uniques" ? renderUniqueLinks(r) : renderSkillsLeveling(r)));
   } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
 };
+
+// ---------- passives and ascendancy: lists, and the tree itself on demand ----------
+const treeGraph = () => cached("tree-graph", () => api(`/api/tree/graph?${buildQuery()}`));
+const treeAnalysis = () => cached(`tree:${state.mode}:6`, () => api(`/api/tree?mode=${state.mode}&points=6&${buildQuery()}`));
+
+async function openTreeFor(asc) {
+  const [graph, tree] = await Promise.all([treeGraph(), treeAnalysis()]);
+  openTreeViewer(graph, tree, asc);
+}
+
+async function renderPassives() {
+  const [asc, tree, graph] = await Promise.all([
+    cached(`asc:${state.mode}`, () => api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`)), treeAnalysis(), treeGraph()]);
+  const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
+  const open = h("button", { class: "primary", onclick: async () => {
+    open.disabled = true;
+    try { await openTreeFor(asc); } catch (e) { toast(e.message); } finally { open.disabled = false; }
+  } }, t("psOpenTree"));
+
+  const maxValue = Math.max(0.01, ...asc.options.map((o) => o.value));
+  const ascCard = h("div", { class: "card" }, h("h3", {}, t("psAscTitle", trName(asc.ascendancy) || t("psNoAsc"))),
+    h("div", { class: "sub" }, t("psAscPoints", asc.points, asc.maxPoints), asc.points >= asc.maxPoints ? " " + t("psAscFull") : ""),
+    asc.taken.length ? h("div", { class: "ps-list" }, asc.taken.map((n) => h("div", { class: "ps-node taken" },
+      h("b", {}, trName(n.name)), stats(n.stats)))) : null,
+    asc.options.length ? h("div", {}, h("div", { class: "sub", style: "margin-top:12px" }, t("psAscOptions")),
+      h("table", { class: "versus-items" }, h("tbody", {}, asc.options.map((o) => h("tr", {},
+        h("td", {}, h("b", {}, trName(o.name)), stats(o.stats), fitChips(o.fit),
+          o.via.length ? h("div", { class: "hint" }, t("via", o.via.map(trName).join(", "))) : null,
+          o.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
+        h("td", { class: "num" }, t("pointsN", o.points)),
+        h("td", {}, scoreBar(o.value, maxValue)),
+        h("td", {}, deltas(o.changes, METRIC, 0.3))))))) : null);
+
+  const taken = graph.nodes.filter((n) => n.alloc && !n.asc && (n.type === "Notable" || n.type === "Keystone"))
+    .sort((a, b) => (b.type === "Keystone") - (a.type === "Keystone") || trName(a.name).localeCompare(trName(b.name)));
+  const takenCard = h("div", { class: "card" }, h("h3", {}, t("psTaken")),
+    h("div", { class: "sub" }, t("psTakenSub", graph.points, taken.length)),
+    h("div", { class: "ps-list" }, taken.map((n) => h("div", { class: "ps-node" + (n.type === "Keystone" ? " keystone" : "") },
+      h("b", {}, trName(n.name)), stats(n.stats)))));
+
+  const growth = (tree.growth || []).slice(0, 8);
+  const gMax = Math.max(0.01, ...growth.map((g) => g.perPoint));
+  const growthCard = h("div", { class: "card" }, h("h3", {}, t("psGrowth")),
+    h("div", { class: "sub" }, t("psGrowthSub")),
+    h("table", { class: "versus-items" }, h("tbody", {}, growth.map((g) => h("tr", {},
+      h("td", {}, h("b", {}, trName(g.name)), stats(g.stats), fitChips(g.fit)),
+      h("td", { class: "num" }, t("pointsN", g.points)),
+      h("td", {}, scoreBar(g.perPoint, gMax)),
+      h("td", {}, deltas(g.changes, METRIC, 0.3)))))),
+    h("div", { style: "margin-top:10px" }, h("button", { class: "ghost small", onclick: () => switchTab("tree") }, t("psToTree"))));
+
+  return [h("div", { class: "row" }, open, h("span", { class: "muted small" }, t("psOpenTreeHint"))), ascCard, growthCard, takenCard];
+}
+
+// The passive tree drawn from PoB's own layout: allocated nodes in gold, the best growth options and the road to
+// them in green, respec candidates outlined in red; the main tree and the ascendancy apart. Wheel zooms, drag pans,
+// hovering a node shows what it gives.
+function openTreeViewer(graph, tree, asc) {
+  const css = getComputedStyle(document.documentElement);
+  const col = (name, fallback) => (css.getPropertyValue(name) || fallback).trim();
+  const C = { gold: col("--gold", "#d6a54f"), good: col("--good", "#5fc98d"), bad: col("--bad", "#e26a5f"),
+    line: "rgba(153,161,174,.28)", node: "#2b303a", nodeEdge: "rgba(153,161,174,.55)", bg: col("--bg", "#0f1115") };
+  // the ascendancy's options PoB values count as growth on the ascendancy view
+  const ascBest = ((asc && asc.options) || []).filter((o) => o.value > 0.05);
+  const growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascBest.map((o) => o.id)]);
+  const road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...ascBest.flatMap((o) => o.path || [])]);
+  const respec = new Set((tree.respec || []).map((b) => b.id));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const R = { Normal: 22, Notable: 36, Keystone: 52, Socket: 30, ClassStart: 46, AscendClassStart: 46, Mastery: 30 };
+
+  const overlay = h("div", { class: "tree-overlay" });
+  const canvas = h("canvas", { class: "tree-canvas" });
+  const tip = h("div", { class: "tree-tip hidden" });
+  let showAsc = false, scale = 0.03, ox = 0, oy = 0, hover = null, pinned = null;
+  const seg = h("div", { class: "segmented small-seg" }, [["main", t("tvMain")], ["asc", t("tvAsc")]].map(([k, label]) =>
+    h("button", { class: k === "main" ? "active" : "", onclick: (e) => {
+      showAsc = k === "asc";
+      seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === e.target));
+      hover = pinned = null;
+      tip.classList.add("hidden");
+      fit(); draw();
+    } }, label)));
+  const dot = (c, ring) => h("span", { class: "tv-dot", style: ring ? `border:2px solid ${c}` : `background:${c}` });
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); window.removeEventListener("resize", draw); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg,
+    h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
+      dot(C.bad, true), t("tvRespec")),
+    h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+
+  const visible = () => graph.nodes.filter((n) => (showAsc ? n.asc : !n.asc));
+  function fit() {
+    const all = visible();
+    const focus = showAsc ? all : all.filter((n) => n.alloc || growth.has(n.id) || road.has(n.id));
+    const ns = focus.length ? focus : all;
+    const xs = ns.map((n) => n.x), ys = ns.map((n) => n.y);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const w = canvas.clientWidth || window.innerWidth, hgt = canvas.clientHeight || window.innerHeight;
+    scale = Math.min(w / ((x1 - x0) + 800), hgt / ((y1 - y0) + 800));
+    ox = w / 2 - ((x0 + x1) / 2) * scale;
+    oy = hgt / 2 - ((y0 + y1) / 2) * scale;
+  }
+  const sx = (n) => n.x * scale + ox, sy = (n) => n.y * scale + oy;
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, hgt = canvas.clientHeight;
+    if (canvas.width !== w * dpr || canvas.height !== hgt * dpr) { canvas.width = w * dpr; canvas.height = hgt * dpr; }
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = C.bg;
+    ctx.fillRect(0, 0, w, hgt);
+    const ns = visible();
+    // links: arcs along one orbit of a group, straight lines otherwise
+    for (const n of ns) {
+      for (const id of n.links) {
+        if (id < n.id) continue;
+        const m = byId.get(id);
+        if (!m || m.asc !== n.asc) continue;
+        const both = n.alloc && m.alloc, green = !both && (road.has(n.id) || n.alloc) && (road.has(m.id) || m.alloc) && (road.has(n.id) || road.has(m.id));
+        ctx.strokeStyle = both ? C.gold : green ? C.good : C.line;
+        ctx.lineWidth = both || green ? Math.max(1.5, 10 * scale) : Math.max(0.6, 5 * scale);
+        ctx.beginPath();
+        if (n.group === m.group && n.r > 0 && Math.abs(n.r - m.r) < 1) {
+          const a1 = Math.atan2(n.y - n.gy, n.x - n.gx), a2 = Math.atan2(m.y - m.gy, m.x - m.gx);
+          let d = a2 - a1;
+          while (d > Math.PI) d -= 2 * Math.PI;
+          while (d < -Math.PI) d += 2 * Math.PI;
+          ctx.arc(n.gx * scale + ox, n.gy * scale + oy, n.r * scale, a1, a1 + d, d < 0);
+        } else {
+          ctx.moveTo(sx(n), sy(n));
+          ctx.lineTo(sx(m), sy(m));
+        }
+        ctx.stroke();
+      }
+    }
+    for (const n of ns) {
+      const r = Math.max(n.type === "Normal" ? 1.2 : 2.2, (R[n.type] || 22) * scale);
+      ctx.beginPath();
+      ctx.arc(sx(n), sy(n), r, 0, 2 * Math.PI);
+      ctx.fillStyle = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.45)" : C.node;
+      ctx.fill();
+      if (n.type !== "Normal" || respec.has(n.id) || n === hover || n === pinned) {
+        ctx.lineWidth = respec.has(n.id) || n === hover || n === pinned ? 2 : 1;
+        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : C.nodeEdge;
+        ctx.stroke();
+      }
+    }
+  }
+
+  function nodeAt(x, y) {
+    let best = null, bd = Infinity;
+    for (const n of visible()) {
+      const d = Math.hypot(sx(n) - x, sy(n) - y), r = Math.max(6, (R[n.type] || 22) * scale + 3);
+      if (d < r && d < bd) { best = n; bd = d; }
+    }
+    return best;
+  }
+  function showTip(n, x, y) {
+    if (!n) { tip.classList.add("hidden"); return; }
+    const tags = [n.alloc ? t("tvAlloc") : null, growth.has(n.id) ? t("tvGrowth") : null, road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null,
+      respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
+    tip.replaceChildren(h("b", {}, trName(n.name) || "—"), tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
+      h("ul", { class: "item-lines small" }, n.stats.map((l) => h("li", {}, trMod(l)))));
+    tip.classList.remove("hidden");
+    const bw = overlay.clientWidth;
+    tip.style.left = `${Math.min(x + 16, bw - 340)}px`;
+    tip.style.top = `${y + 16}px`;
+  }
+
+  let drag = null;
+  canvas.addEventListener("mousedown", (e) => { drag = { x: e.clientX, y: e.clientY, ox, oy, moved: false }; });
+  window.addEventListener("mouseup", () => { drag = null; }, { once: false });
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+    if (drag && (e.buttons & 1)) {
+      ox = drag.ox + (e.clientX - drag.x); oy = drag.oy + (e.clientY - drag.y);
+      drag.moved = drag.moved || Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3;
+      draw();
+      return;
+    }
+    const n = nodeAt(x, y);
+    if (n !== hover) { hover = n; draw(); }
+    if (!pinned) showTip(n, e.clientX - overlay.getBoundingClientRect().left, e.clientY - overlay.getBoundingClientRect().top);
+  });
+  canvas.addEventListener("click", (e) => {
+    if (drag && drag.moved) return;
+    const rect = canvas.getBoundingClientRect();
+    const n = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
+    pinned = n && n !== pinned ? n : null;
+    showTip(pinned || n, e.clientX - overlay.getBoundingClientRect().left, e.clientY - overlay.getBoundingClientRect().top);
+    draw();
+  });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const k = Math.exp(-e.deltaY * 0.0015);
+    ox = x - (x - ox) * k; oy = y - (y - oy) * k; scale *= k;
+    draw();
+  }, { passive: false });
+  window.addEventListener("resize", draw);
+  requestAnimationFrame(() => { fit(); draw(); });
+}
 
 const gemName = (name) => h("span", { class: "named", title: name }, icon(name), trName(name));
 // the game's own description in the player's language (from the installed game), English otherwise

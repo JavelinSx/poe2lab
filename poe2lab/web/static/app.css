@@ -500,3 +500,18 @@ details > summary .ico { margin-left: 2px; }
 .gl-entry b { color: var(--gold); }
 .side-foot #glossary-open { text-align: left; }
 .sk-meta { border-left: 2px solid var(--gold-soft); padding: 4px 10px; margin: 6px 0 8px; display: flex; flex-direction: column; gap: 3px; }
+
+/* passives and ascendancy; the tree view */
+.ps-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.ps-node { background: var(--panel-2); border-radius: 8px; padding: 6px 10px; }
+.ps-node.taken b { color: var(--gold); }
+.ps-node.keystone { outline: 1px solid rgba(214, 165, 79, .45); }
+.tree-overlay { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; }
+.tree-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.tree-close { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; font-size: 20px; line-height: 1; padding: 2px 10px; cursor: pointer; }
+.tree-close:hover { border-color: var(--gold); color: var(--gold); }
+.tree-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tv-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 6px; box-sizing: border-box; }
+.tree-canvas { flex: 1; width: 100%; min-height: 0; cursor: grab; display: block; }
+.tree-canvas:active { cursor: grabbing; }
+.tree-tip { position: absolute; max-width: 330px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.4); }

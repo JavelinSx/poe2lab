@@ -45,7 +45,7 @@ def growth_options(engine, cfg: dict, mode: str, weights: dict, max_points: int,
         if own and len(t["path"]) > 1:
             road = [n for n in t["path"] if n != t["id"]]
             own_value = value - _value(metric_changes(engine.what_if(config=cfg, add_nodes=road), base), mode, weights)
-        out.append({"id": t["id"], "name": t["name"], "type": t["type"], "points": len(t["path"]),
+        out.append({"id": t["id"], "name": t["name"], "type": t["type"], "points": len(t["path"]), "path": t["path"],
                     "via": [n for nid, n in zip(t["path"], t["pathNames"]) if nid != t["id"] and n],
                     "stats": t["stats"], "changes": changes, "value": value, "perPoint": value / len(t["path"]),
                     "own": own_value, "ownShare": own_value / value if value > 0 else 0.0,
@@ -143,3 +143,31 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
             engine.tree_restore("optimize-try")
             tried.add(branch["id"])
     return {"steps": steps, "total": current, "changes": metric_changes(engine.what_if(config=cfg), start)}
+
+
+ASCENDANCY_POINTS = 8  # four trials of ascension, two points each
+
+
+def ascendancy(engine, profile: MapProfile, mode: str = "balanced") -> dict:
+    """The build's ascendancy: its allocated notables, and each notable not yet taken priced by PoB on the build
+    (with the path to it inside the ascendancy), best first. With every point spent, taking one means giving
+    another up - the value says whether a swap is worth it."""
+    cfg = profile.config()
+    weights = defence_weights(survivable_hits(engine, profile))
+    graph = engine.tree_graph()
+    base = engine.what_if(config=cfg)
+    options = []
+    for t in engine.ascendancy_reach():
+        changes = metric_changes(engine.what_if(config=cfg, add_nodes=t["path"]), base)
+        value = _value(changes, mode, weights)
+        options.append({"id": t["id"], "name": t["name"], "points": len(t["path"]), "stats": t["stats"], "path": t["path"],
+                        "via": [n for nid, n in zip(t["path"], t["pathNames"]) if nid != t["id"] and n],
+                        "changes": changes, "value": value, "perPoint": value / len(t["path"])})
+    have = build_topics(engine, base)
+    for o in options:
+        o["fit"] = fit(o["stats"], have)  # PoB may not see a node's effect: its topics still tell if it is the build's
+    options.sort(key=lambda o: -o["value"])
+    taken = [{"id": n["id"], "name": n["name"], "stats": n["stats"]} for n in graph["nodes"]
+             if n["asc"] and n["alloc"] and n["type"] == "Notable"]
+    return {"ascendancy": graph["ascendancy"], "class": graph["class"], "points": graph["ascendancyPoints"],
+            "maxPoints": ASCENDANCY_POINTS, "taken": taken, "options": options}
