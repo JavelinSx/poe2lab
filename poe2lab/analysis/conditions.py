@@ -35,6 +35,8 @@ def _pct(new: float, old: float) -> float:
 
 
 ENEMY_PREFIX = "conditionEnemy"
+# PoB's quest reward boxes ("Act 1: Ogham Castle"...): the character's progress, not a condition of the fight
+QUEST_PREFIX = "quest"
 
 
 def damage_range(engine, config: dict, impacts: list[ConditionImpact]) -> dict:
@@ -52,6 +54,8 @@ def audit(engine, config: dict) -> list[ConditionImpact]:
     base = engine.what_if(config=config)
     out = []
     for opt in engine.config_checkboxes():
+        if opt["var"].startswith(QUEST_PREFIX):
+            continue
         r = engine.what_if(config=config | {opt["var"]: not opt["checked"]})
         ele = min(r[f"{t}MaximumHitTaken"] for t in ("Fire", "Cold", "Lightning"))
         ele_base = min(base[f"{t}MaximumHitTaken"] for t in ("Fire", "Cold", "Lightning"))

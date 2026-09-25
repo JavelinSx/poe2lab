@@ -42,7 +42,7 @@ async function api(path, opts = {}) {
 // A question in the page itself: the app's own browser pane answers window.confirm() with "no" at once, so a
 // native dialog would silently cancel. Resolves true on the yes button or Enter, false on cancel, Esc or a click
 // outside.
-function ask(text, yes) {
+function confirmInPage(text, yes) {
   return new Promise((resolve) => {
     const done = (answer) => { back.remove(); document.removeEventListener("keydown", onKey, true); resolve(answer); };
     const onKey = (e) => {
@@ -227,7 +227,7 @@ async function toggleFavorite(b) {
 }
 
 async function removeBuild(b) {
-  if (!await ask(b.kind === "pob" ? t("confirmHide", b.name) : t("confirmTrash", b.name),
+  if (!await confirmInPage(b.kind === "pob" ? t("confirmHide", b.name) : t("confirmTrash", b.name),
     b.kind === "pob" ? t("hideGo") : t("removeGo"))) return;
   try {
     const r = await api(`/api/builds/${encodeURIComponent(b.name)}`, { method: "DELETE" });

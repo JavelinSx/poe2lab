@@ -65,8 +65,7 @@ def test_conditions_audit_flips_each_box_and_restores(titan):
     found = {c.label: c for c in audit(titan, cfg)}
     heavy = found["Is the enemy Heavy Stunned?"]
     assert not heavy.checked and heavy.dps_pct > 0
-    quest = found["Interlude 2: Khari Crossing"]
-    assert quest.checked and quest.life_pct < 0
+    assert not any(c.var.startswith("quest") for c in found.values())  # quest rewards are progress, not the fight
     after = titan.what_if(config=cfg)
     assert after["CombinedDPS"] == pytest.approx(before["CombinedDPS"]) and after["Life"] == before["Life"]
 
