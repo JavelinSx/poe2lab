@@ -96,3 +96,8 @@ OpenAI-совместимый адрес. Кнопка «Загрузить сп
 знает команды и типичные ловушки.
 
 Тесты: `python -m pytest -q`. План — `PLAN.md`, открытые вопросы — `QUESTIONS.md`.
+
+---
+
+This product isn't affiliated with or endorsed by Grinding Gear Games in any way. Path of Exile and its art belong
+to Grinding Gear Games; the game data and pictures are read from the installed game or from Path of Building.

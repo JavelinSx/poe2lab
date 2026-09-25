@@ -675,12 +675,106 @@ TABS.gear = async (view) => {
           a.utility ? h("div", {}, chip("util", t("utility"))) : null),
         scoreBar(a.score, max))),
       p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null,
-      craftBlock(p.slot));
+      craftBlock(p.slot), tradeBlock(p.slot));
   });
 
   return h("div", { class: "stack" }, craftGuide(), h("div", { class: "grid two" }, path, socketCard),
     h("div", { class: "section-title" }, t("slots")), h("div", { class: "grid cards" }, cards));
 };
+
+// ---------- a replacement from the trade site: the key mods, then an item made for the build ----------
+const tradeState = {};  // slot -> the last answer, kept while the build is open
+const TRADE_CURRENCY = { exalted: "Exalted Orb", divine: "Divine Orb", chaos: "Chaos Orb", alch: "Orb of Alchemy",
+  annul: "Orb of Annulment", regal: "Regal Orb", vaal: "Vaal Orb", aug: "Orb of Augmentation",
+  transmute: "Orb of Transmutation", mirror: "Mirror of Kalandra" };
+const tradeThreshold = () => {
+  try { return Number(localStorage.getItem("poe2lab.tradeThreshold")) || 15; } catch (_) { return 15; }
+};
+
+function tradeBlock(slot) {
+  const box = h("div", { class: "trade" });
+  const btn = h("button", { class: "ghost small", onclick: () => { btn.remove(); openTrade(box, slot); } }, t("trButton"));
+  box.append(btn);
+  if (tradeState[slot]) { btn.remove(); openTrade(box, slot); }
+  return box;
+}
+
+function openTrade(box, slot) {
+  const out = h("div", {});
+  const threshold = h("input", { type: "number", min: 1, max: 200, value: tradeThreshold(), style: "width:56px",
+    onchange: (e) => {
+      const v = Math.max(1, Math.min(200, Number(e.target.value) || 15));
+      try { localStorage.setItem("poe2lab.tradeThreshold", String(v)); } catch (_) { /* storage blocked */ }
+      if (tradeState[slot]) show(tradeState[slot]);  // the verdicts move with the threshold, no new search
+    } });
+  const go = h("button", { class: "primary small", onclick: () => run() }, t("trSearch"));
+  box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("trTitle")), h("div", { class: "sub" }, t("trSub"))),
+    h("div", { class: "row craft-controls" }, h("label", {}, t("trThreshold"), " ", threshold, " %"), go),
+    h("div", { class: "muted small", style: "margin:-2px 0 8px" }, t("trNote")), out);
+
+  async function run() {
+    go.disabled = true;
+    out.replaceChildren(loading(t("trSearching")));
+    try {
+      tradeState[slot] = await api("/api/trade/search", { method: "POST", body: { slot, mode: state.mode, threshold: 0 } });
+      show(tradeState[slot]);
+    } catch (e) {
+      out.replaceChildren(h("p", { class: "bad" }, e.message));
+    } finally { go.disabled = false; }
+  }
+
+  function show(r) {
+    const thr = tradeThreshold();
+    const better = (it) => it.score !== null && it.score >= thr && !it.unmet.length;
+    out.replaceChildren(h("div", { class: "muted small" }, t("trLeague", trName(r.league))),
+      ...r.searches.map((s) => {
+        const need = s.kind === "key" ? s.mods.length - (s.relaxed ? 1 : 0) : Math.min(s.mods.length, 5);
+        const head = h("div", { class: "trade-head" },
+          h("b", {}, s.kind === "key" ? t("trKey", s.mods.length) : t("trIdeal", need, s.mods.length)), " ",
+          s.url ? h("a", { href: s.url, target: "_blank", rel: "noopener" }, t("trOpen", s.total)) : null);
+        const mods = h("div", { class: "trade-mods" }, s.mods.map((m) => h("span", { class: "chip " + (m.must ? "hold" : "tag"),
+          title: m.line }, tradeMin(m))));
+        if (s.error) return h("div", { class: "trade-search" }, head, mods, h("p", { class: "bad small" }, s.error));
+        if (!s.items.length) return h("div", { class: "trade-search" }, head, mods, h("p", { class: "muted small" }, t("trNothing")));
+        const good = s.items.filter(better).sort((a, b) => ((a.price || {}).ex ?? 1e12) - ((b.price || {}).ex ?? 1e12));
+        const rest = s.items.filter((it) => !better(it)).sort((a, b) => (b.score ?? -1e9) - (a.score ?? -1e9));
+        return h("div", { class: "trade-search" }, head, mods, s.relaxed ? h("div", { class: "muted small" }, t("trRelaxed")) : null,
+          good.length ? tradeList(good, true) : h("p", { class: "muted small" }, t("trNoneBetter", thr, s.items.length)),
+          rest.length ? h("details", {}, h("summary", { class: "muted small" }, t("trRest", rest.length)), tradeList(rest, false)) : null);
+      }));
+  }
+}
+
+// "+40% to Chaos Resistance or more": the line with the least the search asks for (a "# to #" pair: its mean)
+function tradeMin(m) {
+  const min = String(Math.round(m.min * 10) / 10);
+  const one = (m.line.match(/\d+(?:\.\d+)?/g) || []).length === 1;
+  return one ? `${trMod(m.line.replace(/\d+(?:\.\d+)?/, min))} ${t("trAtLeast")}` : `${trMod(m.line)} (${t("trMean", min)})`;
+}
+
+// each find as a small block: what it is, how much better on the build, its mods, the price
+function tradeList(items, good) {
+  const priceCell = (p) => {
+    if (!p) return h("span", { class: "muted" }, t("trNoPrice"));
+    const name = TRADE_CURRENCY[p.currency];
+    return h("span", { class: "trade-price" }, icon(name), h("b", {}, fmt(p.amount, p.amount % 1 ? 1 : 0)),
+      h("span", {}, name ? trName(name) : p.currency),
+      p.currency !== "exalted" && p.ex ? h("span", { class: "muted small" }, t("trAboutEx", fmt(p.ex, 0))) : null);
+  };
+  const copy = (text) => async () => {
+    try { await navigator.clipboard.writeText(text); toast(t("trWhisperDone"), true); } catch (_) { toast(t("trWhisperFail")); }
+  };
+  return h("div", { class: "trade-list" }, items.map((it) => h("div", { class: "trade-item" + (good ? " good" : "") },
+    h("div", { class: "trade-item-head" }, itemIcon(it.name, it.base, it.rarity),
+      h("div", {}, h("b", {}, trName(it.base)), h("div", { class: "muted small" }, t("trIlvl", it.ilvl), it.corrupted ? [" · ", t("corrupted")] : null)),
+      it.error ? null : h("div", { class: "trade-score" }, h("b", { class: it.score > 0 ? "pos" : "neg" }, pct(it.score)),
+        good ? h("div", {}, chip("ok", t("trBetter"))) : null,
+        it.unmet.length ? h("div", {}, chip("must", t("trUnmet", it.unmet.join(", ")))) : null)),
+    it.error ? h("div", { class: "bad small" }, it.error) : deltas(it.changes),
+    h("ul", { class: "item-lines small" }, it.explicit.map((l) => h("li", { title: l }, trMod(l)))),
+    h("div", { class: "trade-item-foot" }, priceCell(it.price),
+      it.whisper ? h("button", { class: "ghost small", title: it.whisper, onclick: copy(it.whisper) }, t("trWhisper")) : null))));
+}
 
 // ---------- how to craft: the general principles, cheap to expensive ----------
 // The same for armour, weapons and jewellery; the currency rules come from the game's own descriptions. Each step

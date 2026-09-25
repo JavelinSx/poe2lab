@@ -518,3 +518,17 @@ details > summary .ico { margin-left: 2px; }
 .tv-tip-ico { width: 32px; height: 32px; border-radius: 50%; }
 .ps-choice { margin-bottom: 8px; }
 .ps-choice summary b { color: var(--gold); }
+.trade { margin-top: 8px; }
+.trade-search { margin-top: 12px; }
+.trade-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.trade-mods { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.trade a { color: var(--gold); }
+.trade-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: var(--panel-2); }
+.trade-item.good { border-color: rgba(95, 201, 141, .55); }
+.trade-item-head { display: flex; gap: 8px; align-items: flex-start; }
+.trade-score { margin-left: auto; text-align: right; }
+.trade-score .pos { color: var(--good); }
+.trade-score .neg { color: var(--bad); }
+.trade-price { display: inline-flex; align-items: center; gap: 5px; }
+.trade-item-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 6px; }
+.ggg-notice { font-size: 11px; line-height: 1.35; color: var(--muted); opacity: .75; }

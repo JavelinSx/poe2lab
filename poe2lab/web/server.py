@@ -4,6 +4,7 @@ import re
 import threading
 from dataclasses import asdict, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
@@ -16,11 +17,12 @@ from ..analysis.items import breakeven, compare
 from ..analysis.skills import build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
+from ..analysis.report import score as report_score
 from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
 from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import optimize as optimize_tree
-from ..analysis.slots import craft_path, plan_all, plan_slot
+from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import plan_sockets
 from ..analysis.threats import MapProfile, survivable_hits
 from ..analysis.versus import versus
@@ -29,6 +31,7 @@ from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context,
 from ..assistant.agent import STYLES
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
+from ..economy import trade
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from .. import crafting, feedback, gamedata, glossary, icons, itemtext, journal, library, lootfilter, pobapp
@@ -1062,6 +1065,90 @@ def compare_item(req: CompareRequest):
             res = _errors(lambda: breakeven(session.engine, cfg, req.slot, text, req.breakeven))
             result["breakeven"] = None if res is None else {"factor": res[0], "line": res[1]}
         return _json(result)
+
+
+class TradeRequest(BaseModel):
+    slot: str
+    mode: str = "balanced"
+    threshold: float = 15.0  # how much better (score points, % of the build) an item must be to be offered
+
+
+@app.post("/api/trade/search")
+def trade_search(req: TradeRequest):
+    """A better item for one slot on the trade site: the key mods, then an item made for the build; the cheapest
+    listings of each search are put on the build by PoB, and those better by the threshold come first."""
+    if req.mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {req.mode!r}")
+    with session.lock:
+        session.require()
+        e, prof = session.engine, session.profile
+        build = session.path
+        item = next((i for i in e.equipped_item_details() if i["slot"] == req.slot), None)
+        if item is None:
+            raise HTTPException(404, f"в слоте {req.slot} ничего нет")
+        cat = trade.category(item["type"], item["tags"])
+        if cat is None or item["rarity"] not in AFFIX_LIMIT:
+            raise HTTPException(400, "поиск замены — для редких и магических вещей экипировки")
+        prices = session.prices()
+        league = prices.league if prices else (session.bp.league or "Standard")
+        level = int(e.info()["level"] or 1)
+        cfg, weights = prof.config(), defence_weights(survivable_hits(e, prof))
+        gear_cache = session.cache.get(("gear", req.mode))
+        plan = next((p for p in gear_cache["slots"] if p["slot"] == req.slot), None) if gear_cache else None
+        if plan is None:
+            plan = asdict(plan_slot(e, session.db(), cfg, item, req.mode, weights, top=4,
+                                    check_mana=not prof.mana_sustained))
+        mods = trade.pick_mods(session.db(), plan, item["tags"], level)
+        bare = e.what_if(config=cfg, remove_slot=req.slot)
+        attributes = {k.lower(): bare.get(k, 0) for k in ("Str", "Dex", "Int")}
+    if not mods:
+        raise HTTPException(400, "не нашёл, по каким модам искать: PoB не видит у слота ценных модов")
+
+    searches = []
+    for q in trade.queries(mods, cat, level, attributes):
+        entry = {"kind": q["kind"], "mods": q["mods"], "relaxed": False, "total": 0, "url": None, "items": [],
+                 "error": None}
+        try:
+            found = trade.search(league, q["body"])
+            if not found.get("result") and q["relaxed"]:
+                found, entry["relaxed"] = trade.search(league, q["relaxed"]), True
+            entry["total"], entry["url"] = found.get("total", 0), trade.search_url(league, found["id"])
+            entry["listings"] = trade.fetch(found["id"], found.get("result", [])[:trade.FETCH])
+        except trade.TradeError as err:
+            entry["error"] = str(err)
+        searches.append(entry)
+
+    with session.lock:
+        session.require()
+        if session.path != build:
+            raise HTTPException(409, "пока шёл поиск, открыли другой билд")
+        base = e.what_if(config=cfg)
+        for entry in searches:
+            for listing in entry.pop("listings", []):
+                it, text = listing.get("item", {}), trade.item_text(listing.get("item", {}))
+                row = {"name": trade.plain(it.get("name", "")), "base": trade.plain(it.get("baseType", "")),
+                       "rarity": it.get("rarity", ""), "ilvl": it.get("ilvl"), "corrupted": bool(it.get("corrupted")),
+                       "implicit": trade.mod_lines(it.get("implicitMods")) + trade.mod_lines(it.get("runeMods")),
+                       "explicit": trade.mod_lines(it.get("fracturedMods")) + trade.mod_lines(it.get("explicitMods"))
+                       + trade.mod_lines(it.get("desecratedMods")),
+                       "price": trade.price(listing.get("listing"), prices),
+                       "whisper": (listing.get("listing") or {}).get("whisper"),
+                       "seller": ((listing.get("listing") or {}).get("account") or {}).get("name"),
+                       "score": None, "changes": {}, "unmet": [], "better": False}
+                try:
+                    new = e.what_if(config=cfg, replace_item=(req.slot, text))
+                except PobError as err:
+                    row["error"] = f"PoB не прочитал предмет: {err}"
+                    entry["items"].append(row)
+                    continue
+                changes = metric_changes(new, base)
+                row["changes"], row["score"] = changes, report_score(SimpleNamespace(one=changes), req.mode, weights)
+                row["unmet"] = [a for a in ("Str", "Dex", "Int")
+                                if new.get(f"Req{a}", 0) - new.get(a, 0) > max(base.get(f"Req{a}", 0) - base.get(a, 0), 0)]
+                row["better"] = row["score"] >= req.threshold and not row["unmet"]
+                entry["items"].append(row)
+            entry["items"].sort(key=lambda r: (not r["better"], (r["price"] or {}).get("ex") or 1e9))
+    return _json({"slot": req.slot, "league": league, "threshold": req.threshold, "searches": searches})
 
 
 def _profile_path() -> Path:
