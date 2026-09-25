@@ -234,22 +234,44 @@ function renderAddBuild() {
       const r = await api("/api/builds", { method: "POST", body: { name: name.value, code: code.value } });
       toast(t("added", r.name), true);
       await openBuild(r.name);
+      if (r.report) plannerReport(r.report);
     } catch (e) {
       toast(e.message);
       go.disabled = false;
       go.textContent = t("addGo");
     }
   } }, t("addGo"));
+  // the game's build planner file (.build: Mobalytics, PoB's export) read from disk into the box
+  const file = h("input", { type: "file", accept: ".build,.json,.txt", style: "display:none", onchange: async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    code.value = await f.text();
+    if (!name.value.trim()) name.placeholder = f.name.replace(/\.[^.]+$/, "");
+  } });
   hideBuildChrome();
   $("#view").replaceChildren(h("div", { class: "card stack add-build" },
     h("h3", {}, t("addTitle")), h("div", { class: "sub" }, t("addSub")),
     name, code,
+    h("div", { class: "row small" }, h("button", { class: "ghost small", onclick: () => file.click() }, t("addFile")),
+      h("span", { class: "muted" }, t("addFileHint")), file),
     h("div", { class: "row" }, go, state.build
       ? h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")) : null)));
   code.focus();
 }
 
 $("#add-build").addEventListener("click", renderAddBuild);
+
+// what a build planner file became: level, what could not be matched, attributes still short
+function plannerReport(r) {
+  const short = Object.entries(r.attributes.short || {}).filter(([, v]) => v > 0);
+  const card = h("div", { class: "card planner-report" }, h("h3", {}, t("plannerTitle", r.name)),
+    h("div", { class: "sub" }, t("plannerSub", r.author || "—", r.level)),
+    r.missing.length ? h("p", { class: "bad small" }, t("plannerMissing", r.missing.join(", "))) : null,
+    short.length ? h("p", { class: "small" }, t("plannerShort", short.map(([a, v]) => `${t("attr_" + a)} −${v}`).join(", "))) : null,
+    h("p", { class: "hint" }, t("plannerHint")),
+    h("button", { class: "ghost small", onclick: () => card.remove() }, t("plannerOk")));
+  $("#view").prepend(card);
+}
 
 async function loadStatus() {
   const s = await api("/api/status");

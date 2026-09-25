@@ -35,7 +35,7 @@ from ..economy import trade
 from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
-from .. import crafting, feedback, gamedata, glossary, icons, itemtext, journal, library, lootfilter, pobapp
+from .. import buildplanner, crafting, feedback, gamedata, glossary, icons, itemtext, journal, library, lootfilter, pobapp
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -421,13 +421,24 @@ def builds_hidden():
 
 class AddBuildRequest(BaseModel):
     name: str = ""
-    code: str  # PoB code or a pobb.in link
+    code: str  # PoB code, a pobb.in link, or the game's build planner file (.build: Mobalytics, PoB's export)
 
 
 @app.post("/api/builds")
 def add_build(req: AddBuildRequest):
+    report = None
+    code = req.code
+    if buildplanner.parse(code) is not None:
+        # a build planner file: PoB builds it in an engine of its own (the open build stays as it is)
+        try:
+            code, report = buildplanner.to_code(code, PobEngine())
+        except (buildplanner.BuildPlannerError, PobError) as err:
+            raise HTTPException(400, f"не удалось собрать билд из файла планировщика: {err}")
+    name = req.name
+    if not name.strip() and report and report["name"]:
+        name = re.sub(r"\s+", " ", re.sub(r"[^\w\- .()]", " ", report["name"])).strip()[:60]
     try:
-        return {"name": library.add(req.name, req.code)}
+        return {"name": library.add(name, code), "report": report}
     except library.LibraryError as err:
         raise HTTPException(400, str(err))
 
