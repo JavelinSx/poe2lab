@@ -632,9 +632,10 @@ def mechanics(build: str | None = None):
 
 
 @app.get("/api/skills")
-def skills_view(view: str = "build", scope: str = "level", build: str | None = None):
+def skills_view(view: str = "build", scope: str = "level", build: str | None = None, of: str | None = None):
     """The build's skills: each with its support gems and the links between skills ("build"), or when each gem can
-    be had and what to socket meanwhile while levelling ("leveling")."""
+    be had and what to socket meanwhile while levelling ("leveling"; of="target": the levelling of the build's
+    target - the guide the player follows)."""
     if view not in ("build", "leveling", "uniques"):
         raise HTTPException(400, f"неизвестный вид {view!r}")
     with session.lock:
@@ -651,6 +652,14 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
                 view_data = data
                 data = session.cached(("skills", "uniques", cap), lambda: suggest_uniques(e, cfg, view_data, cap))
                 data = data | {"level": session.level}
+        elif of == "target":
+            name = session.bp.target
+            if not name:
+                raise HTTPException(400, "у билда нет цели: её выбирают во вкладке «Профиль»")
+            _, engine, bp = _reference(name)
+            profile = MapProfile.for_level(engine.info()["level"], rage=bp.rage, mana_sustained=bp.mana_sustained)
+            data = session.cached(("skills", "leveling", "target", name),
+                                  lambda: skill_leveling_view(engine, profile.config())) | {"of": name}
         else:
             data = session.cached(("skills", "leveling"), lambda: skill_leveling_view(e, cfg))
         return _json(data)

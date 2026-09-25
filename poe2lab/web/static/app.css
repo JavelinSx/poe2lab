@@ -602,3 +602,24 @@ details > summary .ico { margin-left: 2px; }
 .item-lines li.lose { background: rgba(226, 106, 95, .13); border-radius: 4px; }
 .verdict-head { display: block; font-size: 13px; font-weight: 400; opacity: .85; }
 @media (max-width: 700px) { .cmp-items { grid-template-columns: 1fr; } .doll-wrap { --cell: 34px; } }
+
+/* levelling: a level slider, each skill's supports as sockets */
+.lv-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lv-head input[type=range] { flex: 1; min-width: 180px; accent-color: var(--gold); }
+.lv-level { font-size: 24px; font-weight: 700; color: var(--gold); min-width: 2.5ch; }
+.lv-skill { display: flex; gap: 16px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--line); }
+.lv-skill.locked { opacity: .45; }
+.lv-skill-head { width: 170px; flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.lv-skill-head .ico { width: 44px; height: 44px; margin: 0; }
+.lv-sockets { display: flex; gap: 12px; flex-wrap: wrap; }
+.lv-socket { width: 116px; display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; font-size: 12px; line-height: 1.25; }
+.lv-socket .ico { width: 42px; height: 42px; margin: 0; }
+.lv-socket.fill .ico { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px rgba(95, 201, 141, .55); }
+.lv-hole { width: 42px; height: 42px; border-radius: 50%; border: 2px dashed #3a414d; }
+.lv-gain { color: var(--good); font-weight: 600; }
+.lv-then { color: var(--muted); font-size: 11px; }
+.lv-more { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+.lv-next { display: flex; gap: 10px; flex-wrap: wrap; }
+.lv-mile { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+.lv-mile b { color: var(--gold); }
+@media (max-width: 700px) { .lv-skill { flex-direction: column; } .lv-skill-head { width: auto; } }

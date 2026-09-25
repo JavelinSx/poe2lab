@@ -50,6 +50,15 @@ def test_load_report_and_compare(client):
     assert same["item"]["explicit"] == worn["explicit"] and same["item"]["baseName"] == worn["baseName"]
 
 
+def test_levelling_by_the_build_s_target(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    assert client.get("/api/skills?view=leveling&of=target").status_code == 400  # no target yet
+    session.bp.target = "monk"  # as if the profile named the guide
+    r = client.get("/api/skills?view=leveling&of=target").json()
+    assert r["of"] == "monk" and r["plans"] and r["timeline"]
+    assert any(p["skill"] != "Furious Slam" for p in r["plans"])  # the guide's skills, not the titan's
+
+
 def test_reference_gear_for_the_inventory_view(client):
     client.post("/api/load", json={"name": "titan"}, headers=H)
     g = client.get("/api/versus/gear?ref=monk").json()

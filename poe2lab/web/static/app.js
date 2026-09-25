@@ -1629,11 +1629,16 @@ TABS.skills = async (view) => {
   const scope = state.uniqueScope || "level";
   const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "uniques" ? "unLoading" : "skLoadingLevel")));
   view.replaceChildren(h("div", { class: "stack" }, h("div", { class: "row" }, seg), body));
+  // levelling follows the build's target (the guide the player plays by) unless the player asks for the build
+  const of = mode === "leveling" && (state.build.profileRaw || {}).target && state.levelOf !== "build" ? "target" : "";
   try {
-    const key = mode === "uniques" ? `skills:uniques:${scope}` : `skills:${mode}`;
-    const r = await cached(key, () => api(`/api/skills?view=${mode}&scope=${scope}&${buildQuery()}`));
+    const key = mode === "uniques" ? `skills:uniques:${scope}` : `skills:${mode}${of ? ":target" : ""}`;
+    const r = await cached(key, () => api(`/api/skills?view=${mode}&scope=${scope}${of ? "&of=target" : ""}&${buildQuery()}`));
     body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : mode === "uniques" ? renderUniqueLinks(r) : renderSkillsLeveling(r)));
-  } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+  } catch (e) {
+    body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message),
+      of ? h("button", { class: "ghost small", onclick: () => { state.levelOf = "build"; switchTab("skills"); } }, t("lvByBuild")) : null));
+  }
 };
 
 // ---------- the ascendancy and the taken notables (cards of the Tree tab) ----------
@@ -2150,30 +2155,92 @@ function renderUniqueLinks(r) {
   return [head, h("div", { class: "grid cards" }, cards), h("div", { class: "hint" }, t("unNote"))];
 }
 
+// Levelling, as the game shows gems: pick a level (the character's by default) and see, for each skill, what goes
+// into its support sockets then - the build's own supports once they can be had, a stand-in until then (the best
+// PoB finds that is not used elsewhere: a support gem goes into one skill only) - and what opens next.
 function renderSkillsLeveling(r) {
   for (const p of r.plans) for (const s of p.stages) for (const o of s.options) {
     if (o.color && !GEM_INFO[o.name]) GEM_INFO[o.name] = { color: o.color, support: true };
   }
-  const intro = h("div", { class: "card" }, h("h3", {}, t("skLevelTitle")), h("div", { class: "sub" }, t("skLevelSub")),
-    h("div", { class: "small" }, t("skUncut",
-      Object.entries(r.uncutSkillArea).filter(([lv]) => lv % 2 === 1 && lv <= 13).map(([lv, area]) => `${lv} — ${area}`).join(", "),
-      Object.entries(r.uncutSupportArea).map(([tier, lv]) => `${tier} — ${lv}`).join(", "))));
-  const timeline = h("div", { class: "card" }, h("h3", {}, t("skTimeline")),
-    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", { class: "num" }, t("skLevel")), h("th", {}, t("skSkillsCol")), h("th", {}, t("skSupportsCol")))),
-      h("tbody", {}, r.timeline.map((row) => h("tr", {}, h("td", { class: "num" }, `~${row.level}`),
-        h("td", {}, row.gems.filter((x) => !x.support).map((x, i) => [i ? ", " : "", gemName(x.name)])),
-        h("td", {}, row.gems.filter((x) => x.support).map((x, i) => [i ? ", " : "", h("span", { title: x.skills.map(trName).join(", ") }, gemName(x.name))])))))));
-  const plans = r.plans.map((p) => h("div", { class: "card" },
-    h("div", { class: "row" }, h("h3", {}, gemName(p.skill)), p.main ? chip("tag", t("skMain")) : null,
-      p.skillAvailable ? h("span", { class: "muted small" }, t("skFromLevel", p.skillAvailable)) : h("span", { class: "muted small" }, t("skFromItem"))),
-    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", { class: "num" }, t("skLevel")), h("th", {}, t("skFromBuild")), h("th", {}, t("skOptions")))),
-      h("tbody", {}, p.stages.map((s) => h("tr", {}, h("td", { class: "num" }, `~${s.level}`),
-        h("td", { class: "small" }, s.build.length ? s.build.map((n, i) => [i ? ", " : "", gemName(n)]) : h("span", { class: "muted" }, "—"),
-          s.later.length ? h("div", { class: "hint" }, t("skLater", s.later.map(trName).join(", "))) : null),
-        h("td", { class: "small" }, s.options.length ? h("ul", { class: "item-lines" }, s.options.map((o) => h("li", {}, gemName(o.name),
-          h("span", { class: "delta pos", style: "margin-left:6px" }, `${t("m_dps")} ${pct(o.dps)}`)))) : h("span", { class: "muted" }, "—"))))))));
-  return [intro, timeline, h("div", { class: "hint" }, t("skOptionsNote")), ...plans];
+  const opens = new Map(r.timeline.flatMap((row) => row.gems.map((g) => [g.name, row.level])));
+  const charLevel = state.build.info.level || 1;
+  const top = Math.max(60, charLevel, ...r.timeline.map((x) => x.level), ...r.plans.flatMap((p) => p.stages.map((s) => s.level)));
+  let level = Math.min(top, state.levelView && state.levelView.build === state.build.name ? state.levelView.level : charLevel);
+
+  const shown = h("span", { class: "lv-level" });
+  const slider = h("input", { type: "range", min: 1, max: top, value: level, oninput: () => set(Number(slider.value)) });
+  const now = h("button", { class: "ghost small", onclick: () => { slider.value = charLevel; set(charLevel); } }, t("lvNow", charLevel));
+  const body = h("div", { class: "stack" });
+  const next = h("div", {});
+  const set = (lv) => {
+    level = lv;
+    state.levelView = { build: state.build.name, level };
+    shown.textContent = level;
+    now.disabled = level === charLevel;
+    draw();
+  };
+
+  const socketGem = (name, cls, extra, title) => h("div", { class: "lv-socket " + cls, title: title || name },
+    icon(name) || h("div", { class: "lv-hole" }), h("div", { class: "lv-sock-name" }, trName(name)), extra);
+  const draw = () => {
+    const plans = [...r.plans].sort((a, b) => b.main - a.main);
+    // the build's supports in use at this level, then stand-ins: never the same support in two skills
+    const used = new Set(plans.flatMap((p) => (stageAt(p, level) || { build: [] }).build));
+    body.replaceChildren(...plans.map((p) => {
+      const open = p.skillAvailable === null || p.skillAvailable === undefined || p.skillAvailable <= level;
+      const st = stageAt(p, level) || { build: [], later: [], options: [] };
+      const sockets = [];
+      let more = [];
+      if (open) {
+        for (const name of st.build) sockets.push(socketGem(name, "own", null, t("lvOwnTitle")));
+        const spare = st.options.filter((o) => !used.has(o.name));
+        for (const name of st.later) {
+          const o = spare.shift();
+          if (o) used.add(o.name);
+          const then = h("div", { class: "lv-then", title: name }, t("lvThen", trName(name), opens.get(name)));
+          sockets.push(o ? socketGem(o.name, "fill", [h("div", { class: "lv-gain", title: t("lvGainTitle") }, pct(o.dps)), then], t("lvFillTitle"))
+            : h("div", { class: "lv-socket vacant" }, h("div", { class: "lv-hole" }), then));
+        }
+        if (!sockets.length) sockets.push(h("div", { class: "muted small" }, t("lvNoSupports")));
+        more = spare.filter((o) => !used.has(o.name));
+      }
+      return h("div", { class: "lv-skill" + (open ? "" : " locked") },
+        h("div", { class: "lv-skill-head" }, icon(p.skill), h("b", {}, trName(p.skill)),
+          p.main ? chip("tag", t("skMain")) : null,
+          open ? (p.skillAvailable ? null : h("span", { class: "muted small" }, t("lvFromItem")))
+            : h("span", { class: "muted small" }, t("lvOpensAt", p.skillAvailable))),
+        open ? h("div", { class: "stack", style: "gap:6px" }, h("div", { class: "lv-sockets" }, sockets),
+          more.length ? h("details", { class: "small" }, h("summary", {}, t("lvMore", more.length)),
+            h("div", { class: "lv-more" }, more.map((o) => h("span", { class: "named", title: t("lvGainTitle") }, icon(o.name), trName(o.name),
+              h("span", { class: "lv-gain" }, " " + pct(o.dps)))))) : null) : null);
+    }));
+    const ahead = r.timeline.filter((x) => x.level > level).slice(0, 4);
+    next.replaceChildren(h("h3", {}, t("lvNext")), ahead.length ? h("div", { class: "lv-next" }, ahead.map((x) => h("div", { class: "lv-mile" },
+      h("b", {}, t("lvAt", x.level)), x.gems.map((g) => h("div", { class: "named", title: g.support ? g.skills.map(trName).join(", ") : "" },
+        icon(g.name), trName(g.name)))))) : h("p", { class: "muted" }, t("lvNothingNext")));
+  };
+  set(level);
+  const target = (state.build.profileRaw || {}).target;
+  const source = target ? h("div", { class: "segmented" }, [["target", t("lvByTarget", target)], ["build", t("lvByBuild")]].map(([k, label]) =>
+    h("button", { class: (r.of ? "target" : "build") === k ? "active" : "", title: k === "target" ? t("lvTargetHint") : "",
+      onclick: () => { state.levelOf = k; switchTab("skills"); } }, label))) : null;
+  return [
+    h("div", { class: "card stack" },
+      h("h3", {}, t("lvTitle")),
+      source,
+      h("div", { class: "lv-head" }, h("span", { class: "muted" }, t("lvLevel")), shown, slider, now),
+      h("div", { class: "hint" }, t("lvHint")),
+      body),
+    h("div", { class: "card" }, next),
+    h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lvWhere")),
+      h("div", { class: "sub", style: "margin-top:8px" }, t("skLevelSub")),
+      h("div", { class: "small" }, t("skUncut",
+        Object.entries(r.uncutSkillArea).filter(([lv]) => lv % 2 === 1 && lv <= 13).map(([lv, area]) => `${lv} — ${area}`).join(", "),
+        Object.entries(r.uncutSupportArea).map(([tier, lv]) => `${tier} — ${lv}`).join(", "))))),
+  ];
 }
+// the levelling stage in force at a level: the last one that has started
+const stageAt = (plan, level) => plan.stages.filter((s) => s.level <= level).pop() || plan.stages[0];
 
 TABS.mechanics = async (view) => {
   view.replaceChildren(loading(t("collecting")));
