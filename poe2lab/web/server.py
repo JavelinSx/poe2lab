@@ -1146,6 +1146,7 @@ class TradeRequest(BaseModel):
     slot: str
     mode: str = "balanced"
     threshold: float = 15.0  # how much better (score points, % of the build) an item must be to be offered
+    status: str = "online"  # sellers online now; "available": also instant buyout listings
 
 
 @app.post("/api/trade/search")
@@ -1154,6 +1155,8 @@ def trade_search(req: TradeRequest):
     listings of each search are put on the build by PoB, and those better by the threshold come first."""
     if req.mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {req.mode!r}")
+    if req.status not in trade.STATUSES:
+        raise HTTPException(400, f"продавцы: {' или '.join(trade.STATUSES)}, а не {req.status!r}")
     with session.lock:
         session.require()
         e, prof = session.engine, session.profile
@@ -1180,13 +1183,15 @@ def trade_search(req: TradeRequest):
         raise HTTPException(400, "не нашёл, по каким модам искать: PoB не видит у слота ценных модов")
 
     searches = []
-    for q in trade.queries(mods, cat, level, attributes):
+    for q in trade.queries(mods, cat, level, attributes, req.status):
         entry = {"kind": q["kind"], "mods": q["mods"], "relaxed": False, "total": 0, "url": None, "items": [],
                  "error": None}
         try:
             found = trade.search(league, q["body"])
-            if not found.get("result") and q["relaxed"]:
-                found, entry["relaxed"] = trade.search(league, q["relaxed"]), True
+            for n, body in q["relaxed"]:  # nothing has them all: fewer of them
+                if found.get("result"):
+                    break
+                found, entry["relaxed"] = trade.search(league, body), n
             entry["total"], entry["url"] = found.get("total", 0), trade.search_url(league, found["id"])
             entry["listings"] = trade.fetch(found["id"], found.get("result", [])[:trade.FETCH])
         except trade.TradeError as err:
@@ -1223,7 +1228,8 @@ def trade_search(req: TradeRequest):
                 row["better"] = row["score"] >= req.threshold and not row["unmet"]
                 entry["items"].append(row)
             entry["items"].sort(key=lambda r: (not r["better"], (r["price"] or {}).get("ex") or 1e9))
-    return _json({"slot": req.slot, "league": league, "threshold": req.threshold, "searches": searches})
+    return _json({"slot": req.slot, "league": league, "threshold": req.threshold, "status": req.status,
+                  "searches": searches})
 
 
 def _profile_path() -> Path:

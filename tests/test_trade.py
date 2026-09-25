@@ -67,9 +67,15 @@ def test_queries_ask_for_the_key_mods_then_an_item_made_for_the_build():
     assert key["body"]["query"]["status"] == {"option": "online"}  # sellers online now only
     reqs = key["body"]["query"]["filters"]["req_filters"]["filters"]
     assert reqs == {"lvl": {"max": 70}, "str": {"max": 150}, "dex": {"max": 40}, "int": {"max": 20}}
-    relaxed = key["relaxed"]["query"]["stats"]
-    assert [f["id"] for f in relaxed[0]["filters"]] == ["explicit.stat_1"]  # what must stay stays required
-    assert relaxed[1] == {"type": "count", "value": {"min": 2}, "filters": relaxed[1]["filters"]}
+    # nothing has all four: 3 of them, then 2 - what must stay (a capped resistance) always required
+    assert [n for n, _ in key["relaxed"]] == [3, 2]
+    for n, body in key["relaxed"]:
+        and_group, count_group = body["query"]["stats"]
+        assert [f["id"] for f in and_group["filters"]] == ["explicit.stat_1"]
+        assert count_group["value"] == {"min": n - 1} and len(count_group["filters"]) == 3
+    assert ideal["relaxed"] == []
+    # sellers: online now by default, or also instant buyout listings
+    assert trade.queries(mods, "armour.gloves", 70, status="available")[0]["body"]["query"]["status"] == {"option": "available"}
     and_group, count_group = ideal["body"]["query"]["stats"]
     assert [f["id"] for f in and_group["filters"]] == ["explicit.stat_1"]
     assert len(count_group["filters"]) == 7 and count_group["value"]["min"] == 4  # 5 of the best 8 in all
@@ -127,6 +133,7 @@ def test_a_site_error_is_shown_not_raised(client, monkeypatch):
     monkeypatch.setattr(trade, "search", busy)
     r = client.post("/api/trade/search", json={"slot": "Gloves"}, headers=H).json()
     assert all("паузу" in s["error"] and not s["items"] for s in r["searches"])
+    assert client.post("/api/trade/search", json={"slot": "Gloves", "status": "any"}, headers=H).status_code == 400
     assert client.post("/api/trade/search", json={"slot": "Flask 1"}, headers=H).status_code == 400
 
 
@@ -149,3 +156,27 @@ def test_one_filter_per_stat(monkeypatch):
     assert [m["id"] for m in mods] == ["explicit.stat_1"]
     # the worn roll sets the least a replacement must have; the hybrid's worth ranks it
     assert mods[0]["line"] == "+29 to Evasion Rating" and mods[0]["min"] >= 26 and mods[0]["score"] == 9
+
+
+def test_fewer_key_mods_when_nothing_has_them_all(client, monkeypatch):
+    """Nothing with all four key mods: the search asks for three of them, then two; the answer says how many."""
+    from poe2lab.web.server import session
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    known = [{"entries": [{"id": f"explicit.stat_{h}"} for m in session.db().mods for h in m.trade_hashes]}]
+    monkeypatch.setattr(trade, "trade_data", lambda lang, kind: known)
+    monkeypatch.setattr(session, "prices", lambda: None)
+    asked = []
+
+    def search(league, body):
+        asked.append(body)
+        counts = [g["value"]["min"] for g in body["query"]["stats"] if g["type"] == "count"]
+        found = counts == [1] or (not counts and len(asked) > 1)  # only the "2 of 4" search finds something
+        return {"id": f"q{len(asked)}", "total": 1 if found else 0, "result": ["a"] if found else []}
+
+    monkeypatch.setattr(trade, "search", search)
+    monkeypatch.setattr(trade, "fetch", lambda query_id, ids: [listing(["+5 to maximum Life"])])
+    r = client.post("/api/trade/search", json={"slot": "Gloves", "status": "available"}, headers=H).json()
+    key = r["searches"][0]
+    assert r["status"] == "available" and all(b["query"]["status"]["option"] == "available" for b in asked)
+    assert key["relaxed"] in (2, 3) and key["items"]
+

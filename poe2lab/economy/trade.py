@@ -179,17 +179,21 @@ def pick_mods(db: ModDB, plan: dict, tags, level: int) -> list[dict]:
     return out
 
 
-def queries(mods: list[dict], cat: str, level: int, attributes: dict[str, float] | None = None) -> list[dict]:
-    """The two searches: the key mods (all of them), then an item made for the build (most of the best eight).
-    Only what the character can wear: its level, and its attributes without the worn item (an item's own
-    attributes do not count towards its requirements); only sellers online now, who can be messaged and bought
-    from at once."""
+STATUSES = ("online", "available")  # sellers online now; or also instant buyout listings (bought without the seller)
+
+
+def queries(mods: list[dict], cat: str, level: int, attributes: dict[str, float] | None = None,
+            status: str = "online") -> list[dict]:
+    """The two searches: the key mods (all of them; when nothing has them all, `relaxed` holds the searches for
+    fewer: 3 of 4, then 2 of 4), then an item made for the build (most of the best eight). Only what the character
+    can wear: its level, and its attributes without the worn item (an item's own attributes do not count towards its
+    requirements); `status`: sellers online now, or also instant buyout listings."""
     reqs = {"lvl": {"max": level}}
     for key, value in (attributes or {}).items():
         reqs[key] = {"max": int(value)}
 
     def body(stats):
-        return {"query": {"status": {"option": "online"}, "stats": stats,
+        return {"query": {"status": {"option": status}, "stats": stats,
                           "filters": {"type_filters": {"filters": {"category": {"option": cat},
                                                                    "rarity": {"option": "nonunique"}}},
                                       "req_filters": {"filters": reqs}}},
@@ -198,18 +202,25 @@ def queries(mods: list[dict], cat: str, level: int, attributes: dict[str, float]
     def flt(m):
         return {"id": m["id"], "value": {"min": m["min"]}, "disabled": False}
 
+    def at_least(key, n):
+        """n of the key mods at least, what must stay (a capped resistance...) always among them."""
+        must, rest = [m for m in key if m["must"]], [m for m in key if not m["must"]]
+        groups = [{"type": "and", "filters": [flt(m) for m in must]}] if must else []
+        if n > len(must):
+            groups.append({"type": "count", "value": {"min": n - len(must)}, "filters": [flt(m) for m in rest]})
+        return body(groups) if groups else None
+
     out = []
     key = mods[:KEY_MODS]
     if key:
+        relaxed = [(n, at_least(key, n)) for n in range(len(key) - 1, 1, -1)]
         out.append({"kind": "key", "mods": key, "body": body([{"type": "and", "filters": [flt(m) for m in key]}]),
-                    "relaxed": body([{"type": "and", "filters": [flt(m) for m in key if m["must"]]},
-                                     {"type": "count", "value": {"min": max(1, len(key) - 1 - sum(m["must"] for m in key))},
-                                      "filters": [flt(m) for m in key if not m["must"]]}]) if len(key) >= 3 else None})
+                    "relaxed": [(n, b) for n, b in relaxed if b]})
     ideal = mods[:IDEAL_MODS]
     if len(ideal) > KEY_MODS:
         must, rest = [m for m in ideal if m["must"]], [m for m in ideal if not m["must"]]
         need = max(1, min(len(rest), IDEAL_COUNT - len(must)))
-        out.append({"kind": "ideal", "mods": ideal, "relaxed": None,
+        out.append({"kind": "ideal", "mods": ideal, "relaxed": [],
                     "body": body([{"type": "and", "filters": [flt(m) for m in must]},
                                   {"type": "count", "value": {"min": need}, "filters": [flt(m) for m in rest]}])})
     return out

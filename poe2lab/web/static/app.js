@@ -744,6 +744,10 @@ const TRADE_CURRENCY = { exalted: "Exalted Orb", divine: "Divine Orb", chaos: "C
 const tradeThreshold = () => {
   try { return Number(localStorage.getItem("poe2lab.tradeThreshold")) || 15; } catch (_) { return 15; }
 };
+// sellers: online now only (the player's choice), or also instant buyout listings
+const tradeStatus = () => {
+  try { return localStorage.getItem("poe2lab.tradeStatus") === "available" ? "available" : "online"; } catch (_) { return "online"; }
+};
 
 function tradeBlock(slot) {
   const box = h("div", { class: "trade" });
@@ -762,15 +766,23 @@ function openTrade(box, slot) {
       if (tradeState[slot]) show(tradeState[slot]);  // the verdicts move with the threshold, no new search
     } });
   const go = h("button", { class: "primary small", onclick: () => run() }, t("trSearch"));
+  const note = h("div", { class: "muted small", style: "margin:-2px 0 8px" });
+  const drawNote = () => note.replaceChildren(t(tradeStatus() === "online" ? "trNoteOnline" : "trNoteAvailable"), " ", t("trNote"));
+  const status = h("select", { onchange: (e) => {
+    try { localStorage.setItem("poe2lab.tradeStatus", e.target.value); } catch (_) { /* storage blocked */ }
+    drawNote();
+  } }, [["online", t("trStatusOnline")], ["available", t("trStatusAvailable")]].map(([v, label]) =>
+    h("option", { value: v, selected: tradeStatus() === v }, label)));
+  drawNote();
   box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("trTitle")), h("div", { class: "sub" }, t("trSub"))),
-    h("div", { class: "row craft-controls" }, h("label", {}, t("trThreshold"), " ", threshold, " %"), go),
-    h("div", { class: "muted small", style: "margin:-2px 0 8px" }, t("trNote")), out);
+    h("div", { class: "row craft-controls" }, h("label", {}, t("trThreshold"), " ", threshold, " %"),
+      h("label", {}, t("trSellers"), " ", status), go), note, out);
 
   async function run() {
     go.disabled = true;
     out.replaceChildren(loading(t("trSearching")));
     try {
-      tradeState[slot] = await api("/api/trade/search", { method: "POST", body: { slot, mode: state.mode, threshold: 0 } });
+      tradeState[slot] = await api("/api/trade/search", { method: "POST", body: { slot, mode: state.mode, threshold: 0, status: tradeStatus() } });
       show(tradeState[slot]);
     } catch (e) {
       out.replaceChildren(h("p", { class: "bad" }, e.message));
@@ -782,7 +794,7 @@ function openTrade(box, slot) {
     const better = (it) => it.score !== null && it.score >= thr && !it.unmet.length;
     out.replaceChildren(h("div", { class: "muted small" }, t("trLeague", trName(r.league))),
       ...r.searches.map((s) => {
-        const need = s.kind === "key" ? s.mods.length - (s.relaxed ? 1 : 0) : Math.min(s.mods.length, 5);
+        const need = s.kind === "key" ? (s.relaxed || s.mods.length) : Math.min(s.mods.length, 5);
         const head = h("div", { class: "trade-head" },
           h("b", {}, s.kind === "key" ? t("trKey", s.mods.length) : t("trIdeal", need, s.mods.length)), " ",
           s.url ? h("a", { href: s.url, target: "_blank", rel: "noopener" }, t("trOpen", s.total)) : null);
@@ -792,7 +804,7 @@ function openTrade(box, slot) {
         if (!s.items.length) return h("div", { class: "trade-search" }, head, mods, h("p", { class: "muted small" }, t("trNothing")));
         const good = s.items.filter(better).sort((a, b) => ((a.price || {}).ex ?? 1e12) - ((b.price || {}).ex ?? 1e12));
         const rest = s.items.filter((it) => !better(it)).sort((a, b) => (b.score ?? -1e9) - (a.score ?? -1e9));
-        return h("div", { class: "trade-search" }, head, mods, s.relaxed ? h("div", { class: "muted small" }, t("trRelaxed")) : null,
+        return h("div", { class: "trade-search" }, head, mods, s.relaxed ? h("div", { class: "muted small" }, t("trRelaxed", s.relaxed, s.mods.length)) : null,
           good.length ? tradeList(good, true) : h("p", { class: "muted small" }, t("trNoneBetter", thr, s.items.length)),
           rest.length ? h("details", {}, h("summary", { class: "muted small" }, t("trRest", rest.length)), tradeList(rest, false)) : null);
       }));
