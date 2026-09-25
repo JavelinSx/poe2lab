@@ -1402,6 +1402,11 @@ async function openTreeFor(asc) {
 async function renderPassives() {
   const [asc, tree, graph] = await Promise.all([
     cached(`asc:${state.mode}`, () => api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`)), treeAnalysis(), treeGraph()]);
+  // each node with its own picture (the tree graph knows every node's, ascendancy ones included)
+  const pics = new Map(graph.nodes.map((n) => [n.id, n.img]));
+  const nodeName = (n) => h("span", { class: "named", title: n.name },
+    pics.get(n.id) ? h("img", { class: "ico passive", src: `/icons/${pics.get(n.id)}`, alt: "" }) : icon(n.name, "ico passive"),
+    h("b", {}, trName(n.name)));
   const open = h("button", { class: "primary", onclick: async () => {
     open.disabled = true;
     try { await openTreeFor(asc); } catch (e) { toast(e.message); } finally { open.disabled = false; }
@@ -1414,7 +1419,7 @@ async function renderPassives() {
     asc.choices.map((c) => h("details", { class: "ps-choice", open: c === asc.choices[0] },
       h("summary", {}, h("b", {}, trName(c.name)), " ", h("span", { class: "muted small" }, t("psChoiceWorth", fmt(c.worth, 1)))),
       h("table", { class: "versus-items" }, h("tbody", {}, c.notables.map((n) => h("tr", {},
-        h("td", {}, h("b", {}, trName(n.name)), stats(n.stats), fitChips(n.fit),
+        h("td", {}, nodeName(n), stats(n.stats), fitChips(n.fit),
           n.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
         h("td", {}, scoreBar(n.value, choiceMax)),
         h("td", {}, deltas(n.changes, METRIC, 0.3))))))))) : null;
@@ -1423,10 +1428,10 @@ async function renderPassives() {
   const ascCard = choicesCard || h("div", { class: "card" }, h("h3", {}, t("psAscTitle", trName(asc.ascendancy) || t("psNoAsc"))),
     h("div", { class: "sub" }, t("psAscPoints", asc.points, asc.maxPoints), asc.points >= asc.maxPoints ? " " + t("psAscFull") : ""),
     asc.taken.length ? h("div", { class: "ps-list" }, asc.taken.map((n) => h("div", { class: "ps-node taken" },
-      h("b", {}, trName(n.name)), stats(n.stats)))) : null,
+      nodeName(n), stats(n.stats)))) : null,
     asc.options.length ? h("div", {}, h("div", { class: "sub", style: "margin-top:12px" }, t("psAscOptions")),
       h("table", { class: "versus-items" }, h("tbody", {}, asc.options.map((o) => h("tr", {},
-        h("td", {}, h("b", {}, trName(o.name)), stats(o.stats), fitChips(o.fit),
+        h("td", {}, nodeName(o), stats(o.stats), fitChips(o.fit),
           o.via.length ? h("div", { class: "hint" }, t("via", o.via.map(trName).join(", "))) : null,
           o.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
         h("td", { class: "num" }, t("pointsN", o.points)),
@@ -1438,14 +1443,14 @@ async function renderPassives() {
   const takenCard = h("div", { class: "card" }, h("h3", {}, t("psTaken")),
     h("div", { class: "sub" }, t("psTakenSub", graph.points, taken.length)),
     h("div", { class: "ps-list" }, taken.map((n) => h("div", { class: "ps-node" + (n.type === "Keystone" ? " keystone" : "") },
-      h("b", {}, trName(n.name)), stats(n.stats)))));
+      nodeName(n), stats(n.stats)))));
 
   const growth = (tree.growth || []).slice(0, 8);
   const gMax = Math.max(0.01, ...growth.map((g) => g.perPoint));
   const growthCard = h("div", { class: "card" }, h("h3", {}, t("psGrowth")),
     h("div", { class: "sub" }, t("psGrowthSub")),
     h("table", { class: "versus-items" }, h("tbody", {}, growth.map((g) => h("tr", {},
-      h("td", {}, h("b", {}, trName(g.name)), stats(g.stats), fitChips(g.fit)),
+      h("td", {}, nodeName(g), stats(g.stats), fitChips(g.fit)),
       h("td", { class: "num" }, t("pointsN", g.points)),
       h("td", {}, scoreBar(g.perPoint, gMax)),
       h("td", {}, deltas(g.changes, METRIC, 0.3)))))),
