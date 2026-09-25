@@ -1081,6 +1081,17 @@ def versus_view(ref: str, build: str | None = None):
             replace(session.profile, rage=bp.rage, mana_sustained=bp.mana_sustained))))
 
 
+@app.get("/api/versus/gear")
+def versus_gear(ref: str, build: str | None = None):
+    """The reference build's gear as the page shows it (the inventory next to the player's), with who it is."""
+    with session.lock:
+        session.require(build)
+        _, engine, _ = _reference(ref)
+        info = engine.info()
+        return {"name": ref, "items": engine.equipped_item_details(), "level": info["level"],
+                "class": info["class"], "ascendancy": info["ascendancy"], "skill": engine.main_skill()}
+
+
 @app.get("/api/versus/item")
 def versus_item(ref: str, slot: str):
     with session.lock:
@@ -1117,6 +1128,7 @@ def compare_item(req: CompareRequest):
         cfg = session.profile.config()
         text = _english_item(req.text)
         result = asdict(_errors(lambda: compare(session.engine, cfg, req.slot, text)))
+        result["item"] = _errors(lambda: session.engine.parse_item(text))  # the candidate as the page shows it
         if req.breakeven:
             res = _errors(lambda: breakeven(session.engine, cfg, req.slot, text, req.breakeven))
             result["breakeven"] = None if res is None else {"factor": res[0], "line": res[1]}

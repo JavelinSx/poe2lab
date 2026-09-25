@@ -554,3 +554,51 @@ details > summary .ico { margin-left: 2px; }
 @media (max-width: 900px) { .market-list { columns: 1; } }
 .ps-plan { border: 1px solid rgba(95, 201, 141, .55); background: rgba(95, 201, 141, .07); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
 .ps-plan-nodes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0; }
+
+/* compare: the inventory as in the game */
+.cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cmp-head h3 { margin: 0; }
+.cmp-top > .card > .stack, .cmp-top > .card { gap: 10px; }
+.doll-wrap { --cell: 44px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; margin-top: 6px;
+  border-radius: 10px; border: 1px solid var(--line); background: radial-gradient(ellipse at 50% 35%, #1d2129, #0b0d11 75%); }
+.doll { display: grid; grid-template-columns: repeat(8, var(--cell)); grid-template-rows: repeat(6, var(--cell)); gap: 4px; }
+.doll-belt { display: flex; align-items: flex-end; gap: 4px; margin-top: 4px; }
+.doll-slot { position: relative; display: flex; align-items: center; justify-content: center; padding: 3px; cursor: pointer;
+  background: rgba(7, 8, 11, .9); border: 1px solid #2c323d; border-radius: 3px; color: var(--muted);
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, .85); transition: border-color .12s; }
+.doll .doll-slot { width: 100%; height: 100%; }
+.doll-slot:hover { border-color: #6a7385; }
+.doll-slot.sel { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), inset 0 0 14px rgba(0, 0, 0, .85); }
+.doll-slot.r-unique { background: linear-gradient(rgba(175, 96, 37, .22), rgba(7, 8, 11, .9)); border-color: rgba(175, 96, 37, .6); }
+.doll-slot.r-relic { background: linear-gradient(rgba(130, 173, 106, .2), rgba(7, 8, 11, .9)); border-color: rgba(130, 173, 106, .55); }
+.doll-slot.r-rare { background: linear-gradient(rgba(214, 195, 90, .16), rgba(7, 8, 11, .9)); border-color: rgba(214, 195, 90, .45); }
+.doll-slot.r-magic { background: linear-gradient(rgba(136, 136, 255, .18), rgba(7, 8, 11, .9)); border-color: rgba(136, 136, 255, .45); }
+.doll-slot.sel.r-unique, .doll-slot.sel.r-rare, .doll-slot.sel.r-magic, .doll-slot.sel.r-relic { border-color: var(--gold); }
+.doll-slot.belt-flask { width: var(--cell); height: calc(var(--cell) * 2 + 4px); }
+.doll-slot.belt-charm { width: var(--cell); height: var(--cell); }
+.doll-art { max-width: 100%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .7)); pointer-events: none; }
+.doll-empty, .doll-name { font-size: 10px; line-height: 1.15; text-align: center; overflow: hidden; }
+.doll-empty { opacity: .5; }
+.doll-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  font-size: 11px; line-height: 18px; font-weight: 700; text-align: center; color: #0e1014; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.doll-badge.better { background: var(--good); }
+.doll-badge.worse, .doll-badge.no { background: var(--bad); }
+.doll-badge.mixed { background: var(--warn); }
+.doll-badge.same { background: #5a6272; color: var(--text); }
+.cmp-legend { text-align: center; }
+.cmp-hint { color: var(--muted); text-align: center; }
+.cmp-items { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cmp-item-head { display: flex; align-items: center; margin: 4px 0 8px; }
+.cmp-item-head .item-name { margin: 0; }
+.cmp-item.r-unique .item-name { color: #d08a4a; }
+.cmp-item.r-rare .item-name { color: #e2cf6a; }
+.cmp-item.r-magic .item-name { color: #9d9dff; }
+.cmp-item.r-relic .item-name { color: #9cc585; }
+.item-lines li.implicit, .item-lines li.enchant { color: var(--muted); }
+.item-lines li.rune { color: #9fc3e6; }
+.item-lines li.fractured { color: #c9a86a; }
+.item-lines li.corrupted { color: var(--bad); list-style: none; margin-left: -18px; }
+.item-lines li.gain { background: rgba(95, 201, 141, .13); border-radius: 4px; }
+.item-lines li.lose { background: rgba(226, 106, 95, .13); border-radius: 4px; }
+.verdict-head { display: block; font-size: 13px; font-weight: 400; opacity: .85; }
+@media (max-width: 700px) { .cmp-items { grid-template-columns: 1fr; } .doll-wrap { --cell: 34px; } }

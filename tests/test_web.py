@@ -45,6 +45,18 @@ def test_load_report_and_compare(client):
     text = client.get("/api/item/Weapon 1 Swap").json()["text"]
     same = client.post("/api/compare", json={"slot": "Weapon 1 Swap", "text": text}, headers=H).json()
     assert abs(same["dps_pct"]) < 1e-6
+    # the candidate comes back as the page shows items: the same lines as the equipped one
+    worn = next(i for i in b["items"] if i["slot"] == "Weapon 1 Swap")
+    assert same["item"]["explicit"] == worn["explicit"] and same["item"]["baseName"] == worn["baseName"]
+
+
+def test_reference_gear_for_the_inventory_view(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    g = client.get("/api/versus/gear?ref=monk").json()
+    assert g["name"] == "monk" and g["class"] == "Monk" and g["level"] > 0
+    helmet = next(i for i in g["items"] if i["slot"] == "Helmet")
+    assert helmet["rarity"] and helmet["baseName"] and helmet["explicit"]
+    assert all({"implicit", "runes", "enchant", "quality"} <= set(i) for i in g["items"])
 
 
 def test_mechanics_lists_pob_gaps(client):

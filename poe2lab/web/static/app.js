@@ -1047,42 +1047,259 @@ function renderCraft(r) {
       (r.league ? " " + t("prices", trName(r.league)) : "")));
 }
 
-// ---------- compare ----------
+// ---------- compare: the inventory as in the game ----------
+// Where the game's inventory has each slot: [column, row, width, height] in cells of an 8 x 6 grid; flasks and
+// charms in a row below, as on the game's belt.
+const DOLL = {
+  "Weapon 1": [1, 1, 2, 4], "Helmet": [4, 1, 2, 2], "Amulet": [6, 2, 1, 1], "Weapon 2": [7, 1, 2, 4],
+  "Ring 1": [3, 4, 1, 1], "Body Armour": [4, 3, 2, 3], "Ring 2": [6, 4, 1, 1],
+  "Gloves": [1, 5, 2, 2], "Belt": [4, 6, 2, 1], "Boots": [7, 5, 2, 2],
+};
+const DOLL_BELT = ["Flask 1", "Charm 1", "Charm 2", "Charm 3", "Flask 2"];
+const SWAP_SLOT = { "Weapon 1": "Weapon 1 Swap", "Weapon 2": "Weapon 2 Swap" };
+// the slots the build comparison tries their items in (analysis/versus.py GEAR_SLOTS)
+const VERSUS_SLOTS = ["Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap", "Helmet", "Body Armour", "Gloves", "Boots",
+  "Amulet", "Ring 1", "Ring 2", "Belt"];
+
 const refKey = () => `poe2lab.ref.${state.build.name}`;
 function savedRef() { try { return localStorage.getItem(refKey()) || ""; } catch (_) { return ""; } }
 function saveRef(name) { try { localStorage.setItem(refKey(), name); } catch (_) { /* storage blocked */ } }
 
-TABS.compare = async (view) => {
-  state.compareMode = state.compareMode || "versus";
-  const body = h("div", {});
-  const seg = h("div", { class: "segmented" }, [["versus", t("cmpVersus")], ["item", t("cmpItem")]].map(([m, label]) =>
-    h("button", { class: state.compareMode === m ? "active" : "", onclick: () => { state.compareMode = m; switchTab("compare"); } }, label)));
-  body.append(await (state.compareMode === "versus" ? versusView() : itemView()));
-  return h("div", { class: "stack" }, h("div", {}, seg), body);
-};
-
-// ---- my build against a reference (a guide with its gear) ----
-async function versusView() {
-  const builds = (await api("/api/builds")).filter((b) => b.name !== state.build.name);
-  const sel = h("select", {}, h("option", { value: "" }, t("pickRef")), builds.map((b) => h("option", { value: b.name }, b.name)));
-  sel.value = builds.some((b) => b.name === savedRef()) ? savedRef() : "";
-  const out = h("div", { class: "stack" });
-  const run = async () => {
-    if (!sel.value) { out.replaceChildren(); return; }
-    saveRef(sel.value);
-    out.replaceChildren(loading(t("refLoading")));
-    try {
-      const v = await cached("versus:" + sel.value, () => api(`/api/versus?ref=${encodeURIComponent(sel.value)}&${buildQuery()}`));
-      out.replaceChildren(...renderVersus(v, sel.value));
-    } catch (e) { out.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
-  };
-  sel.addEventListener("change", run);
-  const head = h("div", { class: "card" }, h("h3", {}, t("refTitle")), h("div", { class: "sub" }, t("refSub")),
-    h("label", { class: "field", style: "max-width:420px" }, h("span", {}, t("refBuild")), sel),
-    builds.length ? null : h("p", { class: "muted small" }, t("refNone")));
-  if (sel.value) run();
-  return h("div", { class: "stack" }, head, out);
+const gearMap = (items) => Object.fromEntries((items || []).map((i) => [i.slot, i]));
+const hasSwapSet = (items) => !!(items && (items["Weapon 1 Swap"] || items["Weapon 2 Swap"]));
+const itemArt = (it) => icon((it.name || "").split(",")[0].trim(), "doll-art") || icon(it.baseName, "doll-art");
+// rares and uniques by their own name, magic and normal items by the base (affix names have several Russian
+// variants); a rare's random name has no official translation, so in Russian it is shown by its base too
+function itemTitle(it) {
+  const [first, base] = (it.name || "").split(", ");
+  if (LANG === "en") return base ? first : it.name;
+  if (base) return GAME.names[first] || trName(it.baseName);
+  return GAME.names[it.baseName] ? trName(it.baseName) : it.name;
 }
+
+// better / worse / mixed / same for the player, from a comparison (analysis/items.py Comparison)
+function verdictOf(r) {
+  if (r.dps_pct <= -99) return "no";  // a weapon the build's skills cannot use
+  const hits = Object.values(r.hit_pct || {});
+  const lo = Math.min(...hits), hi = Math.max(...hits);
+  if (Math.abs(r.dps_pct) <= 0.5 && Math.abs(lo) <= 0.5 && Math.abs(hi) <= 0.5) return "same";
+  if (r.dps_pct >= -0.5 && lo >= -0.5) return "better";
+  if (r.dps_pct <= 0.5 && hi <= 0.5) return "worse";
+  return "mixed";
+}
+const BADGE = { better: "▲", worse: "▼", mixed: "±", same: "=", no: "✕" };
+
+// one inventory: each slot a cell with the item's picture framed by rarity; a click picks the slot
+function doll(items, { set, selected, onPick, badges }) {
+  const slotOf = (pos) => (set === 2 && SWAP_SLOT[pos]) || pos;
+  const cell = (key, style, extra = "") => {
+    const it = items[key];
+    const b = badges && badges[key];
+    return h("button", {
+      class: `doll-slot${extra}` + (it ? " r-" + (it.rarity || "normal").toLowerCase() : " vacant") + (selected === key ? " sel" : ""),
+      style, title: it ? `${slotName(key)}: ${itemTitle(it)}` : slotName(key), onclick: () => onPick(key),
+    }, it ? (itemArt(it) || h("span", { class: "doll-name" }, itemTitle(it))) : h("span", { class: "doll-empty" }, slotName(key)),
+    b ? h("span", { class: "doll-badge " + b, title: t("cmpBadge_" + b) }, BADGE[b]) : null);
+  };
+  return h("div", { class: "doll-wrap" },
+    h("div", { class: "doll" }, Object.entries(DOLL).map(([pos, [c, r, w, hh]]) =>
+      cell(slotOf(pos), `grid-column:${c} / span ${w};grid-row:${r} / span ${hh}`))),
+    h("div", { class: "doll-belt" }, DOLL_BELT.map((key) => cell(key, "", key.startsWith("Flask") ? " belt-flask" : " belt-charm"))));
+}
+
+// an item's mods, briefly; the lines the other item has no match for are marked: what you gain / what you lose
+const modKey = (line) => line.toLowerCase().replace(/[+-]?\d+(\.\d+)?/g, "#").trim();
+function itemCard(it, other, label, side) {
+  if (!it) return h("div", { class: "item-card cmp-item" }, h("div", { class: "muted small" }, label), h("p", { class: "muted" }, t("slotEmpty")));
+  const lines = (x) => [...x.enchant, ...x.implicit, ...x.runes, ...x.explicit];
+  const theirs = new Set(other ? lines(other).map((l) => modKey(l.line)) : []);
+  const row = (l, cls) => {
+    const only = other && !theirs.has(modKey(l.line));
+    return h("li", { class: [cls, l.crafted ? "crafted" : "", l.desecrated ? "desecrated" : "", l.fractured ? "fractured" : "",
+      only ? (side === "mine" ? "lose" : "gain") : ""].filter(Boolean).join(" "),
+    title: l.line + (only ? " — " + t(side === "mine" ? "cmpLose" : "cmpGain") : "") }, trMod(l.line));
+  };
+  const title = itemTitle(it), base = trName(it.baseName);
+  const sub = [base !== title ? base : null, it.itemLevel ? t("cmpIlvl", it.itemLevel) : null,
+    it.quality ? t("cmpQuality", it.quality) : null].filter(Boolean).join(" · ");
+  return h("div", { class: "item-card cmp-item r-" + (it.rarity || "normal").toLowerCase() },
+    h("div", { class: "muted small" }, label),
+    h("div", { class: "cmp-item-head" }, itemIcon(it.name, it.baseName, it.rarity),
+      h("div", {}, h("div", { class: "item-name", title: it.name }, title), sub ? h("div", { class: "muted small" }, sub) : null)),
+    h("ul", { class: "item-lines" }, it.enchant.map((l) => row(l, "enchant")), it.implicit.map((l) => row(l, "implicit")),
+      it.runes.map((l) => row(l, "rune")), it.explicit.map((l) => row(l, "")),
+      it.corrupted ? h("li", { class: "corrupted" }, t("corrupted")) : null));
+}
+
+// what wearing the other item does: a verdict in words, the changes as chips, every number on demand
+function verdictBlock(r, head) {
+  const k = verdictOf(r);
+  const hits = Object.values(r.hit_pct);
+  const title = k === "no" ? t("wrongWeapon") : k === "mixed" ? t("vMixed", pct(r.dps_pct), pct(Math.min(...hits)), pct(Math.max(...hits)))
+    : t({ better: "vBetter", worse: "vWorse", same: "vSame" }[k]);
+  return h("div", { class: "stack" },
+    h("div", { class: "verdict " + (k === "no" ? "worse" : k) }, h("span", { class: "verdict-head" }, head), title),
+    deltas({ dps: r.dps_pct, phys_hit: r.hit_pct.Physical, fire_hit: r.hit_pct.Fire, cold_hit: r.hit_pct.Cold,
+      lightning_hit: r.hit_pct.Lightning, chaos_hit: r.hit_pct.Chaos, recovery: r.recovery_pct }, METRIC, 0.5),
+    Object.keys(r.unmet_requirements).length ? h("div", {}, Object.entries(r.unmet_requirements).map(([at, [have, need]]) =>
+      chip("must", t("reqShort", attrName(at), fmt(have), fmt(need))))) : null,
+    r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", trMod(r.breakeven.line), fmt(r.breakeven.factor * 100)) : t("beBad")) : null,
+    r.before ? h("details", {}, h("summary", {}, t("cmpAllNumbers")), numbersTable(r)) : null);
+}
+
+function numbersTable(r) {
+  const b = r.before, a = r.after;
+  const keys = ["dps", "life", "es", "ehp", "recovery", "hit_Physical", "hit_Fire", "hit_Cold", "hit_Lightning", "hit_Chaos",
+    "res_Fire", "res_Cold", "res_Lightning", "res_Chaos"].filter((k) => b[k] || a[k]);
+  return h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("now")),
+    h("th", { class: "num" }, t("withCandidate")), h("th", { class: "num" }, t("change")))),
+  h("tbody", {}, keys.map((k) => h("tr", {}, h("td", {}, t("st_" + k)), h("td", { class: "num" }, statText(k, b[k])),
+    h("td", { class: "num" }, statText(k, a[k])), diffCell(k, a[k], b[k])))));
+}
+
+TABS.compare = async () => {
+  if (!state.cmp || state.cmp.build !== state.build.name) {
+    state.cmp = { build: state.build.name, slot: null, source: "build", ref: null, set: 1, paste: "", pasted: null };
+  }
+  const cmp = state.cmp;
+  const builds = (await api("/api/builds")).filter((b) => b.name !== state.build.name);
+  // the build to compare with: the one picked here, else the build's target (a guide), else the last one used
+  const target = (state.build.profileRaw || {}).target;
+  builds.sort((a, b) => (b.name === target) - (a.name === target));
+  cmp.ref = [cmp.ref, target, savedRef(), builds[0] && builds[0].name].find((n) => n && builds.some((b) => b.name === n)) || null;
+  const mine = gearMap(state.build.items);
+  let ref = null;     // the chosen build: who it is and its gear
+  let versus = null;  // its items tried in my build, slot by slot, and the two builds' numbers (computed after)
+
+  const myBox = h("div", {}), setBox = h("div", {}), right = h("div", { class: "stack" }), detail = h("div", {}), statsBox = h("div", {});
+  const pick = (slot) => { cmp.slot = slot; drawDolls(); drawDetail(); };
+
+  const drawDolls = () => {
+    const swap = hasSwapSet(mine) || (cmp.source === "build" && ref && hasSwapSet(ref.items));
+    if (!swap && cmp.set === 2) cmp.set = 1;
+    setBox.replaceChildren(...(swap ? [h("div", { class: "segmented", title: t("cmpWeapons") }, [1, 2].map((n) =>
+      h("button", { class: cmp.set === n ? "active" : "", onclick: () => {
+        cmp.set = n;
+        const pos = Object.keys(SWAP_SLOT).find((p) => p === cmp.slot || SWAP_SLOT[p] === cmp.slot);  // the picked weapon follows the set
+        if (pos) cmp.slot = n === 2 ? SWAP_SLOT[pos] : pos;
+        drawDolls(); drawDetail();
+      } }, n === 1 ? "⚔ I" : "⚔ II")))] : []));
+    myBox.replaceChildren(doll(mine, { set: cmp.set, selected: cmp.slot, onPick: pick }));
+    if (cmp.source === "build") drawRef();
+  };
+
+  const refDoll = h("div", {});
+  const drawRef = () => {
+    if (!ref) return;
+    const badges = {};
+    for (const s of (versus && versus.slots) || []) {
+      if (s.ref) badges[s.slot] = s.error ? "no" : s.swap ? verdictOf(s.swap) : null;
+    }
+    refDoll.replaceChildren(
+      h("div", { class: "muted small" }, t("cmpRefInfo", trName(ref.ascendancy || ref.class), ref.level, trName(ref.skill))),
+      doll(ref.items, { set: cmp.set, selected: cmp.slot, onPick: pick, badges }),
+      versus ? h("div", { class: "muted small cmp-legend" }, t("cmpLegend")) : loading(t("cmpTrying")));
+  };
+
+  const drawRight = () => {
+    const seg = h("div", { class: "segmented" }, [["build", t("cmpSrcBuild")], ["paste", t("cmpSrcPaste")]].map(([k, label]) =>
+      h("button", { class: cmp.source === k ? "active" : "", onclick: () => { cmp.source = k; drawRight(); drawDolls(); drawDetail(); } }, label)));
+    if (cmp.source === "build") {
+      if (!builds.length) { right.replaceChildren(seg, h("p", { class: "muted" }, t("cmpNoBuilds"))); return; }
+      const sel = h("select", { onchange: () => { cmp.ref = sel.value; saveRef(sel.value); loadRef(); } },
+        builds.map((b) => h("option", { value: b.name, selected: b.name === cmp.ref }, b.name + (b.name === target ? ` — ${t("cmpTargetMark")}` : ""))));
+      right.replaceChildren(seg, sel, refDoll);
+      return;
+    }
+    const text = h("textarea", { rows: 12, placeholder: t("candidatePh"), spellcheck: "false", oninput: () => { cmp.paste = text.value; } }, cmp.paste);
+    const be = h("input", { type: "text", placeholder: t("breakevenPh"), style: "width:100%" });
+    const go = h("button", { class: "primary", onclick: async () => {
+      if (!cmp.slot) { toast(t("cmpPickSlotFirst")); return; }
+      if (!text.value.trim()) { text.focus(); return; }
+      go.disabled = true;
+      detail.replaceChildren(h("div", { class: "card" }, loading(t("counting"))));
+      try {
+        const r = await api("/api/compare", { method: "POST", body: { slot: cmp.slot, text: text.value, breakeven: be.value.trim() || null } });
+        cmp.pasted = { slot: cmp.slot, result: r };
+      } catch (e) { toast(e.message); }
+      go.disabled = false;
+      drawDetail();
+    } }, t("compare"));
+    const current = h("button", { class: "ghost small", title: t("cmpCurrentHint"), onclick: async () => {
+      if (!cmp.slot || !mine[cmp.slot]) { toast(t("cmpPickSlotFirst")); return; }
+      try { text.value = cmp.paste = (await api(`/api/item/${encodeURIComponent(cmp.slot)}`)).text; } catch (e) { toast(e.message); }
+    } }, t("insertCurrent"));
+    right.replaceChildren(seg,
+      h("div", { class: "sub" }, cmp.slot ? t("cmpPasteFor", slotName(cmp.slot)) : t("cmpPickSlotFirst")),
+      text, h("div", { class: "row" }, go, current),
+      h("details", {}, h("summary", {}, t("breakeven")), h("div", { class: "sub" }, t("breakevenHelp")), be));
+  };
+
+  const drawDetail = () => {
+    const slot = cmp.slot;
+    if (!slot) { detail.replaceChildren(h("div", { class: "card cmp-hint" }, t("cmpPick"))); return; }
+    const my = mine[slot];
+    let other = null, label = "", result = null, waiting = false, note = null, empty = "";
+    if (cmp.source === "build") {
+      label = ref ? ref.name : "";
+      other = ref && ref.items[slot];
+      empty = ref ? t("cmpRefEmpty", ref.name) : "";
+      const s = versus && versus.slots.find((x) => x.slot === slot);
+      if (other && VERSUS_SLOTS.includes(slot)) {
+        if (!versus) waiting = true;
+        else if (s && s.error) note = t("cannotEquip");
+        else if (s && s.swap) result = s.swap;
+      }
+    } else {
+      label = t("cmpPasted");
+      empty = t("cmpPasteFirst");
+      if (cmp.pasted && cmp.pasted.slot === slot) { other = cmp.pasted.result.item; result = cmp.pasted.result; }
+    }
+    detail.replaceChildren(h("div", { class: "card stack" },
+      h("h3", {}, slotName(slot)),
+      h("div", { class: "cmp-items" },
+        itemCard(my, other, t("cmpWorn"), "mine"),
+        other ? itemCard(other, my, label, "other") : h("div", { class: "item-card cmp-item" }, h("p", { class: "muted" }, empty))),
+      my && other ? h("div", { class: "hint" }, t("cmpMarks")) : null,
+      waiting ? loading(t("cmpTrying")) : null,
+      note ? h("div", {}, chip("must", note)) : null,
+      result ? verdictBlock(result, cmp.source === "build" ? t("cmpIfTheirs", label) : t("cmpIfPasted")) : null,
+      /^(Flask|Charm)/.test(slot) && other ? h("div", { class: "hint" }, t("cmpFlaskHint")) : null));
+  };
+
+  const drawStats = () => {
+    statsBox.replaceChildren(...(versus && ref ? [h("div", { class: "card" }, h("details", {},
+      h("summary", {}, h("b", {}, t("cmpBuildStats", ref.name))), h("div", { class: "stack", style: "margin-top:10px" }, versusStats(versus, ref.name))))] : []));
+  };
+
+  const loadRef = async () => {
+    ref = versus = null;
+    statsBox.replaceChildren();
+    const name = cmp.ref;
+    if (!name) { drawDolls(); drawDetail(); return; }
+    refDoll.replaceChildren(loading(t("refLoading")));
+    try {
+      const g = await cached("refgear:" + name, () => api(`/api/versus/gear?ref=${encodeURIComponent(name)}&${buildQuery()}`));
+      if (cmp.ref !== name) return;
+      ref = { ...g, items: gearMap(g.items) };
+    } catch (e) { refDoll.replaceChildren(h("p", { class: "muted" }, e.message)); return; }
+    drawDolls(); drawDetail();
+    try {
+      const v = await cached("versus:" + name, () => api(`/api/versus?ref=${encodeURIComponent(name)}&${buildQuery()}`));
+      if (cmp.ref !== name) return;
+      versus = v;
+    } catch (e) { statsBox.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+    drawDolls(); drawDetail(); drawStats();
+  };
+
+  drawRight(); drawDolls(); drawDetail();
+  if (cmp.source === "build") loadRef();
+  return h("div", { class: "stack" },
+    h("div", { class: "grid two cmp-top" },
+      h("div", { class: "card stack" }, h("div", { class: "cmp-head" }, h("h3", {}, t("cmpMine")), setBox), myBox),
+      h("div", { class: "card" }, right)),
+    detail, statsBox);
+};
 
 const STAT_FMT = {
   dps: (v) => fmt(v), hitChance: (v) => fmt(v) + "%", critChance: (v) => fmt(v, 1) + "%", speed: (v) => fmt(v, 2),
@@ -1107,7 +1324,8 @@ function diffCell(key, mine, ref, higherBetter = true) {
   return h("td", { class: "num " + (good ? "pos" : "neg") }, key === "moveSpeed" ? pct(d * 100) : abs + (key.startsWith("res_") ? "" : rel));
 }
 
-function renderVersus(v, refName) {
+// the two builds' numbers side by side, and mine with all of their gear at once
+function versusStats(v, refName) {
   const groups = ["offence", "defence", "resist", "hits", "attributes", "other"];
   const rows = [];
   for (const g of groups) {
@@ -1118,122 +1336,23 @@ function renderVersus(v, refName) {
       h("td", { class: "num" }, statText(r.key, r.mine)), h("td", { class: "num" }, statText(r.key, r.ref)),
       diffCell(r.key, r.mine, r.ref, r.higherBetter)));
   }
-  const sameSkill = v.mineSkill === v.refSkill;
-  const stats = h("div", { class: "card" }, h("h3", {}, t("refStats")),
+  const stats = h("div", {},
     h("div", { class: "sub" }, t("refStatsSub", trName(v.mineSkill), trName(v.refSkill))),
-    sameSkill ? null : h("div", { class: "action" }, t("refSkillDiffers")),
+    v.mineSkill === v.refSkill ? null : h("div", { class: "action" }, t("refSkillDiffers")),
     h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("mine")),
       h("th", { class: "num" }, refName), h("th", { class: "num" }, t("diffMine")))), h("tbody", {}, rows)));
-
-  const swapCell = (s) => {
-    if (s.error) return h("td", {}, chip("must", t("cannotEquip")));
-    if (!s.swap) return h("td", { class: "muted small" }, t("refEmpty"));
-    if (s.swap.dps_pct <= -99) return h("td", {}, chip("must", t("wrongWeapon")));
-    const c = s.swap;
-    return h("td", {}, deltas({ dps: c.dps_pct, phys_hit: c.hit_pct.Physical, fire_hit: c.hit_pct.Fire, cold_hit: c.hit_pct.Cold,
-      lightning_hit: c.hit_pct.Lightning, chaos_hit: c.hit_pct.Chaos, recovery: c.recovery_pct }, METRIC, 0.5),
-      Object.entries(c.unmet_requirements).map(([a, [have, need]]) => chip("must", t("reqShort", attrName(a), fmt(have), fmt(need)))));
-  };
-  const itemName = (it) => (it ? h("span", { title: it.name, class: "named" }, icon(it.name.split(",")[0].trim()), trItem(it.name)) : h("span", { class: "muted" }, "—"));
-  const slots = h("div", { class: "card" }, h("h3", {}, t("refItems")), h("div", { class: "sub" }, t("refItemsSub")),
-    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", {}, t("slot")), h("th", {}, t("mine")),
-      h("th", {}, refName), h("th", {}, t("ifWear")), h("th", {}, ""))),
-    h("tbody", {}, v.slots.map((s) => h("tr", {}, h("td", {}, slotName(s.slot)), h("td", {}, itemName(s.mine)),
-      h("td", {}, itemName(s.ref)), swapCell(s),
-      h("td", {}, s.ref && !s.error ? h("button", { class: "ghost small", onclick: () => openInItemCompare(refName, s.slot) }, t("details")) : null))))));
-
   let all = null;
   if (v.allGear) {
     const mine = Object.fromEntries(v.rows.map((r) => [r.key, r.mine]));
     const keys = ["dps", "life", "es", "ehp", "hit_Physical", "hit_Chaos", "res_Fire", "res_Cold", "res_Lightning", "res_Chaos", "spiritFree"]
       .filter((k) => mine[k] || v.allGear[k]);
-    all = h("div", { class: "card" }, h("h3", {}, t("refAllGear")), h("div", { class: "sub" }, t("refAllGearSub")),
+    all = h("div", {}, h("h3", {}, t("refAllGear")), h("div", { class: "sub" }, t("refAllGearSub")),
       h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("now")),
         h("th", { class: "num" }, t("withTheirGear")), h("th", { class: "num" }, t("change")))),
       h("tbody", {}, keys.map((k) => h("tr", {}, h("td", {}, t("st_" + k)), h("td", { class: "num" }, statText(k, mine[k])),
         h("td", { class: "num" }, statText(k, v.allGear[k])), diffCell(k, v.allGear[k], mine[k]))))));
   }
-  return [stats, slots, all].filter(Boolean);
-}
-
-async function openInItemCompare(ref, slot) {
-  try {
-    const r = await api(`/api/versus/item?ref=${encodeURIComponent(ref)}&slot=${encodeURIComponent(slot)}`);
-    state.compareMode = "item";
-    state.itemCompare = { slot, text: r.text, from: ref };
-    switchTab("compare");
-  } catch (e) { toast(e.message); }
-}
-
-// ---- one candidate item against the equipped one ----
-async function itemView() {
-  const pre = state.itemCompare || {};
-  state.itemCompare = null;
-  const items = state.build.items.filter((i) => !["Flask", "Charm", "Jewel"].includes(i.type));
-  const slotSel = h("select", {}, items.map((i) => h("option", { value: i.slot }, slotName(i.slot))));
-  if (pre.slot) slotSel.value = pre.slot;
-  const current = h("div", { class: "item-card" });
-  const showCurrent = () => {
-    const it = items.find((i) => i.slot === slotSel.value);
-    current.replaceChildren(it ? h("div", {}, h("div", { class: "item-name", title: it.name }, trItem(it.name)),
-      h("ul", { class: "item-lines" }, it.explicit.map((l) => h("li", { class: l.desecrated ? "desecrated" : l.crafted ? "crafted" : "" }, trMod(l.line)))))
-      : h("p", { class: "muted" }, t("slotEmpty")));
-  };
-  slotSel.addEventListener("change", showCurrent);
-  showCurrent();
-
-  const text = h("textarea", { rows: 14, placeholder: t("candidatePh"), spellcheck: "false" }, pre.text || "");
-  const be = h("input", { type: "text", placeholder: t("breakevenPh"), style: "width:100%" });
-  const out = h("div", {});
-  const ref = savedRef();
-  const fillFromRef = ref ? h("button", { class: "ghost small", onclick: async () => {
-    try { text.value = (await api(`/api/versus/item?ref=${encodeURIComponent(ref)}&slot=${encodeURIComponent(slotSel.value)}`)).text; }
-    catch (e) { toast(e.message); }
-  } }, t("fromRef", ref)) : null;
-  const fillCurrent = h("button", { class: "ghost small", onclick: async () => {
-    text.value = (await api(`/api/item/${encodeURIComponent(slotSel.value)}`)).text;
-  } }, t("insertCurrent"));
-  const run = h("button", { class: "primary", onclick: async () => {
-    if (!text.value.trim()) { text.focus(); return; }
-    run.disabled = true;
-    out.replaceChildren(loading(t("counting")));
-    try {
-      const r = await api("/api/compare", { method: "POST", body: { slot: slotSel.value, text: text.value, breakeven: be.value.trim() || null } });
-      out.replaceChildren(renderItemResult(r));
-    } catch (e) { out.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
-    run.disabled = false;
-  } }, t("compare"));
-
-  const left = h("div", { class: "card stack" }, h("h3", {}, t("step1")),
-    h("label", { class: "field" }, h("span", {}, t("slot")), slotSel), h("div", { class: "sub" }, t("equippedNow")), current);
-  const right = h("div", { class: "card stack" }, h("h3", {}, t("step2")),
-    pre.from ? h("div", { class: "action" }, t("loadedFromRef", pre.from)) : null,
-    h("div", { class: "row" }, fillFromRef, fillCurrent), text,
-    h("details", {}, h("summary", {}, t("breakeven")), h("div", { class: "sub" }, t("breakevenHelp")), be),
-    h("div", {}, run));
-  if (pre.text) setTimeout(() => run.click(), 0);
-  return h("div", { class: "stack" }, h("div", { class: "grid two" }, left, right), out);
-}
-
-function renderItemResult(r) {
-  const hitVals = Object.values(r.hit_pct);
-  const minHit = Math.min(...hitVals), maxHit = Math.max(...hitVals);
-  let cls, title;
-  if (Math.abs(r.dps_pct) <= 0.5 && Math.abs(minHit) <= 0.5 && Math.abs(maxHit) <= 0.5) { cls = "same"; title = t("vSame"); }
-  else if (r.dps_pct >= -0.5 && minHit >= -0.5) { cls = "better"; title = t("vBetter"); }
-  else if (r.dps_pct <= 0.5 && maxHit <= 0.5) { cls = "worse"; title = t("vWorse"); }
-  else { cls = "mixed"; title = t("vMixed", pct(r.dps_pct), pct(minHit)); }
-  const b = r.before, a = r.after;
-  const keys = ["dps", "life", "es", "ehp", "recovery", "hit_Physical", "hit_Fire", "hit_Cold", "hit_Lightning", "hit_Chaos",
-    "res_Fire", "res_Cold", "res_Lightning", "res_Chaos"].filter((k) => b[k] || a[k]);
-  return h("div", { class: "card" },
-    h("div", { class: "verdict " + cls }, title),
-    Object.entries(r.unmet_requirements).map(([at, [have, need]]) => h("p", {}, chip("must", t("reqShort", attrName(at), fmt(have), fmt(need))))),
-    h("table", { class: "versus" }, h("thead", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, t("now")),
-      h("th", { class: "num" }, t("withCandidate")), h("th", { class: "num" }, t("change")))),
-    h("tbody", {}, keys.map((k) => h("tr", {}, h("td", {}, t("st_" + k)), h("td", { class: "num" }, statText(k, b[k])),
-      h("td", { class: "num" }, statText(k, a[k])), diffCell(k, a[k], b[k]))))),
-    r.breakeven !== undefined ? h("p", {}, r.breakeven ? t("beOk", trMod(r.breakeven.line), fmt(r.breakeven.factor * 100)) : t("beBad")) : null);
+  return [stats, all].filter(Boolean);
 }
 
 // ---------- passive tree ----------

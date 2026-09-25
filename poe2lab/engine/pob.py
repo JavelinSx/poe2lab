@@ -80,6 +80,27 @@ function _poe2lab_item(text)
   return item
 end
 
+-- an item as the page shows it: name, base, rarity and its lines (the unique's chosen variant only)
+function _poe2lab_item_view(item, slotName)
+  local function lines(list)
+    local out = _poe2lab_array({})
+    for _, ml in ipairs(list or {}) do
+      if item:CheckModLineVariant(ml) then
+        out[#out + 1] = { line = ml.line, crafted = ml.crafted and true or false,
+          fractured = ml.fractured and true or false, desecrated = ml.desecrated and true or false }
+      end
+    end
+    return out
+  end
+  local tags = _poe2lab_array({})
+  for t, on in pairs(item.base and item.base.tags or {}) do if on then tags[#tags + 1] = t end end
+  return { slot = slotName, name = item.name or "", baseName = item.baseName or "", type = item.type or "",
+    rarity = item.rarity or "", itemLevel = item.itemLevel or 0, corrupted = item.corrupted and true or false,
+    quality = item.quality or 0, reqLevel = item.requirements and item.requirements.level or 0, tags = tags,
+    implicit = lines(item.implicitModLines), explicit = lines(item.explicitModLines),
+    runes = lines(item.runeModLines), enchant = lines(item.enchantModLines) }
+end
+
 function _poe2lab_item_runes(text, names)
   local item = _poe2lab_item(text)
   for i = 1, item.itemSocketCount do item.runes[i] = names[i] or "None" end
@@ -595,25 +616,19 @@ end
 return _poe2lab_json({{ mods = mods, bases = bases }})""")
 
     def equipped_item_details(self) -> list[dict]:
-        """Equipped gear with base tags, item level, corruption and explicit lines (for affix analysis)."""
+        """Equipped gear with base tags, item level, corruption and its lines - implicit, explicit (for affix
+        analysis), runes, enchantments - as the page shows it."""
         return self._json("""
 local out = _poe2lab_array({})
 for _, slot in ipairs(build.itemsTab.orderedSlots) do
   local item = not slot.nodeId and build.itemsTab.items[slot.selItemId]
-  if item and item.base then
-    local tags = _poe2lab_array({})
-    for t, on in pairs(item.base.tags or {}) do if on then tags[#tags + 1] = t end end
-    local explicit = _poe2lab_array({})
-    for _, ml in ipairs(item.explicitModLines or {}) do
-      explicit[#explicit + 1] = { line = ml.line, crafted = ml.crafted and true or false,
-        fractured = ml.fractured and true or false, desecrated = ml.desecrated and true or false }
-    end
-    out[#out + 1] = { slot = slot.slotName, name = item.name or "", baseName = item.baseName or "",
-      type = item.type or "", rarity = item.rarity or "", itemLevel = item.itemLevel or 0,
-      corrupted = item.corrupted and true or false, tags = tags, explicit = explicit }
-  end
+  if item and item.base then out[#out + 1] = _poe2lab_item_view(item, slot.slotName) end
 end
 return _poe2lab_json(out)""")
+
+    def parse_item(self, text: str) -> dict:
+        """An item's text (PoB's or the game's, in English) read the way equipped_item_details shows gear."""
+        return self._json(f"return _poe2lab_json(_poe2lab_item_view(_poe2lab_item({lua_string(text)}), ''))")
 
     def find_mod_text(self, query: str) -> dict:
         """Everything in PoB's game data whose text contains `query` (any case): item affixes, runes and soul
