@@ -94,3 +94,16 @@ def test_the_tree_to_draw_and_the_ascendancy():
     assert asc["points"] == 8 and asc["maxPoints"] == 8 and len(asc["taken"]) >= 3
     assert asc["options"] and all(o["path"] and o["id"] == o["path"][-1] or o["id"] in o["path"] for o in asc["options"])
     assert [o["value"] for o in asc["options"]] == sorted((o["value"] for o in asc["options"]), reverse=True)
+
+
+def test_no_ascendancy_yet_offers_the_class_ones():
+    """Before the first trial: every ascendancy of the class with its notables priced on the build."""
+    from poe2lab.analysis.tree import ascendancy
+    engine, bp = open_build(BUILDS / "titan.txt")
+    engine._json("build.spec:SelectAscendClass(0) return _poe2lab_json({})")  # as before the first trial
+    graph = engine.tree_graph()
+    asc = ascendancy(engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))
+    assert asc["ascendancy"] == "" and len(asc["choices"]) >= 2
+    assert all(c["notables"] for c in asc["choices"])
+    assert [c["worth"] for c in asc["choices"]] == sorted((c["worth"] for c in asc["choices"]), reverse=True)
+    assert {n["asc"] for n in graph["nodes"] if n["asc"]} == {c["name"] for c in asc["choices"]}

@@ -300,10 +300,14 @@ return _poe2lab_json(out)""")
         arcs) and whether it is allocated; plus the class, ascendancy and points used."""
         return self._json("""
 local spec, tree = build.spec, build.spec.tree
-local asc = spec.curAscendClassName
+-- no ascendancy chosen yet (PoB calls it "None"): every ascendancy of the class is shown, to choose from
+local asc = spec.curAscendClassId and spec.curAscendClassId > 0 and spec.curAscendClassName or nil
+local shown = {}
+if asc then shown[asc] = true
+else for i, a in pairs(spec.curClass.classes or {}) do if i > 0 and a.name then shown[a.name] = true end end end
 local nodes = _poe2lab_array({})
 for id, node in pairs(spec.nodes) do
-  if node.x and node.type ~= "OnlyImage" and (not node.ascendancyName or node.ascendancyName == asc) then
+  if node.x and node.type ~= "OnlyImage" and (not node.ascendancyName or shown[node.ascendancyName]) then
     local links = _poe2lab_array({})
     for _, other in ipairs(node.linked or {}) do links[#links + 1] = other.id end
     local g = node.group
@@ -316,6 +320,23 @@ end
 local used, ascUsed = spec:CountAllocNodes()
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
   ascendancyPoints = ascUsed })""")
+
+    def class_ascendancies(self) -> list[dict]:
+        """The ascendancies of the build's class with their notables - to choose from while none is taken."""
+        return self._json("""
+local spec, out = build.spec, _poe2lab_array({})
+for i, a in pairs(spec.curClass.classes or {}) do
+  if i > 0 and a.name then
+    local notables = _poe2lab_array({})
+    for id, node in pairs(spec.nodes) do
+      if node.ascendancyName == a.name and node.type == "Notable" then
+        notables[#notables + 1] = { id = id, name = node.dn or "", stats = _poe2lab_array(node.sd or {}) }
+      end
+    end
+    out[#out + 1] = { name = a.name, notables = notables }
+  end
+end
+return _poe2lab_json(out)""")
 
     def ascendancy_reach(self) -> list[dict]:
         """Unallocated notables of the build's own ascendancy with the path PoB would allocate to them."""

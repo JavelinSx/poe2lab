@@ -169,5 +169,21 @@ def ascendancy(engine, profile: MapProfile, mode: str = "balanced") -> dict:
     options.sort(key=lambda o: -o["value"])
     taken = [{"id": n["id"], "name": n["name"], "stats": n["stats"]} for n in graph["nodes"]
              if n["asc"] and n["alloc"] and n["type"] == "Notable"]
+    choices = [] if graph["ascendancy"] else _choices(engine, cfg, mode, weights, base, have)
     return {"ascendancy": graph["ascendancy"], "class": graph["class"], "points": graph["ascendancyPoints"],
-            "maxPoints": ASCENDANCY_POINTS, "taken": taken, "options": options}
+            "maxPoints": ASCENDANCY_POINTS, "taken": taken, "options": options, "choices": choices}
+
+
+def _choices(engine, cfg, mode, weights, base, have) -> list[dict]:
+    """No ascendancy yet: every ascendancy of the class, each notable priced by PoB on the build on its own, and
+    the ascendancy's rough worth - its four best notables (8 points buy about four with the small nodes between)."""
+    out = []
+    for a in engine.class_ascendancies():
+        notables = []
+        for n in a["notables"]:
+            changes = metric_changes(engine.what_if(config=cfg, add_nodes=[n["id"]]), base)
+            notables.append({**n, "changes": changes, "value": _value(changes, mode, weights), "fit": fit(n["stats"], have)})
+        notables.sort(key=lambda n: -n["value"])
+        out.append({"name": a["name"], "notables": notables,
+                    "worth": sum(max(0.0, n["value"]) for n in notables[:4])})
+    return sorted(out, key=lambda a: -a["worth"])

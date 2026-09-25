@@ -516,3 +516,5 @@ details > summary .ico { margin-left: 2px; }
 .tree-canvas:active { cursor: grabbing; }
 .tree-tip { position: absolute; max-width: 330px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 .tv-tip-ico { width: 32px; height: 32px; border-radius: 50%; }
+.ps-choice { margin-bottom: 8px; }
+.ps-choice summary b { color: var(--gold); }

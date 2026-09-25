@@ -1279,8 +1279,20 @@ async function renderPassives() {
     try { await openTreeFor(asc); } catch (e) { toast(e.message); } finally { open.disabled = false; }
   } }, t("psOpenTree"));
 
+  // no ascendancy yet: every ascendancy of the class, its notables priced on the build, to choose from
+  const choiceMax = Math.max(0.01, ...(asc.choices || []).flatMap((c) => c.notables.map((n) => n.value)));
+  const choicesCard = (asc.choices || []).length ? h("div", { class: "card" }, h("h3", {}, t("psNoAscTitle", trName(asc.class))),
+    h("div", { class: "sub" }, t("psNoAscSub")),
+    asc.choices.map((c) => h("details", { class: "ps-choice", open: c === asc.choices[0] },
+      h("summary", {}, h("b", {}, trName(c.name)), " ", h("span", { class: "muted small" }, t("psChoiceWorth", fmt(c.worth, 1)))),
+      h("table", { class: "versus-items" }, h("tbody", {}, c.notables.map((n) => h("tr", {},
+        h("td", {}, h("b", {}, trName(n.name)), stats(n.stats), fitChips(n.fit),
+          n.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
+        h("td", {}, scoreBar(n.value, choiceMax)),
+        h("td", {}, deltas(n.changes, METRIC, 0.3))))))))) : null;
+
   const maxValue = Math.max(0.01, ...asc.options.map((o) => o.value));
-  const ascCard = h("div", { class: "card" }, h("h3", {}, t("psAscTitle", trName(asc.ascendancy) || t("psNoAsc"))),
+  const ascCard = choicesCard || h("div", { class: "card" }, h("h3", {}, t("psAscTitle", trName(asc.ascendancy) || t("psNoAsc"))),
     h("div", { class: "sub" }, t("psAscPoints", asc.points, asc.maxPoints), asc.points >= asc.maxPoints ? " " + t("psAscFull") : ""),
     asc.taken.length ? h("div", { class: "ps-list" }, asc.taken.map((n) => h("div", { class: "ps-node taken" },
       h("b", {}, trName(n.name)), stats(n.stats)))) : null,
@@ -1445,6 +1457,24 @@ function openTreeViewer(graph, tree, asc) {
         ctx.stroke();
       }
     }
+    labels(ctx);
+  }
+
+  // the ascendancies' names over their trees (several are shown while none is chosen)
+  function labels(ctx) {
+    if (!showAsc) return;
+    const groups = new Map();
+    for (const n of visible()) {
+      const g = groups.get(n.asc) || { x: 0, y: 0, top: Infinity, k: 0 };
+      g.x += sx(n); g.k += 1; g.top = Math.min(g.top, sy(n));
+      groups.set(n.asc, g);
+    }
+    ctx.font = "600 15px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    for (const [name, g] of groups) {
+      ctx.fillStyle = C.gold;
+      ctx.fillText(trName(name), g.x / g.k, Math.max(20, g.top - 22));
+    }
   }
 
   function nodeAt(x, y) {
@@ -1459,10 +1489,11 @@ function openTreeViewer(graph, tree, asc) {
     if (!n) { tip.classList.add("hidden"); return; }
     const tags = [n.alloc ? t("tvAlloc") : null, growth.has(n.id) ? t("tvGrowth") : null, road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
-    tip.replaceChildren(h("div", { class: "row", style: "gap:8px;align-items:center" },
+    tip.replaceChildren(...[h("div", { class: "row", style: "gap:8px;align-items:center" },
       n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
-      h("ul", { class: "item-lines small" }, n.stats.map((l) => h("li", {}, trMod(l)))));
+      n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
+      h("ul", { class: "item-lines small" }, n.stats.map((l) => h("li", {}, trMod(l))))].filter(Boolean));
     tip.classList.remove("hidden");
     const bw = overlay.clientWidth;
     tip.style.left = `${Math.min(x + 16, bw - 340)}px`;
