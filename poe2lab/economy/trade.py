@@ -155,6 +155,12 @@ def pick_mods(db: ModDB, plan: dict, tags, level: int) -> list[dict]:
         stat = f"explicit.stat_{mod.trade_hashes[0]}"
         if family in seen or stat not in known:
             continue
+        # one filter per stat: a hybrid mod's first line is often a plain mod's stat too; the filter keeps the
+        # first one's minimum (the worn roll comes first) and the higher worth of the two
+        same = next((x for x in out if x["id"] == stat), None)
+        if same:
+            same["score"] = max(same["score"], row["score"])
+            continue
         must = worn and (bool(row.get("holds")) or any("Movement Speed" in l for l in row["lines"]))
         if row["score"] <= 0 and not must:
             continue

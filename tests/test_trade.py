@@ -127,3 +127,24 @@ def test_a_site_error_is_shown_not_raised(client, monkeypatch):
     r = client.post("/api/trade/search", json={"slot": "Gloves"}, headers=H).json()
     assert all("паузу" in s["error"] and not s["items"] for s in r["searches"])
     assert client.post("/api/trade/search", json={"slot": "Flask 1"}, headers=H).status_code == 400
+
+
+def test_one_filter_per_stat(monkeypatch):
+    """A hybrid mod's first line is often a plain mod's stat: the search asks for it once."""
+    from poe2lab.data.moddb import Mod, ModDB
+    def mod(mid, lines, hashes, group):
+        return {"id": mid, "set": "Item", "type": "Prefix", "affix": "", "lines": lines, "level": 1, "group": group,
+                "weightKey": ["default"], "weightVal": [1], "tags": [], "tradeHashes": hashes}
+    db = ModDB({"mods": [mod("Ev1", ["+(20-30) to Evasion Rating"], ["1"], "Ev"),
+                         mod("EvEs1", ["+(30-45) to Evasion Rating", "+(10-15) to maximum Energy Shield"], ["1", "2"],
+                             "EvEs")], "bases": []})
+    monkeypatch.setattr(trade, "trade_data", lambda lang, kind: [{"entries": [{"id": "explicit.stat_1"},
+                                                                              {"id": "explicit.stat_2"}]}])
+    plan = {"affixes": [{"template": ["+(20-30) to Evasion Rating"], "lines": ["+29 to Evasion Rating"], "score": 5,
+                         "holds": [], "utility": False}],
+            "candidates": [{"mod_id": "EvEs1", "lines": ["+45 to Evasion Rating", "+15 to maximum Energy Shield"],
+                            "score": 9}]}
+    mods = trade.pick_mods(db, plan, ["default"], 70)
+    assert [m["id"] for m in mods] == ["explicit.stat_1"]
+    # the worn roll sets the least a replacement must have; the hybrid's worth ranks it
+    assert mods[0]["line"] == "+29 to Evasion Rating" and mods[0]["min"] >= 26 and mods[0]["score"] == 9
