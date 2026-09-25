@@ -1269,7 +1269,7 @@ def chat(req: ChatRequest):
             names = i18n(req.lang)["names"] if req.lang != "en" else {}
             glossary = build_glossary(session.engine, names) if names else None
             session.assistant = Assistant(make_client(cfg), session.toolbox,
-                                          build_context(session.engine, session.bp, glossary),
+                                          build_context(session.engine, session.bp, glossary, session.profile.config()),
                                           style=load_settings().get("style", "short"))
         start = len(session.assistant.tool_log)
         try:

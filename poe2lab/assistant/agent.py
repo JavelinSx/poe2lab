@@ -40,7 +40,12 @@ SYSTEM_RULES = """Ты — аналитик билдов Path of Exile 2 (пат
    берётся (аффикс, руна, уникальный предмет, пассивка, возвышение) — только через find_mod; evaluate_mods
    показывает лишь, что PoB понимает строку. Если find_mod ничего не нашёл — пиши «в данных игры не нашёл», а не
    «такого мода нет». Сопротивления бери из build_report (resistances), не выводи их из соотношений ударов.
-   Не давай общих советов, которые не относятся к этому билду."""
+   Не давай общих советов, которые не относятся к этому билду.
+8. Если билд построен вокруг механики (крит: ноды на шанс и бонус крита в дереве, срабатывание от крита в
+   возвышении; заряды, свирепость и т. п.), не советуй от неё отказываться по снимку персонажа сейчас: «увеличение
+   урона» размывается по мере роста билда, а крит перемножается со всем и дорожает с вложениями. Сравни на стадии,
+   куда идёт билд (evaluate_mods поверх модов, которые у него будут), и назови, чего PoB не видит (урон
+   срабатывающих умений — в списке «Урон по скиллам» у них 0)."""
 
 # How answers look. The player picks one on the Assistant tab; "short" is the default.
 STYLES = {
@@ -59,12 +64,21 @@ STYLES = {
 }
 
 
-def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = None) -> str:
+def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = None, config: dict | None = None) -> str:
     """Everything the model should know before the first question; stable, so the API can cache it.
-    glossary: official localized names (English -> player's language) to use in answers."""
+    glossary: official localized names (English -> player's language) to use in answers; config: the enemy the
+    reports use (the same numbers as the tools)."""
     info = engine.info()
     mech = collect_mechanics(engine)
-    parts = [f"Билд: {info['class']} / {info['ascendancy']}, {info['level']} ур., основной скилл: {engine.main_skill()}."]
+    parts = [f"Билд: {info['class']} / {info['ascendancy'] or 'без возвышения'}, {info['level']} ур., "
+             f"основной скилл: {engine.main_skill()}."]
+    # what each skill would deal as the main one, and the main skill's crit: numbers, not guesses
+    stats = engine.what_if(config=config) if config is not None else engine.stats()
+    damage = engine.skill_damage(config)
+    parts.append("Урон по скиллам (PoB, если сделать скилл основным; 0 — PoB его урон не считает, например у "
+                 "срабатывающих умений):\n" + "\n".join(f"- [{d['group']}] {d['name']}: {d['dps']:,.0f} DPS" for d in damage))
+    parts.append(f"Крит основного скилла (PoB): шанс {stats.get('CritChance', 0):.1f}%, "
+                 f"множитель ×{stats.get('CritMultiplier', 0):.2f}.")
     parts.append("Профиль билда (подтверждено игроком):\n" + "\n".join(f"- {l}" for l in describe_profile(bp)))
     parts.append("PoB не считает (есть в данных игры, в расчёт не попадает):\n" + "\n".join(
         f"- {g.where}: {g.text}" for g in mech.gaps))

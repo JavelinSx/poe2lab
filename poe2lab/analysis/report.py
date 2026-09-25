@@ -86,10 +86,25 @@ def attribute_gates(statuses, swaps, deps) -> list[Gate]:
     return out
 
 
+STRONGER_SKILL = 2.0  # another skill of the build dealing this many times the main skill's damage
+
+
 def zero_damage_gates(engine, stats: dict, config: dict) -> list[Gate]:
     """PoB cannot compute some skills (0 DPS for the main skill): say so and point at the skills that do damage,
-    instead of ranking every mod by zero."""
+    instead of ranking every mod by zero. And when another skill of the build hits much harder than the chosen
+    main one, every damage number may be about the wrong skill: say that too."""
     if stats.get("CombinedDPS", 0) >= 1:
+        main = engine.main_skill()
+        best = next((s for s in engine.skill_damage(config) if s["name"] != main), None)
+        if best and best["dps"] >= STRONGER_SKILL * stats["CombinedDPS"]:
+            return [Gate("warn", f"Урон считается по «{main}», а сильнее бьёт «{best['name']}»",
+                         f"«{best['name']}» — {best['dps']:,.0f} DPS, «{main}» — {stats['CombinedDPS']:,.0f}. Если основной "
+                         f"урон у тебя от «{best['name']}», выбери его вверху («Урон считаю для скилла»): по этому скиллу "
+                         "считаются все советы по урону — моды, пассивки, саппорты, крафт",
+                         f"Damage is counted for «{main}», but «{best['name']}» hits harder",
+                         f"«{best['name']}»: {best['dps']:,.0f} DPS, «{main}»: {stats['CombinedDPS']:,.0f}. If most of your "
+                         f"damage comes from «{best['name']}», pick it at the top (“Damage is for the skill”): every damage "
+                         "advice (mods, passives, supports, crafting) is counted for that skill")]
         return []
     doing = [s for s in engine.skill_damage(config) if s["dps"] >= 1][:4]
     where = ("; ".join(f"«{s['name']}» (группа {s['group']}) — {s['dps']:,.0f}" for s in doing)

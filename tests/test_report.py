@@ -130,3 +130,17 @@ def test_upgrade_path_uses_each_stat_once(titan):
 def test_report_is_json_serialisable(titan):
     report = build_report(titan, MapProfile(), steps=2, top=5)
     assert json.loads(json.dumps(report))["build"]["mainSkill"] == "Furious Slam"
+
+
+def test_a_much_stronger_skill_than_the_main_one_is_pointed_out():
+    """Every damage advice is counted for the chosen main skill: when another skill of the build hits several times
+    harder, the overview says so (a guide's build can come with a secondary skill chosen as the main one)."""
+    from types import SimpleNamespace
+    from poe2lab.analysis.report import zero_damage_gates
+    engine = SimpleNamespace(main_skill=lambda: "Glacial Cascade", skill_damage=lambda config: [
+        {"name": "Ice Strike", "dps": 774.0}, {"name": "Glacial Cascade", "dps": 218.0}])
+    gates = zero_damage_gates(engine, {"CombinedDPS": 218.0}, {})
+    assert len(gates) == 1 and gates[0].level == "warn" and "Ice Strike" in gates[0].title and gates[0].title_en
+    close = SimpleNamespace(main_skill=lambda: "Glacial Cascade", skill_damage=lambda config: [
+        {"name": "Ice Strike", "dps": 300.0}, {"name": "Glacial Cascade", "dps": 218.0}])
+    assert zero_damage_gates(close, {"CombinedDPS": 218.0}, {}) == []  # not that much stronger: nothing to say

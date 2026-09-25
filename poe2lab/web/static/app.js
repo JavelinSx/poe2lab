@@ -1499,6 +1499,9 @@ async function renderPassives() {
   } }, t("psOpenTree"));
   // the best set of notables the points left buy (PoB tried the combinations together)
   const byNode = new Map(graph.nodes.map((n) => [n.id, n]));
+  // a notable that grants or triggers a skill: PoB does not count that skill's damage, the worth is too low
+  const skillBlind = (n) => (n.stats || []).some((l) => /^(Grants Skill:|Trigger )/.test(l))
+    ? h("div", { class: "hint" }, t("psSkillBlind")) : null;
   const planBox = (plan, left) => (plan ? h("div", { class: "ps-plan" },
     h("div", {}, h("b", {}, t("psPlanTitle", plan.points, left)), " ", h("span", { class: "muted small" }, t("psPlanWorth", fmt(plan.value, 1), plan.points))),
     h("div", { class: "ps-plan-nodes" }, plan.ids.map((id, i) => [i ? h("span", { class: "muted" }, " + ") : null,
@@ -1515,7 +1518,7 @@ async function renderPassives() {
       planBox(c.plan, asc.maxPoints),
       h("table", { class: "versus-items" }, h("tbody", {}, c.notables.map((n) => h("tr", {},
         h("td", {}, nodeName(n), stats(n.stats), fitChips(n.fit),
-          n.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
+          n.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : skillBlind(n)),
         h("td", {}, scoreBar(n.value, choiceMax)),
         h("td", {}, deltas(n.changes, METRIC, 0.3))))))))) : null;
 
@@ -1529,7 +1532,7 @@ async function renderPassives() {
       h("table", { class: "versus-items" }, h("tbody", {}, asc.options.map((o) => h("tr", {},
         h("td", {}, nodeName(o), stats(o.stats), fitChips(o.fit),
           o.via.length ? h("div", { class: "hint" }, t("via", o.via.map(trName).join(", "))) : null,
-          o.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
+          o.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : skillBlind(o)),
         h("td", { class: "num" }, t("pointsN", o.points)),
         h("td", {}, scoreBar(o.value, maxValue)),
         h("td", {}, deltas(o.changes, METRIC, 0.3))))))) : null);
