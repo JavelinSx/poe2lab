@@ -32,9 +32,11 @@ from ..assistant.agent import STYLES
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
 from ..economy import trade
+from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from .. import crafting, feedback, gamedata, glossary, icons, itemtext, journal, library, lootfilter, pobapp
+from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
@@ -100,7 +102,8 @@ class Session:
     def prices(self) -> PriceBook | None:
         if self._prices is False:
             try:
-                self._prices = PriceBook.load(self.bp.league if self.bp else None)
+                # the league the player chose in the interface; else the build profile's; else poe.ninja's current
+                self._prices = PriceBook.load(ninja.chosen_league() or (self.bp.league if self.bp else None))
             except OSError:
                 self._prices = None
         return self._prices
@@ -931,28 +934,68 @@ def craft_guide():
             "league": prices.league, "exaltedPerDivine": prices.exalted_per_divine}
 
 
+class MarketChoice(BaseModel):
+    """The loot filter's market block: what counts as "very valuable" (top) and "valuable" (low), each in exalted
+    or divine orbs."""
+    market: bool = True
+    top: float = 1.0
+    top_unit: str = "div"
+    low: float = 50.0
+    low_unit: str = "ex"
+
+
 @app.get("/api/lootfilter")
-def loot_filter(mode: str = "balanced", build: str | None = None):
+def loot_filter(mode: str = "balanced", build: str | None = None, market: bool = True, top: float = 1.0,
+                top_unit: str = "div", low: float = 50.0, low_unit: str = "ex"):
     if mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {mode!r}")
+    choice = MarketChoice(market=market, top=top, top_unit=top_unit, low=low, low_unit=low_unit)
     with session.lock:
         session.require(build)
-        return _json(_loot(mode) | {"dir": str(lootfilter.filters_dir()), "localFilters": lootfilter.local_filters(),
-                                    "onlineFilters": lootfilter.online_filters()})
+        return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()),
+                                            "localFilters": lootfilter.local_filters(),
+                                            "onlineFilters": lootfilter.online_filters()})
 
 
-def _loot(mode: str) -> dict:
-    """Rules and filter block for the open build (caller holds the session lock)."""
+def _loot(mode: str, choice: MarketChoice | None = None) -> dict:
+    """Rules and filter block for the open build, with the market block when chosen (caller holds the lock)."""
     def compute():
         e, prof = session.engine, session.profile
         weights = defence_weights(survivable_hits(e, prof))
-        rules = lootfilter.slot_rules(e, session.db(), prof.config(), mode, weights)
-        return {"rules": rules, "block": lootfilter.render(rules, session.path.stem)}
+        return lootfilter.slot_rules(e, session.db(), prof.config(), mode, weights)
 
-    return session.cached(("lootfilter", mode), compute)
+    rules = session.cached(("lootfilter", mode), compute)
+    market = _market(choice) if choice and choice.market else None
+    return {"rules": rules, "block": lootfilter.render(rules, session.path.stem, market["blocks"] if market else None),
+            "market": {k: v for k, v in market.items() if k != "blocks"} if market else None}
 
 
-class LootFilterSave(BaseModel):
+def _market(choice: MarketChoice) -> dict:
+    """The market block for the thresholds chosen, priced by poe.ninja in the chosen league."""
+    for unit in (choice.top_unit, choice.low_unit):
+        if unit not in ("ex", "div"):
+            raise HTTPException(400, f"единица цены — ex или div, а не {unit!r}")
+    if choice.top <= 0 or choice.low <= 0:
+        raise HTTPException(400, "порог цены должен быть больше нуля")
+    prices = session.prices()
+    if prices is None:
+        return {"error": "нет цен poe.ninja (нет связи?) — блок рынка не добавлен", "blocks": []}
+    data = session.cached(("market", prices.league), lambda: ninja.market(prices.league))
+    rate = data["exaltedPerDivine"] or prices.exalted_per_divine
+    if not rate:
+        return {"error": "poe.ninja не дал курс exalted/divine — блок рынка не добавлен", "blocks": []}
+    valid = gamedata.base_type_names()
+    if not valid:
+        return {"error": "нет распакованных данных игры, чтобы сверить названия предметов — блок рынка не добавлен "
+                         "(с неизвестным игре названием она не примет весь фильтр)", "blocks": []}
+    top = choice.top if choice.top_unit == "div" else choice.top / rate
+    low = choice.low if choice.low_unit == "div" else choice.low / rate
+    blocks, summary = lootfilter.market_blocks(data, top, low, valid)
+    return {"blocks": blocks, "league": prices.league, "exaltedPerDivine": rate, "topDiv": top, "lowDiv": low,
+            "summary": summary}
+
+
+class LootFilterSave(MarketChoice):
     mode: str = "balanced"
     source: str = "none"  # "file": a filter in the game's folder, "text": pasted, "none": the block alone
     file: str | None = None
@@ -981,7 +1024,7 @@ def loot_filter_save(req: LootFilterSave):
         session.require()
         if req.mode not in MODES:
             raise HTTPException(400, f"неизвестная цель {req.mode!r}")
-        block = _loot(req.mode)["block"]
+        block = _loot(req.mode, req)["block"]
         folder = lootfilter.filters_dir()
         base = ""
         if req.source == "file":
@@ -1067,6 +1110,36 @@ def compare_item(req: CompareRequest):
             res = _errors(lambda: breakeven(session.engine, cfg, req.slot, text, req.breakeven))
             result["breakeven"] = None if res is None else {"factor": res[0], "line": res[1]}
         return _json(result)
+
+
+@app.get("/api/leagues")
+def leagues_view():
+    """The PoE2 leagues the trade site knows, the one chosen for prices and trade searches (None: poe.ninja's
+    current league), and the one in use now."""
+    try:
+        names = [l["id"] for l in _trade_data("en", "leagues") if l.get("realm", "poe2") == "poe2"]
+    except OSError:
+        try:
+            names = ninja.leagues()
+        except OSError:
+            names = []
+    with session.lock:
+        prices = session.prices() if session.engine is not None else None
+    return {"leagues": names, "chosen": ninja.chosen_league(), "current": prices.league if prices else None}
+
+
+class LeagueChoice(BaseModel):
+    league: str | None = None  # None: back to poe.ninja's current league
+
+
+@app.put("/api/leagues")
+def leagues_choose(req: LeagueChoice):
+    league = (req.league or "").strip() or None
+    ninja.choose_league(league)
+    with session.lock:
+        session._prices = False  # prices of the new league on the next request
+        session.cache = {k: v for k, v in session.cache.items() if k == "db"}  # what was priced in the old one
+    return leagues_view()
 
 
 class TradeRequest(BaseModel):

@@ -145,3 +145,39 @@ def test_online_filters_from_the_games_copy(tmp_path, monkeypatch):
     assert client.post("/api/lootfilter/pick", headers=h).status_code == 400
     monkeypatch.setattr(lf, "pick_filter", lambda: copy)
     assert client.post("/api/lootfilter/pick", headers=h).json()["name"] == "endgamus"
+
+
+def test_market_block_by_price():
+    """What poe.ninja prices at the thresholds: stackable items by name, levelled ones by base from the level where
+    they and every level above are worth it, uniques by base (every unique of the base worth it; or, softer, one
+    worth the top)."""
+    market = {"items": {"Divine Orb": {"div": 1.0}, "Chaos Orb": {"div": 0.13}, "Exalted Orb": {"div": 0.002},
+                        "Uncut Skill Gem (Level 18)": {"div": 0.05}, "Uncut Skill Gem (Level 19)": {"div": 0.5},
+                        "Uncut Skill Gem (Level 20)": {"div": 2.0}},
+              "uniques": [{"name": "A", "base": "Silk Robe", "div": 5.0}, {"name": "B", "base": "Silk Robe", "div": 3.0},
+                          {"name": "C", "base": "Fire Quiver", "div": 0.001}, {"name": "D", "base": "Fire Quiver", "div": 2.0},
+                          {"name": "E", "base": "Wide Belt", "div": 0.3}]}
+    blocks, summary = lf.market_blocks(market, top=1.0, low=0.1)
+    assert [n for n, _ in summary["top"]] == ["Divine Orb"] and [n for n, _ in summary["low"]] == ["Chaos Orb"]
+    assert summary["levelled"]["top"] == [{"base": "Uncut Skill Gem", "level": 20, "div": 2.0}]
+    assert summary["levelled"]["low"] == [{"base": "Uncut Skill Gem", "level": 19, "div": 0.5}]
+    assert [u["base"] for u in summary["uniques"]["top"]] == ["Silk Robe"]
+    assert [u["base"] for u in summary["uniques"]["low"]] == ["Wide Belt"]
+    assert [u["base"] for u in summary["maybe"]] == ["Fire Quiver"]
+    text = "\n".join(blocks)
+    # the most valuable first: a filter stops at the first block that matches
+    assert text.index('BaseType == "Divine Orb"') < text.index('BaseType == "Chaos Orb"')
+    assert text.index("ItemLevel >= 20") < text.index("ItemLevel >= 19")
+    assert "Exalted Orb" not in text
+    whole = lf.render([], "titan", blocks)
+    assert whole.startswith(lf.BEGIN) and whole.rstrip().endswith(lf.END) and 'BaseType == "Divine Orb"' in whole
+
+
+def test_market_block_keeps_only_names_the_game_knows():
+    """A BaseType the game does not know makes it refuse the whole filter: such names stay out."""
+    market = {"items": {"Divine Orb": {"div": 1.0}, "Thaumaturgic Flux (Level 18)": {"div": 3.0}, "Made Up Orb": {"div": 5.0}},
+              "uniques": [{"name": "A", "base": "Silk Robe", "div": 5.0}, {"name": "B", "base": "Nonexistent Robe", "div": 5.0}]}
+    blocks, summary = lf.market_blocks(market, top=1.0, low=0.1, valid={"Divine Orb", "Silk Robe"})
+    text = "\n".join(blocks)
+    assert '"Divine Orb"' in text and '"Silk Robe"' in text
+    assert "Made Up Orb" not in text and "Thaumaturgic" not in text and "Nonexistent" not in text

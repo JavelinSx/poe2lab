@@ -64,6 +64,7 @@ def test_queries_ask_for_the_key_mods_then_an_item_made_for_the_build():
     key, ideal = trade.queries(mods, "armour.gloves", 70, {"str": 150, "dex": 40, "int": 20})
     assert [f["id"] for f in key["body"]["query"]["stats"][0]["filters"]] == [m["id"] for m in mods[:4]]
     assert key["body"]["query"]["stats"][0]["type"] == "and" and key["body"]["sort"] == {"price": "asc"}
+    assert key["body"]["query"]["status"] == {"option": "online"}  # sellers online now only
     reqs = key["body"]["query"]["filters"]["req_filters"]["filters"]
     assert reqs == {"lvl": {"max": 70}, "str": {"max": 150}, "dex": {"max": 40}, "int": {"max": 20}}
     relaxed = key["relaxed"]["query"]["stats"]

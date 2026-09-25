@@ -122,3 +122,15 @@ def test_tree_art_is_sent_packed_for_the_browser_to_unpack(client):
         assert b"".join(res.iter_raw())[:4] == bytes.fromhex("28b52ffd")  # a zstd frame, not re-packed
     assert client.get(f"/api/tree/art/{version}/tree.lua").status_code == 404
     assert client.get(f"/api/tree/art/..%2F..%2Fsrc/{file}").status_code == 404
+
+
+def test_the_league_is_the_player_s_choice(client, settings_dir, monkeypatch):
+    from poe2lab.economy.ninja import PriceBook
+    from poe2lab.economy import ninja
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    monkeypatch.setattr(session, "prices", lambda: PriceBook(ninja.chosen_league() or "Now", {}, 500.0))
+    r = client.put("/api/leagues", json={"league": "Standard"}, headers=H).json()
+    assert r["chosen"] == "Standard" and r["current"] == "Standard"
+    assert json.loads((settings_dir / "poe2lab" / "market.json").read_text(encoding="utf-8"))["league"] == "Standard"
+    r = client.put("/api/leagues", json={"league": None}, headers=H).json()
+    assert r["chosen"] is None and r["current"] == "Now"  # back to poe.ninja's current league

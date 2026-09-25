@@ -182,13 +182,14 @@ def pick_mods(db: ModDB, plan: dict, tags, level: int) -> list[dict]:
 def queries(mods: list[dict], cat: str, level: int, attributes: dict[str, float] | None = None) -> list[dict]:
     """The two searches: the key mods (all of them), then an item made for the build (most of the best eight).
     Only what the character can wear: its level, and its attributes without the worn item (an item's own
-    attributes do not count towards its requirements)."""
+    attributes do not count towards its requirements); only sellers online now, who can be messaged and bought
+    from at once."""
     reqs = {"lvl": {"max": level}}
     for key, value in (attributes or {}).items():
         reqs[key] = {"max": int(value)}
 
     def body(stats):
-        return {"query": {"status": {"option": "available"}, "stats": stats,
+        return {"query": {"status": {"option": "online"}, "stats": stats,
                           "filters": {"type_filters": {"filters": {"category": {"option": cat},
                                                                    "rarity": {"option": "nonunique"}}},
                                       "req_filters": {"filters": reqs}}},

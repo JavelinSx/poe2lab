@@ -470,6 +470,19 @@ def build_templates(lang: str = "ru") -> dict[str, str]:
     return out
 
 
+_base_names: set[str] = set()
+
+
+def base_type_names() -> set[str]:
+    """Every item base's English name, as a loot filter's BaseType must spell it (from the unpacked game tables);
+    empty when the game's files were not unpacked."""
+    if not _base_names:
+        path = RAW / "data" / "balance" / "baseitemtypes.datc64"
+        if path.is_file():
+            _base_names.update(r["Name"] for r in read_table(path, ["Id", "Name"]) if r.get("Name"))
+    return _base_names
+
+
 def templates_path(lang: str) -> Path:
     return GAME_CACHE / lang / "templates.json"
 

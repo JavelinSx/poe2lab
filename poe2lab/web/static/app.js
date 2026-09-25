@@ -132,11 +132,31 @@ $("#lang").addEventListener("click", async (e) => {
   renderLangBanner();
   if (state.build) setBuildNames(state.build);
   loadStatus();
+  loadLeagues();
   loadBuildList();
   if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
 const TAB_ORDER = ["overview", "damage", "skills", "gear", "compare", "tree", "loot", "mechanics", "profile", "assistant"];
+
+// the league for prices and trade searches: the player's choice, or poe.ninja's current league
+async function loadLeagues() {
+  const sel = $("#league");
+  let r;
+  try { r = await api("/api/leagues"); } catch (_) { return; }
+  sel.replaceChildren(h("option", { value: "" }, r.chosen || !r.current ? t("leagueAuto") : t("leagueAutoNow", trName(r.current))),
+    ...r.leagues.map((l) => h("option", { value: l }, trName(l))));
+  sel.value = r.chosen || "";
+  sel.onchange = async () => {
+    try {
+      const res = await api("/api/leagues", { method: "PUT", body: { league: sel.value || null } });
+      toast(t("leagueChosen", trName(res.current || res.chosen || "")), true);
+      resetCache();
+      if (state.build) switchTab(state.tab);
+      loadLeagues();
+    } catch (e) { toast(e.message); }
+  };
+}
 
 function renderEmpty() {
   $("#view").replaceChildren(h("div", { class: "welcome" },
@@ -1293,9 +1313,17 @@ function planCard(plan) {
 }
 
 // ---------- loot filter ----------
+// the loot filter's market block: on or off, and the two price bars, each in exalted or divine orbs (per viewer)
+const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex" };
+function lootMarket() {
+  try { return { ...LOOT_MARKET, ...JSON.parse(localStorage.getItem("poe2lab.lootMarket") || "{}") }; } catch (_) { return { ...LOOT_MARKET }; }
+}
+const lootQuery = (m) => new URLSearchParams(Object.entries(m).map(([k, v]) => [k, String(v)])).toString();
+
 TABS.loot = async (view) => {
   view.replaceChildren(loading(t("lootLoading")));
-  const r = await cached(`loot:${state.mode}`, () => api(`/api/lootfilter?mode=${state.mode}&${buildQuery()}`));
+  const mk = lootMarket();
+  const r = await cached(`loot:${state.mode}:${lootQuery(mk)}`, () => api(`/api/lootfilter?mode=${state.mode}&${lootQuery(mk)}&${buildQuery()}`));
   const rows = r.rules.map((x) => h("tr", {},
     h("td", {}, slotName(x.slot)),
     h("td", {}, h("span", { class: "named", title: x.base }, icon(x.base), trName(x.base)),
@@ -1350,7 +1378,7 @@ TABS.loot = async (view) => {
     save.disabled = true;
     try {
       const res = await api("/api/lootfilter/save", { method: "POST", body: { mode: state.mode, source,
-        file: chosen || null, text: text.value, name: name.value.trim() || null } });
+        file: chosen || null, text: text.value, name: name.value.trim() || null, ...lootMarket() } });
       done.replaceChildren(h("div", { class: "action" }, t("lootSaved", res.name, res.path)));
       toast(t("lootSavedShort", res.name), true);
     } catch (e) { toast(e.message); }
@@ -1365,8 +1393,52 @@ TABS.loot = async (view) => {
   } }, t("copyBlock"));
   const preview = h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lootPreview")),
     h("div", { class: "row", style: "margin:8px 0" }, copy), h("pre", { class: "filter-preview" }, r.block)));
-  return h("div", { class: "stack" }, h("div", { class: "sub" }, t("lootIntro")), what, build, preview);
+  return h("div", { class: "stack" }, h("div", { class: "sub" }, t("lootIntro")), what, marketCard(r.market, mk), build, preview);
 };
+
+// the market block: what poe.ninja prices at the chosen bars, and the bars themselves
+function marketCard(m, mk) {
+  const redo = (patch) => {
+    try { localStorage.setItem("poe2lab.lootMarket", JSON.stringify({ ...mk, ...patch })); } catch (_) { /* storage blocked */ }
+    switchTab("loot");
+  };
+  const bar = (key) => h("span", { class: "row", style: "gap:6px;display:inline-flex" },
+    h("input", { type: "number", min: 0.001, step: "any", value: mk[key], style: "width:80px",
+      onchange: (e) => { const v = Number(e.target.value); if (v > 0) redo({ [key]: v }); } }),
+    h("select", { onchange: (e) => redo({ [key + "_unit"]: e.target.value }) },
+      ["ex", "div"].map((u) => h("option", { value: u, selected: mk[key + "_unit"] === u }, u))));
+  const on = h("input", { type: "checkbox", checked: mk.market, onchange: (e) => redo({ market: e.target.checked }) });
+  const price = (div) => (m && div * m.exaltedPerDivine < 100 ? `${fmt(div * m.exaltedPerDivine, 0)} ex` : `${fmt(div, 1)} div`);
+  const list = (rows, name) => h("ul", { class: "item-lines small market-list" }, rows.map((x) =>
+    h("li", {}, h("span", { class: "named" }, icon(name(x)), trName(name(x))), " — ", h("b", {}, price(x.div !== undefined ? x.div : x[1])))));
+  const body = [];
+  if (mk.market && m && m.error) body.push(h("p", { class: "bad small" }, m.error));
+  else if (mk.market && m) {
+    const sm = m.summary;
+    const group = (title, items, levelled, uniques) => {
+      const n = items.length + levelled.length + uniques.length;
+      return h("details", { class: "market-group" }, h("summary", {}, h("b", {}, title), " ", h("span", { class: "muted small" }, t("marketCount", n))),
+        items.length ? list(items, (x) => x[0]) : null,
+        levelled.length ? h("ul", { class: "item-lines small" }, levelled.map((x) => h("li", {}, t("marketLevelled", trName(x.base), x.level), " — ", h("b", {}, price(x.div))))) : null,
+        uniques.length ? h("div", {}, h("div", { class: "muted small" }, t("marketUniques")),
+          h("ul", { class: "item-lines small" }, uniques.map((u) => h("li", { title: u.names.join(", ") },
+            h("span", { class: "named" }, icon(u.base), trName(u.base)), " — ", t("marketFrom", price(u.div)))))) : null);
+    };
+    if (m.topDiv < m.lowDiv) body.push(h("p", { class: "hint" }, t("marketBarsSwapped")));
+    body.push(h("div", { class: "muted small" }, t("marketLeague", trName(m.league), fmt(m.exaltedPerDivine, 0))),
+      group(t("marketTop"), sm.top, sm.levelled.top, sm.uniques.top),
+      group(t("marketLow"), sm.low, sm.levelled.low, sm.uniques.low),
+      sm.maybe.length ? h("details", { class: "market-group" }, h("summary", {}, h("b", {}, t("marketMaybe")), " ",
+        h("span", { class: "muted small" }, t("marketCount", sm.maybe.length))),
+        h("ul", { class: "item-lines small" }, sm.maybe.map((u) => h("li", { title: u.names.join(", ") },
+          h("span", { class: "named" }, icon(u.base), trName(u.base)), " — ", t("marketMaybeOne", u.names.map(trName).join(", "), price(u.div)))))) : null);
+  }
+  return h("div", { class: "card stack" }, h("h3", {}, t("marketTitle")), h("div", { class: "sub" }, t("marketSub")),
+    h("label", { class: "row", style: "gap:8px" }, on, t("marketOn")),
+    mk.market ? h("div", { class: "row craft-controls" }, h("label", {}, t("marketTopBar"), " ", bar("top")),
+      h("label", {}, t("marketLowBar"), " ", bar("low"))) : null,
+    ...body);
+}
 
 // ---------- mechanics ----------
 // ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
@@ -2544,4 +2616,5 @@ function renderLangBanner(force = false) {
     try { state.build = await api("/api/build"); renderHeader(); switchTab(wanted ? state.tab : "overview"); } catch (_) { /* reopen from the list */ }
   }
   await loadBuildList();
+  loadLeagues();
 })();

@@ -123,6 +123,12 @@ STYLES = {
     "identify": ["SetFontSize 38", "SetBorderColor 255 170 0 255", "MinimapIcon 2 Orange Circle"],
     "craft": ["SetFontSize 36", "SetBorderColor 150 200 255 255", "MinimapIcon 2 Blue Circle"],
     "unique": ["SetFontSize 42", "SetBorderColor 255 120 0 255", "PlayAlertSound 3 300", "MinimapIcon 1 Brown Star"],
+    # the market block: priced by poe.ninja
+    "market_top": ["SetFontSize 45", "SetTextColor 255 0 0 255", "SetBorderColor 255 0 0 255",
+                   "SetBackgroundColor 255 255 255 255", "PlayAlertSound 6 300", "PlayEffect Red", "MinimapIcon 0 Red Star"],
+    "market": ["SetFontSize 42", "SetTextColor 0 0 0 255", "SetBorderColor 0 0 0 255", "SetBackgroundColor 235 190 60 240",
+               "PlayAlertSound 2 250", "PlayEffect Yellow", "MinimapIcon 1 Yellow Circle"],
+    "market_maybe": ["SetFontSize 38", "SetBorderColor 235 190 60 255", "MinimapIcon 2 Yellow Diamond"],
 }
 
 
@@ -130,7 +136,78 @@ def _block(comment: str, conditions: list[str], style: str) -> str:
     return "\n".join([f"Show # poe2lab: {comment}", *("\t" + c for c in conditions), *("\t" + s for s in STYLES[style])])
 
 
-def render(rules: list[SlotRule], build: str) -> str:
+_LEVELLED = re.compile(r"^(.+) \(Level (\d+)\)$")
+
+
+def market_blocks(market: dict, top: float, low: float, valid: set | None = None) -> tuple[list[str], dict]:
+    """Blocks for what is worth `top` and `low` divines or more by poe.ninja, and what went into them. Stackable items
+    by name; "Uncut Skill Gem (Level 19)" by its base from the lowest level where it and every level above are worth
+    it; uniques by base: a base whose every unique is worth it, and (softer) a base where one is worth `top`.
+    `valid`: the game's base names - a name the game does not know would make it refuse the whole filter."""
+    def tier(v):
+        return "top" if v >= top else "low" if v >= low else None
+
+    def known(name):
+        return valid is None or name in valid
+
+    names = {"top": [], "low": []}
+    levelled = {}
+    for name, x in market["items"].items():
+        m = _LEVELLED.match(name)
+        if m:
+            if known(m.group(1)):
+                levelled.setdefault(m.group(1), []).append((int(m.group(2)), x["div"]))
+        elif tier(x["div"]) and known(name):
+            names[tier(x["div"])].append((name, x["div"]))
+    from_level = {"top": [], "low": []}
+    for base, levels in levelled.items():
+        levels.sort()
+        for key, bar in (("top", top), ("low", low)):
+            start = next((lvl for i, (lvl, _) in enumerate(levels) if all(v >= bar for _, v in levels[i:])), None)
+            if start is not None and not (key == "low" and any(b == base for b, _, _ in from_level["top"])
+                                          and start >= next(l for b, l, _ in from_level["top"] if b == base)):
+                from_level[key].append((base, start, min(v for lvl, v in levels if lvl >= start)))
+    by_base = {}
+    for u in market["uniques"]:
+        if known(u["base"]):
+            by_base.setdefault(u["base"], []).append(u)
+    unique_sure = {"top": [], "low": []}
+    unique_maybe = []
+    for base, us in by_base.items():
+        cheapest, dearest = min(u["div"] for u in us), max(u["div"] for u in us)
+        if tier(cheapest):
+            unique_sure[tier(cheapest)].append((base, cheapest, [u["name"] for u in us]))
+        elif dearest >= top:
+            unique_maybe.append((base, dearest, [u["name"] for u in us if u["div"] >= top]))
+
+    blocks = []
+    for key, style, words in (("top", "market_top", "очень ценное"), ("low", "market", "ценное")):
+        if names[key]:
+            blocks.append(_block(f"рынок — {words}", [f"BaseType == {_quote(sorted(n for n, _ in names[key]))}"], style))
+            blocks.append("")
+        for base, level, _ in sorted(from_level[key]):
+            blocks.append(_block(f"рынок — {words}: {base} от уровня {level}",
+                                 [f'BaseType == "{base}"', f"ItemLevel >= {level}"], style))
+            blocks.append("")
+        if unique_sure[key]:
+            blocks.append(_block(f"рынок — {words}: уники, у которых любой вариант на базе столько стоит",
+                                 ["Rarity Unique", f"BaseType == {_quote(sorted(b for b, _, _ in unique_sure[key]))}"], style))
+            blocks.append("")
+    if unique_maybe:
+        blocks.append(_block("рынок — уник на этой базе бывает очень ценным, проверь какой",
+                             ["Rarity Unique", f"BaseType == {_quote(sorted(b for b, _, _ in unique_maybe))}"], "market_maybe"))
+        blocks.append("")
+    summary = {
+        "top": sorted(names["top"], key=lambda x: -x[1]), "low": sorted(names["low"], key=lambda x: -x[1]),
+        "levelled": {k: [{"base": b, "level": l, "div": v} for b, l, v in from_level[k]] for k in from_level},
+        "uniques": {k: [{"base": b, "div": v, "names": n} for b, v, n in sorted(unique_sure[k], key=lambda x: -x[1])]
+                    for k in unique_sure},
+        "maybe": [{"base": b, "div": v, "names": n} for b, v, n in sorted(unique_maybe, key=lambda x: -x[1])],
+    }
+    return blocks, summary
+
+
+def render(rules: list[SlotRule], build: str, market: list[str] | None = None) -> str:
     """The filter block: most specific first (a filter stops at the first matching block)."""
     blocks = [BEGIN, f"# Билд: {build}. Собрано poe2lab: вещи под этот билд поверх твоего фильтра.", ""]
     for kind, need, style in (("голда", 3, "gold"), ("хорошая вещь", 2, "good")):
@@ -176,6 +253,7 @@ def render(rules: list[SlotRule], build: str) -> str:
         blocks.append(_block("уникальные предметы билда (по базе)", ["Rarity Unique", f"BaseType == {_quote(uniques)}"],
                              "unique"))
         blocks.append("")
+    blocks += market or []
     blocks.append(END)
     return "\n".join(blocks) + "\n"
 

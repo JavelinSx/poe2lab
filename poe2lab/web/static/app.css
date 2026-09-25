@@ -543,3 +543,8 @@ details > summary .ico { margin-left: 2px; }
 .start-steps { margin: 6px 0 0; padding-left: 22px; }
 .start-steps li { margin-bottom: 10px; }
 @media (max-width: 640px) { .welcome-tabs { grid-template-columns: 1fr; } .welcome-tabs dd { margin-bottom: 6px; } }
+.league-pick { display: flex; flex-direction: column; gap: 4px; }
+.league-pick select { width: 100%; }
+.market-group { margin-top: 6px; }
+.market-list { columns: 2; column-gap: 24px; }
+@media (max-width: 900px) { .market-list { columns: 1; } }

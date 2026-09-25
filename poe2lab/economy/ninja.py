@@ -1,5 +1,6 @@
 """Prices from poe.ninja's PoE2 exchange overview, cached on disk for an hour (poe.ninja refreshes ~hourly)."""
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -77,6 +78,58 @@ class PriceBook:
 
 def leagues() -> list[str]:
     return [l["id"] for l in _get("leagues")]
+
+
+# The league the player chose for prices and trade searches (the interface's choice), kept with the player's settings.
+def _league_path() -> Path:
+    root = os.environ.get("APPDATA") or str(Path.home() / ".config")
+    return Path(root) / "poe2lab" / "market.json"
+
+
+def chosen_league() -> str | None:
+    try:
+        return json.loads(_league_path().read_text(encoding="utf-8")).get("league") or None
+    except (OSError, ValueError):
+        return None
+
+
+def choose_league(league: str | None):
+    """None: back to poe.ninja's current league."""
+    _league_path().parent.mkdir(parents=True, exist_ok=True)
+    _league_path().write_text(json.dumps({"league": league}, ensure_ascii=False), encoding="utf-8")
+
+
+# What a loot filter can tell apart by price: stackable items by name (exact BaseType), uniques by base only
+# (a filter cannot read a unique's name).
+MARKET_TYPES = EXCHANGE_TYPES + ("Fragments", "Delirium", "Breach", "Expedition", "UncutGems", "LineageSupportGems",
+                                 "Verisium")
+UNIQUE_TYPES = ("UniqueArmours", "UniqueWeapons", "UniqueAccessories", "UniqueFlasks", "UniqueCharms", "UniqueJewels")
+
+
+def market(league: str) -> dict:
+    """Prices in divines: {"items": {name: {"div", "kind"}}, "uniques": [{"name", "base", "div", "listings"}],
+    "exaltedPerDivine"}. A type poe.ninja does not answer for is left out."""
+    items, uniques, rate = {}, [], 0.0
+    for t in MARKET_TYPES:
+        try:
+            data = _get("exchange/current/overview", league=league, type=t)
+        except OSError:
+            continue
+        rate = rate or data.get("core", {}).get("rates", {}).get("exalted", 0.0)
+        names = {i["id"]: i.get("name", "") for i in data.get("items", [])}
+        for line in data.get("lines", []):
+            if names.get(line["id"]):
+                items[names[line["id"]]] = {"div": float(line.get("primaryValue", 0)), "kind": t}
+    for t in UNIQUE_TYPES:
+        try:
+            data = _get("stash/current/item/overview", league=league, type=t)
+        except OSError:
+            continue
+        for line in data.get("lines", []):
+            if line.get("baseType") and line.get("name"):
+                uniques.append({"name": line["name"], "base": line["baseType"], "div": float(line.get("primaryValue", 0)),
+                                "listings": int(line.get("listingCount", 0))})
+    return {"league": league, "items": items, "uniques": uniques, "exaltedPerDivine": rate}
 
 
 def _get(path: str, **params) -> dict | list:
