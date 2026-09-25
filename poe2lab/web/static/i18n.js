@@ -9,7 +9,7 @@ const I18N = {
     tab_skills: "Скиллы", skBuild: "Билд", skLeveling: "Прокачка",
     skPassives: "Пассивки и возвышение", psLoading: "Считаю возвышение и дерево — PoB примеряет каждую ноду…",
     psOpenTree: "🌳 Открыть дерево", psOpenTreeHint: "Схема дерева: взятое, лучшие варианты роста и дорога к ним, что можно перераспределить.",
-    psAscTitle: (n) => `Возвышение: ${n}`, psNoAsc: "не выбрано",
+    psAscTitle: (n) => `Возвышение: ${n}`, psNoAsc: "не выбрано", noAscendancy: "без возвышения",
     psAscPoints: (u, m) => `Очки возвышения: ${u} из ${m}.`,
     psAscFull: "Все очки потрачены: новая нода — только вместо уже взятой.",
     psAscOptions: "Что дадут невзятые ноды возвышения (PoB примерил каждую на твоём билде):",
@@ -498,7 +498,7 @@ const I18N = {
     tab_skills: "Skills", skBuild: "Build", skLeveling: "Levelling",
     skPassives: "Passives and ascendancy", psLoading: "Working out the ascendancy and tree: PoB tries every node…",
     psOpenTree: "🌳 Open the tree", psOpenTreeHint: "The tree drawn: what is taken, the best growth options and the road to them, what can be respecced.",
-    psAscTitle: (n) => `Ascendancy: ${n}`, psNoAsc: "not chosen",
+    psAscTitle: (n) => `Ascendancy: ${n}`, psNoAsc: "not chosen", noAscendancy: "no ascendancy",
     psAscPoints: (u, m) => `Ascendancy points: ${u} of ${m}.`,
     psAscFull: "Every point spent: a new node only instead of a taken one.",
     psAscOptions: "What the untaken ascendancy nodes give (PoB tried each on your build):",
@@ -1053,6 +1053,7 @@ function fillTemplate(tpl, line) {
 
 async function loadGameTexts() {
   GAME = { stats: {}, names: {} };
+  bulletless = null;
   if (LANG === "en") return;
   try { GAME = await (await fetch(`/api/i18n/${LANG}`)).json(); } catch (_) { /* offline: English game text */ }
 }
@@ -1060,10 +1061,15 @@ async function loadGameTexts() {
 // a mod line, or several joined with " / "
 // mod prefixes the game prints before the stat text (official wording from GGG's trade data)
 const MOD_PREFIX_RU = { "Bonded: ": "Связаны: " };
+// "Grants Skill: [Level N] Name" in the game's own Russian wording (client strings ItemDisplayGrantedSkill*)
+const GRANTS_SKILL_RE = /^Grants Skill: (?:Level (\d+) )?(.+)$/;
+const grantsSkillRu = (name, level) => level ? `Дарует умение: ${trName(name)} ${level} уровня` : `Дарует умение: ${trName(name)}`;
 
 function trMod(line) {
   if (LANG === "en" || !line) return line;
   return line.split(" / ").map((part) => {
+    const granted = part.match(GRANTS_SKILL_RE);
+    if (granted) return grantsSkillRu(granted[2], granted[1]);
     const prefix = Object.keys(MOD_PREFIX_RU).find((p) => part.startsWith(p));
     const body = prefix ? part.slice(prefix.length) : part;
     const tpl = GAME.stats[statKey(part)] || GAME.stats[statKey(body)];
@@ -1071,6 +1077,39 @@ function trMod(line) {
     if (!done) return part;
     return GAME.stats[statKey(part)] || !prefix ? done : MOD_PREFIX_RU[prefix] + done;
   }).join(" / ");
+}
+
+// PoB splits some descriptions over several lines (a sentence, then a list: "Can tattoo Runes onto your body, gaining" /
+// "additional Rune-only sockets:" / "1 Helmet socket" ...). The game keeps them as one text with "•" before each list
+// item. A run of lines that does not translate line by line is joined back and translated whole; the list items
+// come out as lines of their own again. Returns [original, shown] pairs.
+let bulletless = null;  // template keys without their "•", built once per language
+function trLines(lines) {
+  if (LANG === "en" || !lines) return (lines || []).map((l) => [l, l]);
+  if (!bulletless) {
+    bulletless = {};
+    for (const [k, v] of Object.entries(GAME.stats)) {
+      if (k.includes("•")) bulletless[k.replace(/\s*•\s*/g, " ").replace(/\s+/g, " ").trim()] = v;
+    }
+  }
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    let joined = null;
+    if (trMod(lines[i]) === lines[i]) {
+      for (let j = lines.length; j > i + 1 && !joined; j--) {
+        const text = lines.slice(i, j).join(" ");
+        const tpl = GAME.stats[statKey(text)] || bulletless[statKey(text)];
+        const done = tpl && fillTemplate(tpl, text);
+        if (done) {
+          joined = done;
+          done.split(/\s*•\s*/).forEach((part, k) => out.push([text, k ? `• ${part}` : part]));
+          i = j - 1;
+        }
+      }
+    }
+    if (!joined) out.push([lines[i], trMod(lines[i])]);
+  }
+  return out;
 }
 
 function trName(name) {

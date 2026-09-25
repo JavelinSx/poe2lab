@@ -679,6 +679,25 @@ def _tree_graph_with_icons() -> dict:
     return graph
 
 
+TREE_DATA = gamedata.ROOT / "pob2" / "src" / "TreeData"
+TREE_ART = re.compile(r"[\w-]+\.dds\.zst")
+
+
+@app.get("/api/tree/art/{version}/{file}")
+def tree_art(version: str, file: str, request: Request):
+    """One of PoB's tree textures (the game's art, zstd-packed DDS) as it is: the browser unpacks zstd itself
+    (Content-Encoding), the page decodes the DDS. 406 for a browser without zstd: the page then draws without art."""
+    if not re.fullmatch(r"[\w.]+", version) or not TREE_ART.fullmatch(file):
+        raise HTTPException(404, "нет такой текстуры")
+    path = TREE_DATA / version / file
+    if not path.is_file():
+        raise HTTPException(404, "нет такой текстуры")
+    if "zstd" not in request.headers.get("accept-encoding", ""):
+        raise HTTPException(406, "браузер не распаковывает zstd")
+    return FileResponse(path, media_type="application/octet-stream",
+                        headers={"Content-Encoding": "zstd", "Cache-Control": "max-age=604800"})
+
+
 @app.get("/api/ascendancy")
 def ascendancy_view(mode: str = "balanced", build: str | None = None):
     """The ascendancy's allocated notables and the ones not taken, priced by PoB on the build."""
@@ -1262,6 +1281,6 @@ app.mount("/icons", StaticFiles(directory=icons.ICONS, check_dir=False), name="i
 def index():
     # version static URLs by modification time so browsers never run a stale script
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for name in ("app.js", "i18n.js", "pob_labels.js", "app.css"):
+    for name in ("app.js", "i18n.js", "pob_labels.js", "treeart.js", "app.css"):
         html = html.replace(f"/static/{name}", f"/static/{name}?v={int((STATIC / name).stat().st_mtime)}")
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

@@ -221,7 +221,7 @@ class PobEngine:
         return self._json("""
 return _poe2lab_json({
   class = build.spec.curClassName,
-  ascendancy = build.spec.curAscendClassName,
+  ascendancy = (build.spec.curAscendClassId or 0) > 0 and build.spec.curAscendClassName or "",
   level = build.characterLevel,
   mainSocketGroup = build.mainSocketGroup,
 })""")
@@ -297,7 +297,8 @@ return _poe2lab_json(out)""")
     def tree_graph(self) -> dict:
         """The passive tree to draw: every node of the main tree and of the build's own ascendancy with its position
         (PoB's own layout), type, name, stat lines, links, group centre and orbit radius (links along one orbit are
-        arcs) and whether it is allocated; plus the class, ascendancy and points used."""
+        arcs) and whether it is allocated; plus the class, ascendancy and points used, and where the game's background
+        art for them is in PoB's tree textures."""
         return self._json("""
 local spec, tree = build.spec, build.spec.tree
 -- no ascendancy chosen yet (PoB calls it "None"): every ascendancy of the class is shown, to choose from
@@ -318,8 +319,29 @@ for id, node in pairs(spec.nodes) do
   end
 end
 local used, ascUsed = spec:CountAllocNodes()
+-- the game's own background art as PoB draws it: where each picture sits in PoB's texture files (file, layer)
+local function where(name)
+  for file, names in pairs(tree.ddsCoords or {}) do
+    if names[name] then return { file = file, layer = names[name] } end
+  end
+end
+local art = { version = tree.treeVersion, tile = where("Background2"), asc = _poe2lab_array({}) }
+local cls = tree.classes[spec.curClassId]
+if cls and cls.background and cls.background.image then
+  local b, start = cls.background, spec.nodes[cls.startNodeId]
+  local x, y = b.x * tree.scaleImage, b.y * tree.scaleImage
+  art.center = { x = x, y = y, w = b.width, image = where(b.image), ring = where("BGTree"),
+    ringW = b.bg and b.bg.width or 0, active = where("BGTreeActive"), activeW = b.active and b.active.width or 0,
+    angle = start and (math.pi / 2 + math.atan2(start.y - y, start.x - x)) or 0 }
+end
+for i, a in pairs(spec.curClass.classes or {}) do
+  if i > 0 and a.name and shown[a.name] and a.background and a.background.image then
+    art.asc[#art.asc + 1] = { name = a.name, x = a.background.x * tree.scaleImage, y = a.background.y * tree.scaleImage,
+      w = a.background.width, image = where(a.background.image) }
+  end
+end
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
-  ascendancyPoints = ascUsed })""")
+  ascendancyPoints = ascUsed, art = art })""")
 
     def class_ascendancies(self) -> list[dict]:
         """The ascendancies of the build's class with their notables - to choose from while none is taken."""

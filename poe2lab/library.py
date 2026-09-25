@@ -82,7 +82,8 @@ def describe_code(code: str) -> dict:
     build = root.find("Build")
     if build is None:
         raise LibraryError("в коде нет билда (раздел Build)")
-    return {"class": build.get("className", ""), "ascendancy": build.get("ascendClassName", ""),
+    ascendancy = build.get("ascendClassName", "")
+    return {"class": build.get("className", ""), "ascendancy": "" if ascendancy == "None" else ascendancy,
             "level": int(build.get("level", 0) or 0)}
 
 

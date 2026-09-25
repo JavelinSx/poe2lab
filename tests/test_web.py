@@ -108,3 +108,17 @@ def test_stale_build_requests_are_refused(client):
 def test_unknown_build_is_a_clean_error(client):
     r = client.post("/api/load", json={"name": "no such build"}, headers=H)
     assert r.status_code == 400
+
+
+def test_tree_art_is_sent_packed_for_the_browser_to_unpack(client):
+    """PoB's tree textures go out as they are, zstd-packed: the browser unpacks them (Content-Encoding)."""
+    from poe2lab.web.server import TREE_DATA
+    version = sorted(p.name for p in TREE_DATA.iterdir() if (p / "tree.lua").is_file())[-1]
+    file = next(p.name for p in (TREE_DATA / version).glob("background_*.dds.zst"))
+    url = f"/api/tree/art/{version}/{file}"
+    assert client.get(url, headers={"Accept-Encoding": "gzip"}).status_code == 406  # the page then draws without art
+    with client.stream("GET", url, headers={"Accept-Encoding": "gzip, deflate, br, zstd"}) as res:
+        assert res.status_code == 200 and res.headers["content-encoding"] == "zstd"
+        assert b"".join(res.iter_raw())[:4] == bytes.fromhex("28b52ffd")  # a zstd frame, not re-packed
+    assert client.get(f"/api/tree/art/{version}/tree.lua").status_code == 404
+    assert client.get(f"/api/tree/art/..%2F..%2Fsrc/{file}").status_code == 404

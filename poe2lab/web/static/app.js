@@ -253,7 +253,7 @@ function renderHeader() {
   $("#bh-name").textContent = b.name;
   $("#bh-reload").title = t("reloadHint");
   renderChanges();
-  $("#bh-sub").textContent = `${trName(b.info.class)} / ${trName(b.info.ascendancy)} · ${t("level", b.info.level)}`;
+  $("#bh-sub").textContent = `${trName(b.info.class)} / ${b.info.ascendancy ? trName(b.info.ascendancy) : t("noAscendancy")} · ${t("level", b.info.level)}`;
   // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
   const entries = b.groups.flatMap((g) => g.skills.map((s, i) => ({ group: g.index, skill: i + 1, name: s })));
@@ -522,6 +522,8 @@ async function switchTab(tab) {
 
 const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}&${buildQuery()}`));
 // the "unit" is either the Rage stat or a probe mod line
+// a passive node's lines, translated (several PoB lines may be one game text), the original on hover
+const stats = (lines) => h("ul", { class: "item-lines small" }, trLines(lines).map(([src, text]) => h("li", { title: LANG === "en" ? null : src }, text)));
 const unitName = (name) => (LANG === "ru" && name === "Maximum Rage" ? "максимум свирепости" : trMod(name));
 
 // ---------- overview ----------
@@ -1043,7 +1045,6 @@ TABS.tree = async (view) => {
     [3, 4, 5, 6, 8, 10].map((n) => h("option", { value: n, selected: n === points }, t("upToPoints", n))));
   const nodeName = (n) => h("span", { title: n.name, class: "named" }, icon(n.name, "ico passive"), trName(n.name));
   const typeChip = (type) => type === "Keystone" ? chip("tag", t("keystone")) : type === "Notable" ? chip("warn", t("notable")) : null;
-  const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
 
   const openTree = h("button", { class: "ghost small", style: "float:right", onclick: async () => {
@@ -1273,7 +1274,6 @@ async function openTreeFor(asc) {
 async function renderPassives() {
   const [asc, tree, graph] = await Promise.all([
     cached(`asc:${state.mode}`, () => api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`)), treeAnalysis(), treeGraph()]);
-  const stats = (lines) => h("ul", { class: "item-lines small" }, lines.map((l) => h("li", { title: l }, trMod(l))));
   const open = h("button", { class: "primary", onclick: async () => {
     open.disabled = true;
     try { await openTreeFor(asc); } catch (e) { toast(e.message); } finally { open.disabled = false; }
@@ -1356,6 +1356,14 @@ function openTreeViewer(graph, tree, asc) {
   };
   let queued = false;
   const scheduleDraw = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; draw(); }); } };
+  // the game's art behind the tree (treeart.js): the stone background, the class circle, the ascendancy circles;
+  // each picture is decoded at about the size it is seen at
+  const art = graph.art || {};
+  const want = (where, size) => (where && where.file ? { file: where.file, layer: where.layer, size } : null);
+  const wanted = { tile: want(art.tile, 256), center: want(art.center && art.center.image, 750),
+    ring: want(art.center && art.center.ring, 1000), active: want(art.center && art.center.active, 1000),
+    asc: new Map((art.asc || []).map((a) => [a.name, want(a.image, 750)])) };
+  if (art.version) loadTreeArt(art.version, [wanted.tile, wanted.center, ...wanted.asc.values(), wanted.ring, wanted.active], scheduleDraw);
 
   const overlay = h("div", { class: "tree-overlay" });
   const canvas = h("canvas", { class: "tree-canvas" });
@@ -1401,6 +1409,9 @@ function openTreeViewer(graph, tree, asc) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, w, hgt);
+    // on the art the links and node rims are drawn lighter to stay readable
+    const lit = drawArt(ctx, w, hgt);
+    const line = lit ? "rgba(214,219,228,.42)" : C.line, edge = lit ? "rgba(226,230,238,.8)" : C.nodeEdge;
     const ns = visible();
     // links: arcs along one orbit of a group, straight lines otherwise
     for (const n of ns) {
@@ -1409,7 +1420,7 @@ function openTreeViewer(graph, tree, asc) {
         const m = byId.get(id);
         if (!m || m.asc !== n.asc) continue;
         const both = n.alloc && m.alloc, green = !both && (road.has(n.id) || n.alloc) && (road.has(m.id) || m.alloc) && (road.has(n.id) || road.has(m.id));
-        ctx.strokeStyle = both ? C.gold : green ? C.good : C.line;
+        ctx.strokeStyle = both ? C.gold : green ? C.good : line;
         ctx.lineWidth = both || green ? Math.max(1.5, 10 * scale) : Math.max(0.6, 5 * scale);
         ctx.beginPath();
         if (n.group === m.group && n.r > 0 && Math.abs(n.r - m.r) < 1) {
@@ -1445,7 +1456,7 @@ function openTreeViewer(graph, tree, asc) {
         ctx.beginPath();
         ctx.arc(x, y, r, 0, 2 * Math.PI);
         ctx.lineWidth = n.type === "Keystone" ? 3 : n.type === "Notable" ? 2.5 : 1.5;
-        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : status || C.nodeEdge;
+        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : status || edge;
         ctx.stroke();
         continue;
       }
@@ -1453,11 +1464,44 @@ function openTreeViewer(graph, tree, asc) {
       ctx.fill();
       if (n.type !== "Normal" || respec.has(n.id) || n === hover || n === pinned) {
         ctx.lineWidth = respec.has(n.id) || n === hover || n === pinned ? 2 : 1;
-        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : C.nodeEdge;
+        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : edge;
         ctx.stroke();
       }
     }
     labels(ctx);
+  }
+
+  function drawArt(ctx, w, hgt) {
+    const tile = treeArt(wanted.tile);
+    if (tile) {
+      // the stone moves with the tree when it is dragged, but keeps its size when zooming (as in PoB)
+      const pattern = ctx.createPattern(tile, "repeat");
+      pattern.setTransform(new DOMMatrix().translate(ox % tile.width, oy % tile.height));
+      ctx.fillStyle = pattern;
+      ctx.fillRect(0, 0, w, hgt);
+    }
+    // a picture centred on a tree point; `half` is half its width in tree units (PoB's sizes)
+    const place = (img, x, y, half, angle) => {
+      const r = half * scale, cx = x * scale + ox, cy = y * scale + oy;
+      if (!img || cx + r < 0 || cy + r < 0 || cx - r > w || cy - r > hgt) return;
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (angle) ctx.rotate(angle);
+      ctx.drawImage(img, -r, -r, 2 * r, 2 * r);
+      ctx.restore();
+    };
+    const c = art.center;
+    if (!showAsc && c) {
+      place(treeArt(wanted.center), c.x, c.y, c.w);
+      place(treeArt(wanted.active), c.x, c.y, c.activeW, c.angle);
+      place(treeArt(wanted.ring), c.x, c.y, c.ringW);
+    }
+    if (showAsc) for (const a of art.asc || []) place(treeArt(wanted.asc.get(a.name)), a.x, a.y, a.w);
+    if (!tile) return false;
+    // a veil over the art: the nodes and links stay the main thing (the ascendancy pictures are brighter)
+    ctx.fillStyle = showAsc ? "rgba(8, 9, 12, 0.55)" : "rgba(8, 9, 12, 0.4)";
+    ctx.fillRect(0, 0, w, hgt);
+    return true;
   }
 
   // the ascendancies' names over their trees (several are shown while none is chosen)
@@ -1471,10 +1515,14 @@ function openTreeViewer(graph, tree, asc) {
     }
     ctx.font = "600 15px system-ui, sans-serif";
     ctx.textAlign = "center";
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, .9)";
+    ctx.shadowBlur = 6;
     for (const [name, g] of groups) {
       ctx.fillStyle = C.gold;
       ctx.fillText(trName(name), g.x / g.k, Math.max(20, g.top - 22));
     }
+    ctx.restore();
   }
 
   function nodeAt(x, y) {
@@ -1493,7 +1541,7 @@ function openTreeViewer(graph, tree, asc) {
       n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
-      h("ul", { class: "item-lines small" }, n.stats.map((l) => h("li", {}, trMod(l))))].filter(Boolean));
+      stats(n.stats)].filter(Boolean));
     tip.classList.remove("hidden");
     const bw = overlay.clientWidth;
     tip.style.left = `${Math.min(x + 16, bw - 340)}px`;

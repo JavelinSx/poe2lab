@@ -90,6 +90,11 @@ def test_the_tree_to_draw_and_the_ascendancy():
     assert main_taken == graph["points"]
     by_id = {n["id"]: n for n in nodes}
     assert all(other in by_id or True for n in nodes for other in n["links"]) and any(n["links"] for n in nodes)
+    # the game's background art: where PoB keeps each picture (file, layer), placed as PoB draws it
+    art = graph["art"]
+    assert art["version"] and art["tile"]["file"].endswith(".dds.zst") and art["tile"]["layer"] >= 1
+    assert art["center"]["image"]["file"] and art["center"]["ring"] and art["center"]["w"] > 0
+    assert [a["name"] for a in art["asc"]] == ["Titan"] and art["asc"][0]["image"]["layer"] >= 1
     asc = ascendancy(engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))
     assert asc["points"] == 8 and asc["maxPoints"] == 8 and len(asc["taken"]) >= 3
     assert asc["options"] and all(o["path"] and o["id"] == o["path"][-1] or o["id"] in o["path"] for o in asc["options"])
@@ -107,3 +112,5 @@ def test_no_ascendancy_yet_offers_the_class_ones():
     assert all(c["notables"] for c in asc["choices"])
     assert [c["worth"] for c in asc["choices"]] == sorted((c["worth"] for c in asc["choices"]), reverse=True)
     assert {n["asc"] for n in graph["nodes"] if n["asc"]} == {c["name"] for c in asc["choices"]}
+    assert {a["name"] for a in graph["art"]["asc"]} == {c["name"] for c in asc["choices"]}
+    assert engine.info()["ascendancy"] == ""  # not PoB's "None"
