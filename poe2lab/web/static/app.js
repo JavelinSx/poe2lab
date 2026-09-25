@@ -1196,7 +1196,8 @@ TABS.tree = async (view) => {
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
 
   const openTree = h("button", { class: "ghost small", style: "float:right", onclick: async () => {
-    try { openTreeViewer(await treeGraph(), r); } catch (e) { toast(e.message); }
+    openTree.disabled = true;
+    try { openTreeViewer(await treeGraph(), r, await ascData()); } catch (e) { toast(e.message); } finally { openTree.disabled = false; }
   } }, t("psOpenTree"));
   const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth"), openTree),
     h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
@@ -1466,14 +1467,15 @@ TABS.skills = async (view) => {
 const treeGraph = () => cached("tree-graph", () => api(`/api/tree/graph?${buildQuery()}`));
 const treeAnalysis = () => cached(`tree:${state.mode}:6`, () => api(`/api/tree?mode=${state.mode}&points=6&${buildQuery()}`));
 
+const ascData = () => cached(`asc:${state.mode}`, () => api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`));
+
 async function openTreeFor(asc) {
   const [graph, tree] = await Promise.all([treeGraph(), treeAnalysis()]);
   openTreeViewer(graph, tree, asc);
 }
 
 async function renderPassives() {
-  const [asc, tree, graph] = await Promise.all([
-    cached(`asc:${state.mode}`, () => api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`)), treeAnalysis(), treeGraph()]);
+  const [asc, tree, graph] = await Promise.all([ascData(), treeAnalysis(), treeGraph()]);
   // each node with its own picture (the tree graph knows every node's, ascendancy ones included)
   const pics = new Map(graph.nodes.map((n) => [n.id, n.img]));
   const nodeName = (n) => h("span", { class: "named", title: n.name },
@@ -1483,6 +1485,14 @@ async function renderPassives() {
     open.disabled = true;
     try { await openTreeFor(asc); } catch (e) { toast(e.message); } finally { open.disabled = false; }
   } }, t("psOpenTree"));
+  // the best set of notables the points left buy (PoB tried the combinations together)
+  const byNode = new Map(graph.nodes.map((n) => [n.id, n]));
+  const planBox = (plan, left) => (plan ? h("div", { class: "ps-plan" },
+    h("div", {}, h("b", {}, t("psPlanTitle", plan.points, left)), " ", h("span", { class: "muted small" }, t("psPlanWorth", fmt(plan.value, 1), plan.points))),
+    h("div", { class: "ps-plan-nodes" }, plan.ids.map((id, i) => [i ? h("span", { class: "muted" }, " + ") : null,
+      nodeName(byNode.get(id) || { id, name: plan.names[i] })])),
+    deltas(plan.changes, METRIC, 0.3),
+    h("div", { class: "hint" }, t("psPlanHint", plan.path.length))) : null);
 
   // no ascendancy yet: every ascendancy of the class, its notables priced on the build, to choose from
   const choiceMax = Math.max(0.01, ...(asc.choices || []).flatMap((c) => c.notables.map((n) => n.value)));
@@ -1490,6 +1500,7 @@ async function renderPassives() {
     h("div", { class: "sub" }, t("psNoAscSub")),
     asc.choices.map((c) => h("details", { class: "ps-choice", open: c === asc.choices[0] },
       h("summary", {}, h("b", {}, trName(c.name)), " ", h("span", { class: "muted small" }, t("psChoiceWorth", fmt(c.worth, 1)))),
+      planBox(c.plan, asc.maxPoints),
       h("table", { class: "versus-items" }, h("tbody", {}, c.notables.map((n) => h("tr", {},
         h("td", {}, nodeName(n), stats(n.stats), fitChips(n.fit),
           n.value <= 0.05 ? h("div", { class: "hint" }, t("psAscNoValue")) : null),
@@ -1499,6 +1510,7 @@ async function renderPassives() {
   const maxValue = Math.max(0.01, ...asc.options.map((o) => o.value));
   const ascCard = choicesCard || h("div", { class: "card" }, h("h3", {}, t("psAscTitle", trName(asc.ascendancy) || t("psNoAsc"))),
     h("div", { class: "sub" }, t("psAscPoints", asc.points, asc.maxPoints), asc.points >= asc.maxPoints ? " " + t("psAscFull") : ""),
+    planBox(asc.plan, asc.maxPoints - asc.points),
     asc.taken.length ? h("div", { class: "ps-list" }, asc.taken.map((n) => h("div", { class: "ps-node taken" },
       nodeName(n), stats(n.stats)))) : null,
     asc.options.length ? h("div", {}, h("div", { class: "sub", style: "margin-top:12px" }, t("psAscOptions")),
@@ -1539,10 +1551,17 @@ function openTreeViewer(graph, tree, asc) {
   const col = (name, fallback) => (css.getPropertyValue(name) || fallback).trim();
   const C = { gold: col("--gold", "#d6a54f"), good: col("--good", "#5fc98d"), bad: col("--bad", "#e26a5f"),
     line: "rgba(153,161,174,.28)", node: "#2b303a", nodeEdge: "rgba(153,161,174,.55)", bg: col("--bg", "#0f1115") };
-  // the ascendancy's options PoB values count as growth on the ascendancy view
-  const ascBest = ((asc && asc.options) || []).filter((o) => o.value > 0.05);
-  const growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascBest.map((o) => o.id)]);
-  const road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...ascBest.flatMap((o) => o.path || [])]);
+  // the ascendancy: the plan (the best set of notables the points left buy) counts as growth, with its road; the
+  // other notables PoB values are "useful" (pale); with no points left, every option worth something is growth
+  const plans = asc ? [asc.plan, ...(asc.choices || []).map((c) => c.plan)].filter(Boolean) : [];
+  const ascUseful = asc ? [...(asc.options || []), ...(asc.choices || []).flatMap((c) => c.notables)].filter((o) => o.value > 0.05) : [];
+  const planned = new Set(plans.flatMap((p) => p.ids));
+  const ascGrowth = plans.length ? [...planned] : ascUseful.map((o) => o.id);
+  const growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascGrowth]);
+  const road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...plans.flatMap((p) => p.path),
+    ...(plans.length ? [] : ascUseful.flatMap((o) => o.path || []))]);
+  const useful = new Set(ascUseful.map((o) => o.id).filter((id) => !growth.has(id)));
+  const worth = new Map([...(tree.growth || []).map((g) => [g.id, g]), ...ascUseful.map((o) => [o.id, o])]);
   const respec = new Set((tree.respec || []).map((b) => b.id));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const R = { Normal: 22, Notable: 36, Keystone: 52, Socket: 30, ClassStart: 46, AscendClassStart: 46, Mastery: 30 };
@@ -1587,7 +1606,7 @@ function openTreeViewer(graph, tree, asc) {
   const onKey = (e) => { if (e.key === "Escape") close(); };
   overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg,
     h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
-      dot(C.bad, true), t("tvRespec")),
+      useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : null, dot(C.bad, true), t("tvRespec")),
     h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
   document.body.append(overlay);
   document.addEventListener("keydown", onKey);
@@ -1654,7 +1673,8 @@ function openTreeViewer(graph, tree, asc) {
       const x = sx(n), y = sy(n);
       const r = Math.max(n.type === "Normal" ? 1.2 : 2.2, (R[n.type] || 22) * scale);
       if (x < -r || y < -r || x > w + r || y > hgt + r) continue;  // off screen
-      const status = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.6)" : null;
+      const status = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.6)"
+        : useful.has(n.id) ? "rgba(95,201,141,.3)" : null;
       const img = r >= 5 ? picture(n.img) : null;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, 2 * Math.PI);
@@ -1749,13 +1769,15 @@ function openTreeViewer(graph, tree, asc) {
   }
   function showTip(n, x, y) {
     if (!n) { tip.classList.add("hidden"); return; }
-    const tags = [n.alloc ? t("tvAlloc") : null, growth.has(n.id) ? t("tvGrowth") : null, road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null,
+    const tags = [n.alloc ? t("tvAlloc") : null, planned.has(n.id) ? t("tvPlan") : growth.has(n.id) ? t("tvGrowth") : null,
+      road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null, useful.has(n.id) ? t("tvUseful") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
+    const w = worth.get(n.id);
     tip.replaceChildren(...[h("div", { class: "row", style: "gap:8px;align-items:center" },
       n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
-      stats(n.stats)].filter(Boolean));
+      stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null].filter(Boolean));
     tip.classList.remove("hidden");
     const bw = overlay.clientWidth;
     tip.style.left = `${Math.min(x + 16, bw - 340)}px`;

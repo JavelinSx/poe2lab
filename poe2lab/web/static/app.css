@@ -548,3 +548,5 @@ details > summary .ico { margin-left: 2px; }
 .market-group { margin-top: 6px; }
 .market-list { columns: 2; column-gap: 24px; }
 @media (max-width: 900px) { .market-list { columns: 1; } }
+.ps-plan { border: 1px solid rgba(95, 201, 141, .55); background: rgba(95, 201, 141, .07); border-radius: 8px; padding: 8px 10px; margin: 8px 0 12px; }
+.ps-plan-nodes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0; }

@@ -120,4 +120,27 @@ def test_no_ascendancy_yet_offers_the_class_ones():
     assert [c["worth"] for c in asc["choices"]] == sorted((c["worth"] for c in asc["choices"]), reverse=True)
     assert {n["asc"] for n in graph["nodes"] if n["asc"]} == {c["name"] for c in asc["choices"]}
     assert {a["name"] for a in graph["art"]["asc"]} == {c["name"] for c in asc["choices"]}
+    # each ascendancy's worth is the best set of notables its 8 points buy, roads from its start included
+    for c in asc["choices"]:
+        assert all(n["path"] and n["path"][-1] == n["id"] and n["points"] == len(n["path"]) for n in c["notables"])
+        if c["plan"]:
+            assert c["plan"]["points"] <= 8 and c["worth"] == c["plan"]["value"]
+            assert set(c["plan"]["ids"]) <= {n["id"] for n in c["notables"]}
     assert engine.info()["ascendancy"] == ""  # not PoB's "None"
+
+
+def test_the_ascendancy_plan_spends_the_points_left():
+    """A fresh ascendancy (8 points left): the best set of notables PoB finds together, roads shared once - at least
+    as good as the best notable alone. With every point spent there is no plan, only swaps."""
+    from poe2lab.analysis.tree import ASCENDANCY_POINTS, ascendancy
+    engine, bp = open_build(BUILDS / "titan.txt")
+    profile = MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained)
+    assert ascendancy(engine, profile)["plan"] is None  # the Titan's 8 points are all spent
+    engine._json("build.spec:SelectAscendClass(0) build.spec:SelectAscendClass(1) return _poe2lab_json({})")
+    asc = ascendancy(engine, profile)
+    assert asc["ascendancy"] and asc["points"] == 0
+    plan = asc["plan"]
+    assert plan and 0 < plan["points"] <= ASCENDANCY_POINTS and plan["points"] == len(plan["path"])
+    assert set(plan["ids"]) <= {o["id"] for o in asc["options"]} and all(i in plan["path"] for i in plan["ids"])
+    assert plan["value"] >= max(o["value"] for o in asc["options"] if o["points"] <= ASCENDANCY_POINTS) - 1e-6
+

@@ -5,8 +5,10 @@ For a player who does not copy a guide node for node: every notable or keystone 
 whole path PoB would take to it (travel nodes included) and ranked by value per point, with the same weighing as
 the stat ranking (goal mode, weaker damage types count more). Allocated branches are priced by what removing them
 (and everything only reachable through them) would cost - cheap ones are respec candidates."""
+import itertools
 import random
 import re
+from collections import deque
 
 from .fit import build_topics, fit
 from .gradients import metric_changes
@@ -146,6 +148,54 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
 
 
 ASCENDANCY_POINTS = 8  # four trials of ascension, two points each
+PLAN_OPTIONS = 7  # the best notables tried together for the ascendancy plan
+PLAN_NOTABLES = 4  # at most this many in one plan: 8 points buy about four with the small nodes between
+
+
+def _plan(engine, cfg, mode, weights, base, options, budget) -> dict | None:
+    """The best set of notables the points left can buy, by PoB on the build: every combination of the best options
+    whose paths together fit the budget (a node shared by two paths paid once), priced together."""
+    if budget <= 0:
+        return None
+    top = [o for o in options if o["value"] > 0.05][:PLAN_OPTIONS]
+    best = None
+    for k in range(1, min(PLAN_NOTABLES, len(top)) + 1):
+        for combo in itertools.combinations(top, k):
+            nodes = list(dict.fromkeys(nid for o in combo for nid in o["path"]))
+            if len(nodes) > budget:
+                continue
+            changes = metric_changes(engine.what_if(config=cfg, add_nodes=nodes), base)
+            value = _value(changes, mode, weights)
+            if best is None or value > best["value"] + 1e-6 or (abs(value - best["value"]) <= 1e-6
+                                                                and len(nodes) < best["points"]):
+                best = {"ids": [o["id"] for o in combo], "names": [o["name"] for o in combo], "path": nodes,
+                        "points": len(nodes), "value": value, "changes": changes}
+    return best
+
+
+def _paths_from_start(graph: dict, ascendancy: str) -> dict[int, list[int]]:
+    """Inside one ascendancy (chosen or not - PoB paths only through the chosen one): the nodes from its start to
+    every node, the start itself left out (it is free)."""
+    nodes = {n["id"]: n for n in graph["nodes"] if n["asc"] == ascendancy}
+    start = next((i for i, n in nodes.items() if n["type"] == "AscendClassStart"), None)
+    if start is None:
+        return {}
+    came = {start: None}
+    queue = deque([start])
+    while queue:
+        cur = queue.popleft()
+        for nxt in nodes[cur]["links"]:
+            if nxt in nodes and nxt not in came:
+                came[nxt] = cur
+                queue.append(nxt)
+    out = {}
+    for nid in came:
+        path, cur = [], nid
+        while cur is not None and cur != start:
+            path.append(cur)
+            cur = came[cur]
+        out[nid] = path[::-1]
+    return out
 
 
 def ascendancy(engine, profile: MapProfile, mode: str = "balanced") -> dict:
@@ -169,21 +219,27 @@ def ascendancy(engine, profile: MapProfile, mode: str = "balanced") -> dict:
     options.sort(key=lambda o: -o["value"])
     taken = [{"id": n["id"], "name": n["name"], "stats": n["stats"]} for n in graph["nodes"]
              if n["asc"] and n["alloc"] and n["type"] == "Notable"]
-    choices = [] if graph["ascendancy"] else _choices(engine, cfg, mode, weights, base, have)
+    choices = [] if graph["ascendancy"] else _choices(engine, cfg, mode, weights, base, have, graph)
+    plan = _plan(engine, cfg, mode, weights, base, options, ASCENDANCY_POINTS - graph["ascendancyPoints"]) \
+        if graph["ascendancy"] else None
     return {"ascendancy": graph["ascendancy"], "class": graph["class"], "points": graph["ascendancyPoints"],
-            "maxPoints": ASCENDANCY_POINTS, "taken": taken, "options": options, "choices": choices}
+            "maxPoints": ASCENDANCY_POINTS, "taken": taken, "options": options, "plan": plan, "choices": choices}
 
 
-def _choices(engine, cfg, mode, weights, base, have) -> list[dict]:
-    """No ascendancy yet: every ascendancy of the class, each notable priced by PoB on the build on its own, and
-    the ascendancy's rough worth - its four best notables (8 points buy about four with the small nodes between)."""
+def _choices(engine, cfg, mode, weights, base, have, graph) -> list[dict]:
+    """No ascendancy yet: every ascendancy of the class, each notable priced by PoB on the build with the road to
+    it from the ascendancy's start, and the best set of notables its 8 points buy - its worth for the build."""
     out = []
     for a in engine.class_ascendancies():
+        paths = _paths_from_start(graph, a["name"])
         notables = []
         for n in a["notables"]:
-            changes = metric_changes(engine.what_if(config=cfg, add_nodes=[n["id"]]), base)
-            notables.append({**n, "changes": changes, "value": _value(changes, mode, weights), "fit": fit(n["stats"], have)})
+            path = paths.get(n["id"]) or [n["id"]]
+            changes = metric_changes(engine.what_if(config=cfg, add_nodes=path), base)
+            notables.append({**n, "path": path, "points": len(path), "changes": changes,
+                             "value": _value(changes, mode, weights), "fit": fit(n["stats"], have)})
         notables.sort(key=lambda n: -n["value"])
-        out.append({"name": a["name"], "notables": notables,
-                    "worth": sum(max(0.0, n["value"]) for n in notables[:4])})
+        plan = _plan(engine, cfg, mode, weights, base, notables, ASCENDANCY_POINTS)
+        out.append({"name": a["name"], "notables": notables, "plan": plan,
+                    "worth": plan["value"] if plan else 0.0})
     return sorted(out, key=lambda a: -a["worth"])
