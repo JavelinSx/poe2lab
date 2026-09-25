@@ -87,6 +87,7 @@ class LuaHost:
         lua.lua_tolstring.restype = ctypes.c_void_p
         lua.lua_settop.argtypes = [ctypes.c_void_p, ctypes.c_int]
         lua.lua_gettop.argtypes = [ctypes.c_void_p]
+        lua.lua_close.argtypes = [ctypes.c_void_p]
         self._lua = lua
         self._L = lua.luaL_newstate()
         lua.luaL_openlibs(self._L)
@@ -112,8 +113,23 @@ class LuaHost:
         ptr = self._lua.lua_tolstring(self._L, -1, ctypes.byref(size))
         return None if not ptr else ctypes.string_at(ptr, size.value).decode("utf-8", "replace")
 
+    def close(self):
+        """Free the Lua state and everything PoB holds in it (a loaded PoB is hundreds of MB)."""
+        if self._L:
+            self._lua.lua_close(self._L)
+            self._L = None
+
+    def __del__(self):
+        # the last reference is gone (a build replaced by another one): give the memory back
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def run(self, code: str):
         """Execute a chunk and return its first result passed through tostring (None if nil)."""
+        if not self._L:
+            raise LuaError("the Lua state is closed")
         base = self._lua.lua_gettop(self._L)
         wrapped = f"return (function(...)\n{code}\nend)()"
         rc = self._lua.luaL_loadstring(self._L, wrapped.encode("utf-8"))

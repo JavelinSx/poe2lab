@@ -116,3 +116,15 @@ def test_pool_matches_single_engine(engine):
     with EnginePool(BUILD, workers=2) as pool:
         got = [r["CombinedDPS"] for r in pool.map("what_if", [{"remove_nodes": [n]} for n in nodes])]
     assert got == pytest.approx(expected)
+
+
+def test_a_dropped_engine_gives_its_memory_back():
+    """Every opened build is a whole PoB in its own Lua state: closing it (or dropping the last reference) frees it,
+    and a closed state refuses work instead of crashing."""
+    from poe2lab.engine.luahost import LuaError, LuaHost
+    host = LuaHost()
+    assert host.run("return 1 + 1") == "2"
+    host.close()
+    with pytest.raises(LuaError):
+        host.run("return 1")
+    host.close()  # twice is harmless
