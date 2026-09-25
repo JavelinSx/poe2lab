@@ -532,3 +532,14 @@ details > summary .ico { margin-left: 2px; }
 .trade-price { display: inline-flex; align-items: center; gap: 5px; }
 .trade-item-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 6px; }
 .ggg-notice { font-size: 11px; line-height: 1.35; color: var(--muted); opacity: .75; }
+.welcome { max-width: 760px; margin: 48px auto; }
+.welcome h2 { margin-bottom: 6px; }
+.welcome-steps { margin: 16px 0 20px; padding-left: 22px; }
+.welcome-steps li { margin-bottom: 8px; }
+.welcome-tabs { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.welcome-tabs dt { color: var(--gold); font-weight: 600; }
+.welcome-tabs dd { margin: 0; color: var(--muted); }
+.start-card { border-color: rgba(214, 165, 79, .45); }
+.start-steps { margin: 6px 0 0; padding-left: 22px; }
+.start-steps li { margin-bottom: 10px; }
+@media (max-width: 640px) { .welcome-tabs { grid-template-columns: 1fr; } .welcome-tabs dd { margin-bottom: 6px; } }

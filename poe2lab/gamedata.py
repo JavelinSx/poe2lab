@@ -273,6 +273,10 @@ def _parse_limit(token: str):
     return [num(lo), num(hi)]
 
 
+# Slips in the game's own translations, put right wherever its texts are shown (English left in the Russian text).
+TRANSLATION_FIXES = {"ru": [("in your присутствии", "в вашем присутствии")]}
+
+
 def parse_csd(text: str, lang: str) -> dict:
     """A .csd file in PoB's Data/StatDescriptions layout, texts taken from `lang` (English where it has none)."""
     want = LANG_NAMES[lang]
@@ -322,7 +326,11 @@ def parse_csd(text: str, lang: str) -> dict:
         if not m:
             continue
         limits, quality, body, special = m.groups()
-        desc = {"text": _unescape(body).replace("\\n", "\n"), "limit": [_parse_limit(t) for t in limits.split()]}
+        text = _unescape(body).replace("\\n", "\n")
+        if block == "want":
+            for wrong, right in TRANSLATION_FIXES.get(lang, ()):
+                text = text.replace(wrong, right)
+        desc = {"text": text, "limit": [_parse_limit(t) for t in limits.split()]}
         tokens = special.split()
         specs, i = [], 0
         while i < len(tokens):
@@ -417,11 +425,28 @@ def _hashed(text: str) -> str:
     return _NUMBER.sub("#", _PLACEHOLDER.sub("#", text))
 
 
+def _template(en_text: str, tr_text: str) -> str | None:
+    """The translation as a template for a line printed from the English text: '#' for its numbers when they come
+    in the same order; otherwise '#{i}' for the English line's i-th number, so the translation may reorder them,
+    leave one out ("200% of Armour" -> "удвоенной броней") or keep a fixed number of its own. None when it prints
+    a value the English line does not have."""
+    en, tr = _tokens(en_text), _tokens(tr_text)
+    if en == tr:
+        return _hashed(tr_text)
+    out, pos = [], 0
+    for m, tok in zip(re.finditer(rf"{_PLACEHOLDER.pattern}|{_NUMBER.pattern}", tr_text), tr):
+        where = next((i for i, t in enumerate(en) if t == tok), None)
+        if where is None and tok[0] == "p":
+            return None
+        out += [tr_text[pos:m.start()], m.group(0) if where is None else f"#{{{where}}}"]
+        pos = m.end()
+    return "".join(out) + tr_text[pos:]
+
+
 def build_templates(lang: str = "ru") -> dict[str, str]:
     """Line templates from the game's own descriptions, in the trade-template form the UI already uses
-    ({stat_key(English): translated with '#'}). Kept only where the translation has the same numbers in the same
-    order, so filling a printed line's numbers in order is exact; that covers "reduced" wordings the trade data
-    lacks and lines PoB cannot parse."""
+    ({stat_key(English): translated with '#', or '#{i}' where the translation orders the numbers its own way}): that
+    covers "reduced" wordings the trade data lacks and lines PoB cannot parse."""
     from .i18n import stat_key  # i18n imports this module; import here to keep the dependency one-way at load
     out: dict[str, str] = {}
     for csd in sorted((RAW / "data" / "statdescriptions").rglob("*.csd")):
@@ -439,8 +464,9 @@ def build_templates(lang: str = "ru") -> dict[str, str]:
                 if len(en_lines) > 1 and len(en_lines) == len(tr_lines):
                     pairs += list(zip(en_lines, tr_lines))
                 for en_text, tr_text in pairs:
-                    if _tokens(en_text) == _tokens(tr_text):
-                        out.setdefault(stat_key(_hashed(en_text)), _hashed(tr_text))
+                    template = _template(en_text, tr_text)
+                    if template:
+                        out.setdefault(stat_key(_hashed(en_text)), template)
     return out
 
 
@@ -498,6 +524,7 @@ def build(lang: str = "ru", game: Path | None = None) -> dict:
     templates = build_templates(lang)
     templates_path(lang).write_text(json.dumps(templates, ensure_ascii=False, indent=0, sort_keys=True),
                                     encoding="utf-8")
+    (GAME_CACHE / lang / "derived.ok").write_text(str(DERIVED_VERSION), encoding="utf-8")
     keywords = build_keywords(lang)
     keywords_path(lang).write_text(json.dumps(keywords, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
     from . import icons  # icons read this module's tables; imported here to keep the dependency one-way
@@ -516,6 +543,24 @@ def load_names(lang: str) -> dict[str, str]:
 
 def available(lang: str) -> bool:
     return (statdesc_dir(lang) / "stat_descriptions.lua").is_file()
+
+
+DERIVED_VERSION = 2  # what is built from the unpacked files changed: rebuild it (no new unpack needed)
+
+
+def refresh_derived(lang: str) -> bool:
+    """Rebuild the stat descriptions and templates from the unpacked game files when they were made by an older
+    poe2lab (a few seconds); True if it did."""
+    marker = GAME_CACHE / lang / "derived.ok"
+    if not (RAW / "data" / "statdescriptions").is_dir() or not available(lang):
+        return False
+    if marker.is_file() and marker.read_text(encoding="utf-8").strip() == str(DERIVED_VERSION):
+        return False
+    build_statdesc(lang)
+    templates_path(lang).write_text(json.dumps(build_templates(lang), ensure_ascii=False, indent=0, sort_keys=True),
+                                    encoding="utf-8")
+    marker.write_text(str(DERIVED_VERSION), encoding="utf-8")
+    return True
 
 
 def stale(lang: str, game: Path | None = None) -> bool:

@@ -34,6 +34,11 @@ TYPE_RU = {
 }
 
 
+def _words(skill_type: str) -> str:
+    """"MeleeSingleTarget" -> "melee single target": a skill type as the English view shows it."""
+    return re.sub(r"(?<!^)(?=[A-Z])", " ", skill_type).lower()
+
+
 def _inflict(forms: str) -> str:
     """"inflicts Freeze", "chance to Shock", "Shocks enemies": creating an ailment (a gem that merely mentions it,
     like "Ignite applied to you" or "culling a Shocked enemy", does not)."""
@@ -288,7 +293,8 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             "lines": list(dict.fromkeys(l for st in s["statSets"] for l in st["lines"])),
             "linesLocal": list(dict.fromkeys(l for st in s["statSets"] for l in st.get("linesLocal", []))),
             "unseen": [u.get("textLocal") or u.get("text") or [u["stat"]] for st in s["statSets"]
-                       for u in st["unmapped"] if u["value"]]}
+                       for u in st["unmapped"] if u["value"]],
+            "unseenEn": [u.get("text") or [u["stat"]] for st in s["statSets"] for u in st["unmapped"] if u["value"]]}
     for g in groups:
         measure = _measure_group(engine, config, g)
         g["measured"] = "own" if measure else "main"
@@ -297,8 +303,10 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             gem["mechanics"] = mechanics_of(gem)
             gem["available"] = available_level(gem)
             gem["because"] = sorted({TYPE_RU.get(t, t) for f in gem["fits"] for t in f["because"]})
-            gem.update(local.get((g["index"], gem["name"]), {"lines": [], "linesLocal": [], "unseen": []}))
-            gem["unseen"] = [" / ".join(u) if isinstance(u, list) else u for u in gem["unseen"]][:4]
+            gem["becauseEn"] = sorted({_words(t) for f in gem["fits"] for t in f["because"]})
+            gem.update(local.get((g["index"], gem["name"]), {"lines": [], "linesLocal": [], "unseen": [], "unseenEn": []}))
+            for key in ("unseen", "unseenEn"):
+                gem[key] = [" / ".join(u) if isinstance(u, list) else u for u in gem[key]][:4]
             gem["terms"] = kw.find([gem["description"], *gem["lines"]])
             if gem["support"] and gem["enabled"] and g["enabled"]:
                 without = engine.what_if(config=config, disable_gems=[(g["index"], gem["index"])],
@@ -376,7 +384,8 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None) -> dic
             options = options[:OPTIONS]
             stages.append({"level": level, "build": have, "later": later,
                            "options": [{"name": c["name"], "dps": c["dps"], "tier": c["tier"], "color": c["color"],
-                                        "because": sorted({TYPE_RU.get(t, t) for t in c["because"]})}
+                                        "because": sorted({TYPE_RU.get(t, t) for t in c["because"]}),
+                                        "becauseEn": sorted({_words(t) for t in c["because"]})}
                                        for c in options]})
         # collapse stages that change nothing
         compact = [s for i, s in enumerate(stages) if i == 0 or (s["build"], [o["name"] for o in s["options"]]) !=

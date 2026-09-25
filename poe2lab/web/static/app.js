@@ -81,7 +81,7 @@ const METRIC = [["dps", "m_dps"], ["ehp", "m_ehp"], ["phys_hit", "m_phys"], ["fi
 
 function deltas(changes, keys = METRIC, min = 0.3) {
   const items = keys.filter(([k]) => Math.abs(changes[k] || 0) >= min)
-    .map(([k, label]) => h("span", { class: "delta " + (changes[k] > 0 ? "pos" : "neg") }, `${t(label)} ${pct(changes[k])}`));
+    .map(([k, label]) => h("span", { class: "delta " + (changes[k] > 0 ? "pos" : "neg"), title: t("mh_" + k) }, `${t(label)} ${pct(changes[k])}`));
   return h("div", { class: "deltas" }, items.length ? items : h("span", { class: "muted small" }, t("noEffect")));
 }
 
@@ -114,6 +114,7 @@ function applyStaticTexts() {
     el.onclick = () => toast(el.title, true);  // a hover tooltip is easy to miss: a click shows it too
   });
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === LANG));
+  document.querySelectorAll("#tabs button[data-tab]").forEach((b) => { b.title = t("tabHint_" + b.dataset.tab); });
   for (const id of ["foldAll", "unfoldAll"]) {  // icon buttons: the words are their tooltip
     const el = $("#" + id.replace(/[A-Z]/, (c) => "-" + c.toLowerCase()));
     el.title = t(id);
@@ -135,8 +136,16 @@ $("#lang").addEventListener("click", async (e) => {
   if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
+const TAB_ORDER = ["overview", "damage", "skills", "gear", "compare", "tree", "loot", "mechanics", "profile", "assistant"];
+
 function renderEmpty() {
-  $("#view").replaceChildren(h("div", { class: "empty" }, h("h2", {}, t("pickBuild")), h("p", { class: "muted" }, t("pickBuildHint"))));
+  $("#view").replaceChildren(h("div", { class: "welcome" },
+    h("h2", {}, t("welcomeTitle")), h("p", { class: "muted" }, t("welcomeSub")),
+    h("ol", { class: "welcome-steps" }, [1, 2, 3].map((n) => h("li", {}, t("welcomeStep" + n)))),
+    h("div", { class: "card" }, h("h3", {}, t("welcomeWhere")),
+      h("dl", { class: "welcome-tabs" }, TAB_ORDER.flatMap((tab) => [h("dt", {}, t("tab_" + tab)), h("dd", {}, t("tabHint_" + tab))]))),
+    h("p", { class: "muted small" }, t("welcomeGlossary"), " ",
+      h("button", { class: "link small", onclick: () => $("#glossary-open").click() }, t("glOpen")))));
 }
 
 // ---------- sidebar ----------
@@ -577,7 +586,8 @@ TABS.overview = async (view) => {
   const issues = h("div", { class: "card" }, h("h3", {}, t("issuesTitle")), h("div", { class: "sub" }, t("issuesSub")),
     h("div", { class: "issues" }, [...r.gates].sort((a, c) => order[a.level] - order[c.level]).map((g) =>
       h("div", { class: "issue" }, h("div", {}, chip(g.level, t("lvl_" + g.level))),
-        h("div", {}, h("div", { class: "t" }, trFree(g.title)), h("div", { class: "d" }, trFree(g.detail)))))));
+        h("div", {}, h("div", { class: "t" }, LANG === "en" && g.title_en ? g.title_en : trFree(g.title)),
+          h("div", { class: "d" }, LANG === "en" && g.detail_en ? g.detail_en : trFree(g.detail)))))));
 
   for (const list of Object.values(r.attributes.supportsAtRisk || {})) {
     issues.append(h("div", { class: "sub", style: "margin-top:12px" }, t("supportsAtRisk")),
@@ -590,8 +600,32 @@ TABS.overview = async (view) => {
       h("div", { class: "what mod" }, trMod(s.mod)),
       deltas({ dps: s.dps, phys_hit: s.defence.Physical, chaos_hit: s.defence.Chaos, recovery: s.recovery }))))));
 
-  return h("div", { class: "stack" }, kpi, h("div", { class: "grid two" }, hitCard, issues), path);
+  return h("div", { class: "stack" }, startCard(r), kpi, h("div", { class: "grid two" }, hitCard, issues), path);
 };
+
+// The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
+// with the tab where it is dealt with.
+const GATE_TAB = [[/резист/i, "gear"], [/не хватает (силы|ловкости|интеллекта)|на грани|держатся требования/i, "tree"],
+  [/spirit|маны/i, "gear"], [/слабость/i, "gear"], [/регенерации|жизнь в бою|похищение|энергощите/i, "gear"],
+  [/попадания/i, "gear"]];
+function startCard(r) {
+  const gateText = (g) => LANG === "en" && g.title_en ? g.title_en : trFree(g.title);
+  const detailText = (g) => LANG === "en" && g.detail_en ? g.detail_en : trFree(g.detail);
+  const go = (tab) => (tab ? h("button", { class: "link small", onclick: () => switchTab(tab) }, t("startGo", t("tab_" + tab))) : null);
+  const tabOf = (g) => (GATE_TAB.find(([re]) => re.test(g.title)) || [null, null])[1];
+  const must = r.gates.find((g) => g.level === "must");
+  const weak = r.gates.find((g) => g.level === "priority");
+  const next = r.path[0];
+  const steps = [];
+  if (must) steps.push([t("startFix"), gateText(must), detailText(must), go(tabOf(must))]);
+  if (weak) steps.push([t("startWeak"), gateText(weak), detailText(weak), go(tabOf(weak))]);
+  if (next) steps.push([t("startMod"), trMod(next.mod), t("startModHint"), go("gear")]);
+  return h("div", { class: "card start-card" }, h("h3", {}, t("startTitle")),
+    h("div", { class: "sub" }, must ? t("startSub") : t("startOk")),
+    h("ol", { class: "start-steps" }, steps.map(([label, what, why, link]) => h("li", {},
+      h("div", {}, h("span", { class: "muted small" }, label, ": "), h("b", {}, what)),
+      h("div", { class: "small muted" }, why, " ", link)))));
+}
 
 // ---------- damage ----------
 TABS.damage = async (view) => {
@@ -1680,6 +1714,11 @@ const gemName = (name) => h("span", { class: "named", title: name }, icon(name),
 // the game's own description in the player's language (from the installed game), English otherwise
 const gameText = (text) => (LANG === "en" ? text : GAME.names[text] || null);
 const MECH_NAMES = {};
+// the mechanics' names in the English view (the server names them as the Russian client does)
+const MECH_EN = { impale: "Impale", ice_crystal: "Ice Crystal", freeze: "Freeze", shock: "Shock", ignite: "Ignite",
+  bleed: "Bleeding", poison: "Poison", frenzy: "Frenzy Charges", power: "Power Charges", endurance: "Endurance Charges",
+  rage: "Rage", infusion: "Infusion", armour_break: "Armour Break", glory: "Glory", combo: "Combo",
+  heavy_stun: "Heavy Stun", shapeshift: "Shapeshift" };
 
 // The game's own explanations of its terms (its hover popups), in the player's language when unpacked.
 let TERMS = {};
@@ -1739,7 +1778,7 @@ function mechChips(gem) {
 }
 
 function renderSkillsBuild(r) {
-  for (const [k, m] of Object.entries(r.mechanics || {})) MECH_NAMES[k] = m.name;
+  for (const [k, m] of Object.entries(r.mechanics || {})) MECH_NAMES[k] = LANG === "en" ? MECH_EN[k] || m.name : m.name;
   TERMS = r.terms || {};
   const ref = (x) => (x.item ? h("span", { class: "named", title: x.gem }, `${trItem(x.gem.split(",")[0])} (${slotName(x.skill)})`)
     : h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, ` → ${trName(x.skill)}`) : null));
@@ -1752,7 +1791,7 @@ function renderSkillsBuild(r) {
   };
   const links = h("div", { class: "card" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSub")),
     r.links.length ? r.links.map((l) => h("div", { class: "sk-link" + (l.missing ? " missing" : "") },
-      h("div", {}, h("b", {}, l.name), l.missing ? h("span", { class: "chip must", style: "margin-left:8px" }, t("skMissing")) : null),
+      h("div", {}, h("b", {}, MECH_NAMES[l.key] || l.name), l.missing ? h("span", { class: "chip must", style: "margin-left:8px" }, t("skMissing")) : null),
       explain(l),
       l.creates.length ? h("div", { class: "small" }, h("span", { class: "muted" }, t("skCreatedBy")), " ", l.creates.map((x, i) => [i ? ", " : "", ref(x)])) : null,
       h("div", { class: "small" }, h("span", { class: "muted" }, t("skUsedBy")), " ", l.uses.map((x, i) => [i ? ", " : "", ref(x)]))))
@@ -1768,11 +1807,11 @@ function renderSkillsBuild(r) {
     const worth = gem.worth ? deltas(gem.worth, METRIC, 0.5) : null;
     return h("div", { class: "sk-support" + (gem.enabled ? "" : " off") },
       h("div", { class: "row" }, gemName(gem.name), gem.enabled ? null : chip("warn", t("skDisabled")),
-        gem.because.length ? h("span", { class: "muted small" }, t("skFits", gem.because.join(", "))) : null),
+        gem.because.length ? h("span", { class: "muted small" }, t("skFits", (LANG === "en" && gem.becauseEn ? gem.becauseEn : gem.because).join(", "))) : null),
       lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 5).map((l) => h("li", {}, l))) : (desc ? h("div", { class: "small" }, desc) : null),
       worth ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : "skWorthMain")), " ", worth) : null,
       // raw stat ids ("support_momentum_...") mean nothing to a player; the English view keeps them
-      (() => { const shown = gem.unseen.filter((u) => LANG === "en" || !/^[a-z0-9_%+]+$/.test(u));
+      (() => { const shown = (LANG === "en" && gem.unseenEn ? gem.unseenEn : gem.unseen).filter((u) => LANG === "en" || !/^[A-Za-z0-9%+]+(_[A-Za-z0-9%+]+)+$/.test(u));
         return shown.length ? h("div", { class: "hint" }, t("skUnseen"), " ", shown.join("; ")) : null; })(),
       mechChips(gem), termChips(gem.terms));
   };
@@ -1813,7 +1852,7 @@ function renderSkillsBuild(r) {
 const DMG_RU = { cold: "холод", fire: "огонь", lightning: "молния", chaos: "хаос", physical: "физический" };
 function renderUniqueLinks(r) {
   TERMS = r.terms || {};
-  const mech = (k) => r.mechanics[k] || k;
+  const mech = (k) => (LANG === "en" && MECH_EN[k]) || r.mechanics[k] || k;
   const skills = (list) => list.map((n, i) => [i ? ", " : "", gemName(n)]);
   const reason = (x) => {
     if (x.kind === "uses") return [t("unUses", mech(x.mechanic)), " ", skills(x.skills)];
@@ -2205,7 +2244,7 @@ $("#glossary-open").addEventListener("click", renderGlossary);
 // ---------- assistant ----------
 function aiSettingsCard(settings, onSaved) {
   let current = settings.providers.find((p) => p.id === settings.provider) || settings.providers[0];
-  const provSel = h("select", {}, settings.providers.map((p) => h("option", { value: p.id }, p.name)));
+  const provSel = h("select", {}, settings.providers.map((p) => h("option", { value: p.id }, trFree(p.name))));
   provSel.value = current.id;
   const modelInput = h("input", { type: "text", list: "ai-models", placeholder: t("modelPh"), style: "width:100%" });
   const modelList = h("datalist", { id: "ai-models" });
@@ -2227,7 +2266,7 @@ function aiSettingsCard(settings, onSaved) {
     keyField.classList.toggle("hidden", !current.needsKey);
     keyInput.value = "";
     keyInput.placeholder = current.keyHint ? t("keySaved", current.keyHint) : t("keyPh");
-    note.textContent = current.note || "";
+    note.textContent = trFree(current.note || "");
     modelList.replaceChildren();
     modelsInfo.textContent = "";
   };

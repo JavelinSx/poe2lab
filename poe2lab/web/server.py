@@ -210,6 +210,8 @@ def _game_texts(lang: str) -> Path | None:
                 gamedata.build(lang)
             elif can_unpack and not icons.INDEX.is_file():  # texts unpacked before icons existed
                 icons.build()
+            if gamedata.refresh_derived(lang):
+                _dictionaries.pop(lang, None)
         except (gamedata.GameDataError, OSError) as err:
             gamedata.last_error = str(err)
             return None

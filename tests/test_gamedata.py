@@ -96,3 +96,24 @@ def test_chosen_game_folder_is_checked_and_remembered(tmp_path, monkeypatch):
     assert gamedata.find_game() == (game, "settings")
     st = gamedata.status("ru")
     assert st["game"] == str(game) and st["gameSource"] == "settings"
+
+
+def test_templates_follow_the_translation_s_own_order_of_numbers():
+    """The Russian text may reorder the numbers, leave a fixed one out ("200% of Armour" -> "удвоенной броней") or
+    keep its own: '#{i}' names the English line's i-th number."""
+    from poe2lab.i18n import fill
+    same = gamedata._template("{0}% increased Damage", "{0}% увеличение урона")
+    assert same == "#% увеличение урона"
+    left_out = gamedata._template("{0}% chance to Defend with 200% of Armour", "{0}% шанс на защиту с удвоенной броней")
+    assert left_out == "#{0}% шанс на защиту с удвоенной броней"
+    assert fill(left_out, "10% chance to Defend with 200% of Armour") == "10% шанс на защиту с удвоенной броней"
+    swapped = gamedata._template("{0} to {1} Fire Damage for {2} seconds", "На {2} с: от {0} до {1} урона от огня")
+    assert fill(swapped, "3 to 7 Fire Damage for 4 seconds") == "На 4 с: от 3 до 7 урона от огня"
+    assert gamedata._template("{0}% of Damage", "{0}% урона за {1} с") is None  # a value the line does not print
+
+
+def test_slips_in_the_game_s_translation_are_put_right():
+    text = ('description\n1 some_stat\n1\n# "you and Allies in your Presence gain {0}"\nlang "Russian"\n1\n'
+            '# "вы и союзники in your присутствии получают {0}"\n')
+    parsed = gamedata.parse_csd(text, "ru")
+    assert parsed["entries"][0]["want"][0]["text"] == "вы и союзники в вашем присутствии получают {0}"

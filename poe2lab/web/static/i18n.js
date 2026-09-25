@@ -430,6 +430,39 @@ const I18N = {
     tab_overview: "Обзор", tab_damage: "Урон", tab_gear: "Снаряжение", tab_compare: "Сравнение",
     tab_mechanics: "Механики", tab_profile: "Профиль", tab_assistant: "Ассистент",
     pickBuild: "Выберите билд слева",
+    mh_dps: "урон в секунду выбранного скилла",
+    mh_ehp: "сколько урона выдержишь всего: здоровье и энергощит с учётом брони, уклонения и сопротивлений",
+    mh_phys_hit: "самый сильный физический удар, который переживёшь",
+    mh_fire_hit: "самый сильный удар огнём, который переживёшь",
+    mh_cold_hit: "самый сильный удар холодом, который переживёшь",
+    mh_lightning_hit: "самый сильный удар молнией, который переживёшь",
+    mh_chaos_hit: "самый сильный удар хаосом, который переживёшь",
+    mh_recovery: "сколько здоровья (или щита) возвращается за секунду",
+    tabHint_overview: "Что сломано, где слабые места и какой мод даст больше всего",
+    tabHint_damage: "Из чего складывается урон и что его поднимет",
+    tabHint_skills: "Камни и поддержки, прокачка по уровням, уники, пассивки и возвышение",
+    tabHint_gear: "Что на каждой вещи держит билд, что улучшить, как скрафтить и где купить замену",
+    tabHint_compare: "Вставь вещь из игры (Ctrl+Alt+C) — насколько она лучше надетой",
+    tabHint_tree: "Куда расти по дереву и что можно перераспределить; схема дерева",
+    tabHint_loot: "Лут-фильтр под билд поверх твоего фильтра",
+    tabHint_mechanics: "Что в твоём билде PoB не считает",
+    tabHint_profile: "Факты о билде, которых нет в PoB: свирепость, аптайм, поправки",
+    tabHint_assistant: "Спросить ИИ-ассистента про билд",
+    welcomeTitle: "poe2lab — разбор билда Path of Exile 2",
+    welcomeSub: "Берёт твой билд из Path of Building и считает, что в нём сломано, где слабые места и что улучшить в первую очередь — в процентах урона и защиты.",
+    welcomeStep1: "Нажми «+ добавить билд» слева и вставь PoB-код или ссылку pobb.in (в PoB: Import/Export Build → Generate → Copy). Билды, сохранённые в самом PoB, появятся в списке сами.",
+    welcomeStep2: "Вверху выбери скилл, урон которого считать, и что важнее в советах: урон, баланс или защита.",
+    welcomeStep3: "Начни с «Обзора»: там карточка «С чего начать» — первые шаги по важности.",
+    welcomeWhere: "Что где",
+    welcomeGlossary: "Непонятное слово — загляни в словарь новичка:",
+    startTitle: "С чего начать",
+    startSub: "Первые шаги по важности: сначала то, что сломано в игре, потом главная слабость, потом самый выгодный мод.",
+    startOk: "Сломанного в игре нет — можно сразу усиливаться.",
+    startFix: "Сначала почини",
+    startWeak: "Главная слабость",
+    startMod: "Самый выгодный следующий мод",
+    startModHint: "ищи его на вещах: крафт или «Найти лучше на рынке» в карточке слота.",
+    startGo: (tab) => `открыть «${tab}» →`,
     pickBuildHint: "Нажмите «+ добавить билд» слева и вставьте PoB-код или ссылку pobb.in. Билды, сохранённые в самом Path of Building, появляются в списке сами.",
     opening: "Открываю билд в Path of Building…", openFailed: "Не удалось открыть билд", error: "Ошибка",
     level: (n) => `${n} уровень`,
@@ -943,6 +976,39 @@ const I18N = {
     tab_overview: "Overview", tab_damage: "Damage", tab_gear: "Gear", tab_compare: "Compare",
     tab_mechanics: "Mechanics", tab_profile: "Profile", tab_assistant: "Assistant",
     pickBuild: "Pick a build on the left",
+    mh_dps: "damage per second of the chosen skill",
+    mh_ehp: "how much damage you can take in all: life and energy shield with armour, evasion and resistances",
+    mh_phys_hit: "the biggest physical hit you survive",
+    mh_fire_hit: "the biggest fire hit you survive",
+    mh_cold_hit: "the biggest cold hit you survive",
+    mh_lightning_hit: "the biggest lightning hit you survive",
+    mh_chaos_hit: "the biggest chaos hit you survive",
+    mh_recovery: "how much life (or shield) comes back per second",
+    tabHint_overview: "What is broken, where the build is weak and which mod gives the most",
+    tabHint_damage: "What the damage is made of and what raises it",
+    tabHint_skills: "Gems and supports, levelling, uniques, passives and the ascendancy",
+    tabHint_gear: "What each item holds up, what to improve, how to craft and where to buy a replacement",
+    tabHint_compare: "Paste an item from the game (Ctrl+Alt+C): how much better it is than the one you wear",
+    tabHint_tree: "Where to grow in the tree and what to respec; the tree itself",
+    tabHint_loot: "A loot filter for the build on top of your own",
+    tabHint_mechanics: "What PoB does not count in your build",
+    tabHint_profile: "Facts about the build PoB does not have: Rage, uptimes, corrections",
+    tabHint_assistant: "Ask the AI assistant about the build",
+    welcomeTitle: "poe2lab: a Path of Exile 2 build, taken apart",
+    welcomeSub: "It takes your build from Path of Building and works out what is broken, where it is weak and what to improve first, in per cent of damage and defence.",
+    welcomeStep1: "Press “+ add build” on the left and paste a PoB code or a pobb.in link (in PoB: Import/Export Build → Generate → Copy). Builds saved in PoB itself show up on their own.",
+    welcomeStep2: "At the top, pick the skill whose damage to count and what the advice favours: damage, balance or defence.",
+    welcomeStep3: "Start with the Overview: its “Where to start” card lists the first steps by importance.",
+    welcomeWhere: "What is where",
+    welcomeGlossary: "A word you do not know: see the beginner's glossary:",
+    startTitle: "Where to start",
+    startSub: "The first steps by importance: what is broken in game first, then the biggest weakness, then the most rewarding mod.",
+    startOk: "Nothing is broken in game: you can go straight to getting stronger.",
+    startFix: "Fix first",
+    startWeak: "The biggest weakness",
+    startMod: "The most rewarding next mod",
+    startModHint: "look for it on items: craft it or use “Find a better one on trade” in the slot's card.",
+    startGo: (tab) => `open ${tab} →`,
     pickBuildHint: "Press “+ add build” on the left and paste a PoB code or a pobb.in link. Builds saved in Path of Building itself appear in the list on their own.",
     opening: "Opening the build in Path of Building…", openFailed: "Could not open the build", error: "Error",
     level: (n) => `level ${n}`,
@@ -1088,6 +1154,16 @@ const statKey = (s) => s.replace(TOKEN_RE, "#").replace(/\+#/g, "#").replace(/\s
 
 function fillTemplate(tpl, line) {
   const tokens = line.match(TOKEN_RE) || [];
+  if (tpl.includes("#{")) {
+    // the translation orders the numbers its own way: '#{i}' is the line's i-th number
+    let lost = false;
+    const out = tpl.replace(/([+-]?)#\{(\d+)\}/g, (whole, sign, i) => {
+      const tok = tokens[Number(i)];
+      if (tok === undefined) { lost = true; return whole; }
+      return sign ? sign + tok.replace(/^[+-]/, "") : tok;
+    });
+    return lost ? null : out;
+  }
   if ((tpl.match(/#/g) || []).length !== tokens.length) return null;
   let i = 0;
   let out = "";
@@ -1162,7 +1238,8 @@ function trLines(lines) {
 
 function trName(name) {
   if (LANG === "en" || !name) return name;
-  return GAME.names[name] || CLASS_RU[name] || name;
+  const bare = name.trim();  // some of PoB's node names end in a space
+  return GAME.names[name] || GAME.names[bare] || CLASS_RU[bare] || name;
 }
 
 // "Random Name, Base Type" for rares / "Unique Name, Base Type" for uniques / "Prefix Base of Suffix" for magic
@@ -1197,7 +1274,13 @@ const SUPPORT_COLOR_RU = { Strength: "красных", Dexterity: "зелёны�
 
 // server-made sentences: translate «quoted mods», support-gem counts and names from the open build
 function trFree(text) {
-  if (LANG === "en" || !text) return text;
+  if (!text) return text;
+  if (LANG === "en") {
+    // the server writes its advice in Russian: the phrases it builds, in English
+    let s = text;
+    for (const [re, en] of FREE_EN) s = s.replace(re, en);
+    return s;
+  }
   let s = text.replace(/«([^»]+)»/g, (_, inner) =>
     `«${SLOT_RU[inner] !== undefined ? slotName(inner) : GAME.names[inner] ? GAME.names[inner] : trMod(inner)}»`);
   for (const n of BUILD_ITEMS) s = s.split(n).join(trItem(n));
@@ -1207,6 +1290,43 @@ function trFree(text) {
   for (const [re, ru] of FREE_RU) s = s.replace(re, ru);
   return s;
 }
+
+const KIND_EN = { префикс: "prefix", суффикс: "suffix" };
+const FREE_EN = [
+  // what to do with a slot (poe2lab/analysis/slots.py)
+  [/^свободный (префикс|суффикс), но предмет испорчен: в замене искать ещё и «(.+)» \(([^)]+)\)$/,
+    (_, k, what, gain) => `a free ${KIND_EN[k]}, but the item is corrupted: in a replacement also look for «${what}» (${gain})`],
+  [/^докрафтить (префикс|суффикс): «(.+?)» \(([^)]+)\)/, (_, k, what, gain) => `craft a ${KIND_EN[k]}: «${what}» (${gain})`],
+  [/ \(счёт приблизительный — проверь в игре, что слот свободен\)/, " (the count is approximate: check in game that the slot is free)"],
+  [/^(в замене искать|заменить) (префикс|суффикс): /, (_, verb, k) => `${verb === "заменить" ? "replace" : "in a replacement look for"} a ${KIND_EN[k]}: `],
+  // what an affix holds up
+  [/кап резиста (Fire|Cold|Lightning)/g, "$1 resistance cap"],
+  [/требования (Str|Dex|Int)\b/g, "$1 requirement"],
+  [/spirit на резервы/g, "Spirit for reservations"],
+  [/мана на основной скилл/g, "mana for the main skill"],
+  [/мана: дефицит (-?[\d.,]+)\/с станет (-?[\d.,]+)\/с/g, "mana: short by $1/s, then $2/s"],
+  // prices (poe2lab/economy/ninja.py)
+  [/ \(мало сделок\)/g, " (thin market)"],
+  // the build profile (poe2lab/profile.py)
+  [/^профиль билда не найден — всё считается по данным PoB без поправок$/, "no build profile: everything is PoB's own numbers, uncorrected"],
+  [/^свирепость: (\d+) — как выставлено в самом PoB-коде билда$/, "Rage: $1, as set in the build's PoB code"],
+  [/^свирепость: максимум$/, "Rage: at its maximum"],
+  [/^свирепость: /, "Rage: "],
+  [/^профиль: /, "profile: "],
+  [/^мана: держится в игре \(подтверждено\) — проверки дефицита маны отключены$/, "mana: holds in game (confirmed), mana deficit checks are off"],
+  [/^поправка: /, "correction: "],
+  [/, аптайм (\d+)%/, ", uptime $1%"],
+  [/ — не подтверждён\)/, ", not confirmed)"],
+  [/^поправки меняют DPS на ([+-][\d.]+)% \(против моба 79 ур\.\)$/, "the corrections change DPS by $1% (against a level 79 monster)"],
+  [/^заметка: /, "note: "],
+  // AI providers (poe2lab/assistant/providers.py)
+  [/^дёшево, 1M контекст; данные уходят на серверы DeepSeek$/, "cheap, 1M context; the data goes to DeepSeek's servers"],
+  [/^официальный SDK Anthropic$/, "Anthropic's official SDK"],
+  [/^один ключ — модели многих компаний$/, "one key for the models of many companies"],
+  [/^модель на своём компьютере, ключ не нужен$/, "a model on your own computer, no key needed"],
+  [/^Ollama \(локально\)$/, "Ollama (local)"],
+  [/^Свой \(OpenAI-совместимый\)$/, "Custom (OpenAI-compatible)"],
+];
 
 const RES_RU = { Fire: "огню", Cold: "холоду", Lightning: "молнии" };
 const ATTR_GEN_RU = { Str: "силы", Dex: "ловкости", Int: "интеллекта" };

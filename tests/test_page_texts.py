@@ -98,3 +98,14 @@ def test_bc7_two_subsets_by_partition():
         index = 3 if i == 15 else i % 8
         want += [lerp(a, b, W3[index]) for a, b in subsets[i // 8]] + [255]
     assert px == want
+
+
+@pytest.mark.skipif(not NODE, reason="no Node.js")
+def test_templates_with_their_own_order_of_numbers():
+    shown = run_js(["i18n.js"], """
+      GAME = { stats: { '#% chance to defend with #% of armour': '#{0}% шанс на защиту с удвоенной броней',
+                        '# to # fire damage for # seconds': 'На #{2} с: от #{0} до #{1} урона от огня' }, names: {} };
+      LANG = 'ru';
+      [trMod('10% chance to Defend with 200% of Armour'), trMod('3 to 7 Fire Damage for 4 seconds')]
+    """)
+    assert shown == ["10% шанс на защиту с удвоенной броней", "На 4 с: от 3 до 7 урона от огня"]

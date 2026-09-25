@@ -30,6 +30,8 @@ class Gate:
     level: str  # "must" (broken in game), "priority" (biggest gap), "warn"
     title: str
     detail: str
+    title_en: str = ""  # the same in English, for the page's English view
+    detail_en: str = ""
 
 
 RES_NAMES = {"Fire": "огню", "Cold": "холоду", "Lightning": "молнии"}
@@ -38,6 +40,9 @@ HIT_NAMES = {"Physical": "физическим ударам", "Fire": "удар�
 ATTR_GENITIVE = {"Str": "силы", "Dex": "ловкости", "Int": "интеллекта"}
 ATTR_NOMINATIVE = {"Str": "Сила", "Dex": "Ловкость", "Int": "Интеллект"}
 ATTR_SHORT = {"Str": "силы", "Dex": "ловкости", "Int": "интеллекта"}
+ATTR_EN = {"Str": "Strength", "Dex": "Dexterity", "Int": "Intelligence"}
+HIT_EN = {"Physical": "physical hits", "Fire": "fire hits", "Cold": "cold hits", "Lightning": "lightning hits",
+          "Chaos": "chaos hits"}
 
 
 def _nodes_word(n: int) -> str:
@@ -52,19 +57,32 @@ def attribute_gates(statuses, swaps, deps) -> list[Gate]:
             how = (f"дешевле всего переключить {fix.nodes} атрибутную {_nodes_word(fix.nodes)} "
                    f"{ATTR_SHORT[fix.donor]} → {ATTR_SHORT[fix.target]} (DPS {fix.dps_pct:+.1f}%, жизнь {fix.life_pct:+.1f}%)"
                    if fix else f"добрать +{-s.margin:.0f} {ATTR_SHORT[s.attr]} с предмета")
+            how_en = (f"the cheapest fix: switch {fix.nodes} attribute node{'s' if fix.nodes > 1 else ''} "
+                      f"{ATTR_EN[fix.donor]} → {ATTR_EN[fix.target]} (DPS {fix.dps_pct:+.1f}%, life {fix.life_pct:+.1f}%)"
+                      if fix else f"get +{-s.margin:.0f} {ATTR_EN[s.attr]} from an item")
             out.append(Gate("must", f"Не хватает {ATTR_GENITIVE[s.attr]}",
-                            f"{s.have:.0f} из {s.need:.0f}, требуют: {', '.join(s.needed_by)}; {how}"))
+                            f"{s.have:.0f} из {s.need:.0f}, требуют: {', '.join(s.needed_by)}; {how}",
+                            f"Not enough {ATTR_EN[s.attr]}",
+                            f"{s.have:.0f} of {s.need:.0f}, required by: {', '.join(s.needed_by)}; {how_en}"))
         elif s.need > 0 and s.margin < attrs.LOW_MARGIN:
             holders = [d for d in deps if s.attr in d.provides]
             where = (f"держат предметы: {', '.join(d.slot for d in holders)}" if holders
                      else f"предметы его не дают, всё из дерева ({s.from_nodes} атрибутных нод)")
+            where_en = (f"held by items: {', '.join(d.slot for d in holders)}" if holders
+                        else f"no item gives it, all from the tree ({s.from_nodes} attribute nodes)")
             out.append(Gate("warn", f"{ATTR_NOMINATIVE[s.attr]} на грани",
-                            f"{s.have:.0f} из {s.need:.0f} (запас {s.margin:.0f}), нужно для: {', '.join(s.needed_by)}; {where}"))
+                            f"{s.have:.0f} из {s.need:.0f} (запас {s.margin:.0f}), нужно для: {', '.join(s.needed_by)}; {where}",
+                            f"{ATTR_EN[s.attr]} on the edge",
+                            f"{s.have:.0f} of {s.need:.0f} ({s.margin:.0f} to spare), needed for: {', '.join(s.needed_by)}; "
+                            f"{where_en}"))
     for d in deps:
         if d.breaks:
             lost = ", ".join(f"−{v:.0f} {ATTR_SHORT[a]}" for a, v in d.provides.items())
+            lost_en = ", ".join(f"−{v:.0f} {ATTR_EN[a]}" for a, v in d.provides.items())
             out.append(Gate("warn", f"На предмете «{d.slot}» держатся требования",
-                            f"снимешь {d.item} ({lost}) — перестанут работать: {', '.join(d.breaks)}"))
+                            f"снимешь {d.item} ({lost}) — перестанут работать: {', '.join(d.breaks)}",
+                            f"Requirements hang on the {d.slot}",
+                            f"take off {d.item} ({lost_en}) and these stop working: {', '.join(d.breaks)}"))
     return out
 
 
@@ -76,15 +94,23 @@ def zero_damage_gates(engine, stats: dict, config: dict) -> list[Gate]:
     doing = [s for s in engine.skill_damage(config) if s["dps"] >= 1][:4]
     where = ("; ".join(f"«{s['name']}» (группа {s['group']}) — {s['dps']:,.0f}" for s in doing)
              if doing else "ни один скилл билда не даёт урона в PoB")
+    where_en = ("; ".join(f"«{s['name']}» (group {s['group']}): {s['dps']:,.0f}" for s in doing)
+                if doing else "no skill of the build deals damage in PoB")
     return [Gate("must", f"PoB не считает урон основного скилла «{engine.main_skill()}»",
                  f"DPS 0 — оценки урона ниже ничего не значат. Урон есть у: {where}. Выберите основным скилл, "
-                 "который реально наносит урон (список «Основной скилл» вверху)")]
+                 "который реально наносит урон (список «Основной скилл» вверху)",
+                 f"PoB computes no damage for the main skill «{engine.main_skill()}»",
+                 f"DPS 0: the damage estimates below mean nothing. Damage comes from: {where_en}. Pick a skill that "
+                 "really deals damage as the main one (the “Main skill” list at the top)")]
 
 
 def unread_gates(engine) -> list[Gate]:
     return [Gate("must", f"PoB не прочитал предмет «{u['slot']}»",
                  f"«{u['name']}» ({u['base']}): такой базы нет в текущей версии PoB — обычно это билд из прошлой "
-                 f"версии игры. Всё посчитано без этого предмета; обновите его в билде")
+                 f"версии игры. Всё посчитано без этого предмета; обновите его в билде",
+                 f"PoB could not read the item in «{u['slot']}»",
+                 f"«{u['name']}» ({u['base']}): this PoB version has no such base, usually a build from an older game "
+                 "version. Everything is computed without this item; update it in the build")
             for u in engine.unread_items()]
 
 
@@ -98,25 +124,35 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False, ref: dict 
         if res < RES_CAP:
             out.append(Gate("priority" if leveling else "must", f"Резист к {RES_NAMES[t]} не в капе",
                             f"{res:.0f}%, нужно ещё +{RES_CAP - res:.0f}%"
-                            + ("; к картам понадобится кап 75%" if leveling else "")))
+                            + ("; к картам понадобится кап 75%" if leveling else ""),
+                            f"{t} resistance below the cap", f"{res:.0f}%, +{RES_CAP - res:.0f}% more needed"
+                            + ("; maps will need the 75% cap" if leveling else "")))
         elif over < RES_BUFFER and not leveling:
             out.append(Gate("warn", f"Резист к {RES_NAMES[t]} без запаса",
-                            f"сверх капа {over:.0f}%: мод карты на снижение резистов опустит его ниже {RES_CAP}%"))
+                            f"сверх капа {over:.0f}%: мод карты на снижение резистов опустит его ниже {RES_CAP}%",
+                            f"{t} resistance with nothing to spare",
+                            f"{over:.0f}% over the cap: a map mod lowering resistances will take it below {RES_CAP}%"))
     chaos = stats.get("ChaosResist", 0)
     if chaos < RES_CAP:
         out.append(Gate("warn" if leveling else "priority", "Хаос-резист ниже капа",
-                        f"{chaos:.0f}%, до капа +{RES_CAP - chaos:.0f}%"))
+                        f"{chaos:.0f}%, до капа +{RES_CAP - chaos:.0f}%",
+                        "Chaos resistance below the cap", f"{chaos:.0f}%, +{RES_CAP - chaos:.0f}% to the cap"))
     if stats.get("SpiritUnreserved", 0) < 0:
-        out.append(Gate("must", "Не хватает spirit", f"перерасход {-stats['SpiritUnreserved']:.0f}"))
+        out.append(Gate("must", "Не хватает spirit", f"перерасход {-stats['SpiritUnreserved']:.0f}",
+                        "Not enough Spirit", f"overspent by {-stats['SpiritUnreserved']:.0f}"))
     cost = stats.get("ManaPerSecondCost", 0)
     regain = stats.get("ManaRegenRecovery", 0) + stats.get("ManaLeechGainRate", 0) + stats.get("ManaOnHitRate", 0)
     if cost > regain and not mana_sustained:
         out.append(Gate("warn", "Основной скилл тратит больше маны, чем восстанавливается",
                         f"{cost:.0f}/с против {regain:.0f}/с (регенерация + похищение + за удар), дефицит {cost - regain:.0f}/с; "
-                        "ману за убийство и флаконы PoB здесь не учитывает"))
+                        "ману за убийство и флаконы PoB здесь не учитывает",
+                        "The main skill spends more mana than comes back",
+                        f"{cost:.0f}/s against {regain:.0f}/s (regeneration + leech + on hit), {cost - regain:.0f}/s short; "
+                        "PoB does not count mana on kill or flasks here"))
     hit = stats.get("HitChance", 100)
     if hit < MIN_HIT_CHANCE:
-        out.append(Gate("warn", "Низкий шанс попадания", f"{hit:.0f}%: точность — дешёвый урон"))
+        out.append(Gate("warn", "Низкий шанс попадания", f"{hit:.0f}%: точность — дешёвый урон",
+                        "Low chance to hit", f"{hit:.0f}%: accuracy is cheap damage"))
     finite = [h for h in hits if not h.immune]  # an immunity is not "the best type" to measure weakness against
     best = max((h.normal for h in finite), default=0)
     for h in finite:
@@ -126,24 +162,39 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False, ref: dict 
                 detail = (f"удар обычного монстра снимает {r / h.normal:.0%} запаса, критом на хард-карте — "
                           f"{r / h.juiced:.0%}; переживаешь в {best / h.normal:.1f} раза меньший удар, "
                           "чем от лучшего типа")
+                detail_en = (f"a normal monster's hit takes {r / h.normal:.0%} of your pool, a crit on a juiced map "
+                             f"{r / h.juiced:.0%}; you survive a {best / h.normal:.1f}× smaller hit than of your best type")
             else:
                 detail = (f"переживаешь {h.normal:,.0f} ({h.normal / best:.0%} от лучшего типа); "
                           f"критом на хард-карте — {h.juiced:,.0f}")
-            out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}", detail))
+                detail_en = (f"you survive {h.normal:,.0f} ({h.normal / best:.0%} of your best type); "
+                             f"a crit on a juiced map: {h.juiced:,.0f}")
+            out.append(Gate("priority", f"Слабость к {HIT_NAMES[h.damage_type]}", detail,
+                            f"Weak to {HIT_EN[h.damage_type]}", detail_en))
     if rec.es_primary:
         out.append(Gate("warn", "Защита держится на энергощите",
                         f"энергощит {rec.energy_shield:,.0f} (жизнь {rec.life:,.0f}): перезаряжается "
                         f"{rec.es_recharge:,.0f}/с, но только после {rec.es_recharge_delay:.1f} с без урона; "
-                        "под непрерывными ударами он не восстанавливается"))
+                        "под непрерывными ударами он не восстанавливается",
+                        "Defence rests on energy shield",
+                        f"energy shield {rec.energy_shield:,.0f} (life {rec.life:,.0f}): recharges "
+                        f"{rec.es_recharge:,.0f}/s, but only after {rec.es_recharge_delay:.1f} s without damage; "
+                        "under constant hits it does not come back"))
     elif rec.half_life_refill_seconds is None:
         out.append(Gate("warn", "Жизнь в бою не восстанавливается",
-                        "нет похищения, регенерации и возмещения — здоровье возвращается только флаконами"))
+                        "нет похищения, регенерации и возмещения — здоровье возвращается только флаконами",
+                        "Life does not come back in combat",
+                        "no leech, regeneration or recoup: life comes back only from flasks"))
     elif rec.regen == 0:
         out.append(Gate("warn", "Нет регенерации жизни",
-                        f"{rec.total:,.0f}/с только пока атакуешь; половина жизни за {rec.half_life_refill_seconds:.1f} с"))
+                        f"{rec.total:,.0f}/с только пока атакуешь; половина жизни за {rec.half_life_refill_seconds:.1f} с",
+                        "No life regeneration",
+                        f"{rec.total:,.0f}/s only while attacking; half your life in {rec.half_life_refill_seconds:.1f} s"))
     if rec.leech_capped_per_hit:
         out.append(Gate("warn", "Похищение упёрлось в лимит на удар",
-                        "«+% похищения» не поможет; помогут скорость восстановления, больше здоровья, чаще удары"))
+                        "«+% похищения» не поможет; помогут скорость восстановления, больше здоровья, чаще удары",
+                        "Leech is at its per-hit limit",
+                        "more “% leech” will not help; recovery rate, more life and more hits will"))
     return out
 
 

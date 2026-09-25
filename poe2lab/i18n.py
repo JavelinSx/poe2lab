@@ -27,8 +27,18 @@ def stat_key(text: str) -> str:
 
 
 def fill(template: str, line: str) -> str:
-    """Put the numbers of `line` into the translated `template`, in order."""
+    """Put the numbers of `line` into the translated `template`, in order ('#{i}': the line's i-th number)."""
     tokens = _TOKEN.findall(line)
+    if "#{" in template:
+        def put(m):
+            if int(m.group(2)) >= len(tokens):
+                raise IndexError
+            tok = tokens[int(m.group(2))]
+            return m.group(1) + tok.lstrip("+-") if m.group(1) else tok
+        try:
+            return re.sub(r"([+-]?)#\{(\d+)\}", put, template)
+        except IndexError:
+            return ""
     if template.count("#") != len(tokens):
         return ""
     out, it = [], iter(tokens)
