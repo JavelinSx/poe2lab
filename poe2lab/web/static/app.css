@@ -71,8 +71,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
   padding: 2px 5px; font-size: 16px; line-height: 1; border-radius: 4px;
 }
 .build-item .bi-act:hover { color: var(--gold); }
-.build-item .bi-act.del { visibility: hidden; }
-.build-item:hover .bi-act.del, .build-item:focus-within .bi-act.del { visibility: visible; }
+.build-item .bi-act.del { opacity: .45; }
+.build-item:hover .bi-act.del, .build-item:focus-within .bi-act.del { opacity: 1; }
+.build-item .bi-act.del:hover { color: var(--bad); }
+.ask-back { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.ask { max-width: 440px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+button.primary.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 .build-item .bi-act.star.on { color: var(--gold); }
 .add-build { max-width: 720px; }
 .add-build textarea { font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-all; }

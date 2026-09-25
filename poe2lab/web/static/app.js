@@ -39,6 +39,27 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+// A question in the page itself: the app's own browser pane answers window.confirm() with "no" at once, so a
+// native dialog would silently cancel. Resolves true on the yes button or Enter, false on cancel, Esc or a click
+// outside.
+function ask(text, yes) {
+  return new Promise((resolve) => {
+    const done = (answer) => { back.remove(); document.removeEventListener("keydown", onKey, true); resolve(answer); };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); done(false); }
+      else if (e.key === "Enter") { e.preventDefault(); done(true); }
+    };
+    const ok = h("button", { class: "primary danger", onclick: () => done(true) }, yes);
+    const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) done(false); } },
+      h("div", { class: "ask card stack", role: "dialog", "aria-modal": "true" },
+        h("div", {}, text),
+        h("div", { class: "row" }, ok, h("button", { class: "ghost", onclick: () => done(false) }, t("cancel")))));
+    document.body.append(back);
+    document.addEventListener("keydown", onKey, true);
+    ok.focus();
+  });
+}
+
 function toast(msg, ok = false) {
   const el = $("#toast");
   el.textContent = msg;
@@ -206,7 +227,8 @@ async function toggleFavorite(b) {
 }
 
 async function removeBuild(b) {
-  if (!confirm(b.kind === "pob" ? t("confirmHide", b.name) : t("confirmTrash", b.name))) return;
+  if (!await ask(b.kind === "pob" ? t("confirmHide", b.name) : t("confirmTrash", b.name),
+    b.kind === "pob" ? t("hideGo") : t("removeGo"))) return;
   try {
     const r = await api(`/api/builds/${encodeURIComponent(b.name)}`, { method: "DELETE" });
     toast(r.result === "hidden" ? t("hiddenOne", b.name) : t("trashed", b.name), true);
