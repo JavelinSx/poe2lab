@@ -90,6 +90,13 @@ def test_the_tree_to_draw_and_the_ascendancy():
     assert main_taken == graph["points"]
     by_id = {n["id"]: n for n in nodes}
     assert all(other in by_id or True for n in nodes for other in n["links"]) and any(n["links"] for n in nodes)
+    # links drawn as PoB draws them: every node in its own group (PoB keeps the group's number in node.g), a link
+    # along one orbit of one group has both nodes on that circle, and some links are arcs of their own orbit
+    assert len({n["group"] for n in nodes}) > 100 and graph["orbitRadii"][0] == 0
+    along = [(n, by_id[c["id"]]) for n in nodes for c in n["arcs"] if c["id"] in by_id and not c["orbit"]
+             and by_id[c["id"]]["group"] == n["group"] and by_id[c["id"]]["o"] == n["o"] and n["r"] > 0]
+    assert along and all(abs(((m["x"] - n["gx"]) ** 2 + (m["y"] - n["gy"]) ** 2) ** 0.5 - n["r"]) < 1 for n, m in along)
+    assert any(c["orbit"] for n in nodes for c in n["arcs"])
     # the game's background art: where PoB keeps each picture (file, layer), placed as PoB draws it
     art = graph["art"]
     assert art["version"] and art["tile"]["file"].endswith(".dds.zst") and art["tile"]["layer"] >= 1

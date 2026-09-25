@@ -311,10 +311,15 @@ for id, node in pairs(spec.nodes) do
   if node.x and node.type ~= "OnlyImage" and (not node.ascendancyName or shown[node.ascendancyName]) then
     local links = _poe2lab_array({})
     for _, other in ipairs(node.linked or {}) do links[#links + 1] = other.id end
-    local g = node.group
+    -- the connections as the tree data defines them (each once, on one of its two nodes): an orbit other than 0
+    -- makes the line an arc of that orbit's radius through both nodes (PoB's BuildConnector)
+    local arcs = _poe2lab_array({})
+    for _, c in pairs(node.connections or {}) do arcs[#arcs + 1] = { id = c.id, orbit = c.orbit or 0 } end
+    local g = node.group  -- PoB's group tables carry no id: the group's number is node.g
     nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "", icon = node.icon or "",
       stats = _poe2lab_array(node.sd or {}), asc = node.ascendancyName or "", alloc = node.alloc and true or false,
-      links = links, group = g and g.id or 0, gx = g and g.x * tree.scaleImage or 0, gy = g and g.y * tree.scaleImage or 0,
+      links = links, arcs = arcs, group = node.g or 0, o = node.o or 0,
+      gx = g and g.x * tree.scaleImage or 0, gy = g and g.y * tree.scaleImage or 0,
       r = node.o and tree.orbitRadii[node.o + 1] and tree.orbitRadii[node.o + 1] * tree.scaleImage or 0 }
   end
 end
@@ -340,8 +345,10 @@ for i, a in pairs(spec.curClass.classes or {}) do
       w = a.background.width, image = where(a.background.image) }
   end
 end
+local radii = _poe2lab_array({})
+for i, r in ipairs(tree.orbitRadii or {}) do radii[i] = r * tree.scaleImage end
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
-  ascendancyPoints = ascUsed, art = art })""")
+  ascendancyPoints = ascUsed, art = art, orbitRadii = radii })""")
 
     def class_ascendancies(self) -> list[dict]:
         """The ascendancies of the build's class with their notables - to choose from while none is taken."""

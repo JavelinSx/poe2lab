@@ -1546,22 +1546,31 @@ function openTreeViewer(graph, tree, asc) {
     const lit = drawArt(ctx, w, hgt);
     const line = lit ? "rgba(214,219,228,.42)" : C.line, edge = lit ? "rgba(226,230,238,.8)" : C.nodeEdge;
     const ns = visible();
-    // links: arcs along one orbit of a group, straight lines otherwise
+    // links as PoB draws them: an arc of the connection's own orbit through both nodes, an arc along the orbit
+    // when both nodes sit on the same orbit of one group, a straight line otherwise
+    const arcTo = (cx, cy, r, from, to) => {
+      const a1 = Math.atan2(from.y - cy, from.x - cx), a2 = Math.atan2(to.y - cy, to.x - cx);
+      let d = a2 - a1;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      ctx.arc(cx * scale + ox, cy * scale + oy, r * scale, a1, a1 + d, d < 0);
+    };
     for (const n of ns) {
-      for (const id of n.links) {
-        if (id < n.id) continue;
-        const m = byId.get(id);
-        if (!m || m.asc !== n.asc) continue;
+      for (const c of n.arcs || []) {
+        const m = byId.get(c.id);
+        if (!m || m === n || m.asc !== n.asc || (showAsc ? !n.asc : n.asc)) continue;
         const both = n.alloc && m.alloc, green = !both && (road.has(n.id) || n.alloc) && (road.has(m.id) || m.alloc) && (road.has(n.id) || road.has(m.id));
         ctx.strokeStyle = both ? C.gold : green ? C.good : line;
         ctx.lineWidth = both || green ? Math.max(1.5, 10 * scale) : Math.max(0.6, 5 * scale);
         ctx.beginPath();
-        if (n.group === m.group && n.r > 0 && Math.abs(n.r - m.r) < 1) {
-          const a1 = Math.atan2(n.y - n.gy, n.x - n.gx), a2 = Math.atan2(m.y - m.gy, m.x - m.gx);
-          let d = a2 - a1;
-          while (d > Math.PI) d -= 2 * Math.PI;
-          while (d < -Math.PI) d += 2 * Math.PI;
-          ctx.arc(n.gx * scale + ox, n.gy * scale + oy, n.r * scale, a1, a1 + d, d < 0);
+        const r = c.orbit ? (graph.orbitRadii || [])[Math.abs(c.orbit)] : 0;
+        const dx = m.x - n.x, dy = m.y - n.y, dist = Math.hypot(dx, dy);
+        if (r && dist < 2 * r) {
+          // the circle of radius r through both nodes, on the side the orbit's sign names (PoB's BuildConnector)
+          const perp = Math.sqrt(r * r - dist * dist / 4) * (c.orbit > 0 ? 1 : -1);
+          arcTo(n.x + dx / 2 + perp * (dy / dist), n.y + dy / 2 - perp * (dx / dist), r, n, m);
+        } else if (!c.orbit && n.group === m.group && n.o === m.o && n.r > 0) {
+          arcTo(n.gx, n.gy, n.r, n, m);
         } else {
           ctx.moveTo(sx(n), sy(n));
           ctx.lineTo(sx(m), sy(m));
