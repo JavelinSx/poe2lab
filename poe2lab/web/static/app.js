@@ -2094,6 +2094,11 @@ TABS.profile = async () => {
   const raw = JSON.parse(JSON.stringify(state.build.profileRaw));
   raw.corrections = raw.corrections || [];
   raw.notes = raw.notes || [];
+  // the build this one grows into (a guide at its end game): the assistant explains what matters now and what later
+  let builds = [];
+  try { builds = await api("/api/builds"); } catch (_) { /* the list is not needed to edit the rest */ }
+  const targetSel = h("select", {}, h("option", { value: "" }, t("targetNone")),
+    builds.filter((b) => b.name !== state.build.name).map((b) => h("option", { value: b.name, selected: raw.target === b.name }, b.name)));
   // Only ask what this build can answer: a build with no Rage must not show a Rage question.
   const ask = state.build.questions || { rage: true, mana: true };
   const rageMax = h("input", { type: "checkbox", checked: raw.rage === null || raw.rage === undefined });
@@ -2111,6 +2116,7 @@ TABS.profile = async () => {
     raw.rage = !ask.rage || rageMax.checked ? null : Number(rageVal.value);
     raw.mana_sustained = ask.mana && mana.checked;
     raw.notes = notes.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    raw.target = targetSel.value || null;
     raw.main_skill = { group: state.build.info.mainSocketGroup, skill: 1, name: state.build.mainSkill };
     save.disabled = true;
     try {
@@ -2135,6 +2141,7 @@ TABS.profile = async () => {
       h("div", { class: "corr small muted" }, h("span", {}, t("corrMod")), h("span", {}, t("corrUptime")), h("span", {}), h("span", {})),
       corrBox,
       h("button", { class: "ghost small", onclick: () => { raw.corrections.push({ mod: "", source: "manual", uptime: 1, confirmed: false }); drawCorr(); } }, t("addCorrection")),
+      h("div", { class: "section-title" }, t("targetTitle")), h("div", { class: "sub" }, t("targetSub")), targetSel,
       h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
     h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))));

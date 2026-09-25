@@ -66,6 +66,20 @@ SPECS = [
             "goal": {"type": "string", "enum": ["damage", "balanced", "defence"]},
             "points": {"type": "integer", "description": "reach in passive points, 3-10 (default 6)"}}}}},
     {"type": "function", "function": {
+        "name": "target_report",
+        "description": "The build's target (a guide at its end game, chosen by the player) next to the character now: "
+                       "level, main skill, key numbers, and where each gets its power (passive groups - crit, speed, "
+                       "elemental damage, energy shield... - with what taking each group away costs). Use it to tell "
+                       "what matters at this stage from what the build maxes later.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "evaluate_mods_on_target",
+        "description": "Like evaluate_mods, but on the target build (the guide at its end game): what a mod is worth "
+                       "once the build is complete. Compare with evaluate_mods to show how a stat's worth changes "
+                       "from now to the end game.",
+        "parameters": {"type": "object", "properties": {
+            "mods": {"type": "array", "items": {"type": "string"}}}, "required": ["mods"]}}},
+    {"type": "function", "function": {
         "name": "propose_profile_change",
         "description": "Suggest recording a fact about real play in the build profile, e.g. a correction for a "
                        "mechanic PoB does not model. Does not change anything: the user confirms it in the UI.",
@@ -77,9 +91,12 @@ SPECS = [
 
 
 class Toolbox:
-    def __init__(self, engine, profile: MapProfile, db: ModDB | None = None):
+    def __init__(self, engine, profile: MapProfile, db: ModDB | None = None, target: dict | None = None):
+        """target: {"name", "engine", "profile"} - the build the player follows, when the build profile names one."""
         self.engine = engine
         self.profile = profile
+        self.target = target
+        self._target_cache = None
         self._db = db
         self.proposals: list[dict] = []
         self._names: dict | None = None
@@ -148,6 +165,25 @@ class Toolbox:
         _, grads = compute(self.engine, config=self.profile.config())
         return [{"mod": mod_line(g.stat), "percentChange": g.one} for g in grads
                 if any(abs(v) >= 0.5 for v in g.one.values())]
+
+    def _target_report(self):
+        if not self.target:
+            return {"error": "у билда нет цели: её выбирают в профиле билда (вкладка «Профиль»)"}
+        if self._target_cache is None:
+            from ..analysis.target import summary
+            self._target_cache = {
+                "now": summary(self.engine, self.profile.config()),
+                "target": summary(self.target["engine"], self.target["profile"].config(), self.target["name"])}
+        return self._target_cache
+
+    def _evaluate_mods_on_target(self, mods: list[str]):
+        if not self.target:
+            return {"error": "у билда нет цели: её выбирают в профиле билда (вкладка «Профиль»)"}
+        engine, config = self.target["engine"], self.target["profile"].config()
+        base = engine.what_if(config=config)
+        out = engine.what_if(config=config, mods=mods)
+        return {"target": self.target["name"], "percentChange": metric_changes(out, base),
+                "after": {k: out.get(k) for k in ("CombinedDPS", "Life", "TotalEHP", "Speed", "CritChance")}}
 
     def _propose_profile_change(self, kind: str, value: str, reason: str, uptime: float = 1.0):
         if kind == "correction" and not self.engine.can_parse_mod(value):

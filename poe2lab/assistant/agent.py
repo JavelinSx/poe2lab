@@ -45,7 +45,13 @@ SYSTEM_RULES = """Ты — аналитик билдов Path of Exile 2 (пат
    возвышении; заряды, свирепость и т. п.), не советуй от неё отказываться по снимку персонажа сейчас: «увеличение
    урона» размывается по мере роста билда, а крит перемножается со всем и дорожает с вложениями. Сравни на стадии,
    куда идёт билд (evaluate_mods поверх модов, которые у него будут), и назови, чего PoB не видит (урон
-   срабатывающих умений — в списке «Урон по скиллам» у них 0)."""
+   срабатывающих умений — в списке «Урон по скиллам» у них 0).
+9. Если у билда есть цель (гайд на конечной стадии, раздел «Цель билда» ниже), объясняй советы по стадиям: что
+   нужно персонажу сейчас и что гайд будет макситься позже. Сравнивай ценность стата сейчас (evaluate_mods) и на
+   цели (evaluate_mods_on_target); группы пассивок, на которых держится сила цели, не советуй сбрасывать, даже если
+   сейчас они дают мало, — скажи, когда они окупятся. Если основной скилл персонажа не тот, что у цели, начни с
+   этого. Какие ноды брать — прежде всего значимые пассивки цели, которых у персонажа ещё нет (список в разделе
+   «Цель билда»); не советуй против ноды, которую берёт цель, без расчёта на цели (evaluate_mods_on_target)."""
 
 # How answers look. The player picks one on the Assistant tab; "short" is the default.
 STYLES = {
@@ -64,7 +70,8 @@ STYLES = {
 }
 
 
-def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = None, config: dict | None = None) -> str:
+def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = None, config: dict | None = None,
+                  target: str | None = None) -> str:
     """Everything the model should know before the first question; stable, so the API can cache it.
     glossary: official localized names (English -> player's language) to use in answers; config: the enemy the
     reports use (the same numbers as the tools)."""
@@ -79,6 +86,9 @@ def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = No
                  "срабатывающих умений):\n" + "\n".join(f"- [{d['group']}] {d['name']}: {d['dps']:,.0f} DPS" for d in damage))
     parts.append(f"Крит основного скилла (PoB): шанс {stats.get('CritChance', 0):.1f}%, "
                  f"множитель ×{stats.get('CritMultiplier', 0):.2f}.")
+    if target:
+        parts.append("Цель билда — гайд, по которому играет игрок, на конечной стадии (PoB; в файлах гайдов нет "
+                     "самоцветов и настроек, поэтому цифры цели скромнее авторских):\n" + target)
     parts.append("Профиль билда (подтверждено игроком):\n" + "\n".join(f"- {l}" for l in describe_profile(bp)))
     parts.append("PoB не считает (есть в данных игры, в расчёт не попадает):\n" + "\n".join(
         f"- {g.where}: {g.text}" for g in mech.gaps))
@@ -110,12 +120,15 @@ def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = No
     return "\n\n".join(parts)
 
 
-def build_glossary(engine, names: dict[str, str]) -> dict[str, str]:
-    """Official translations of the skill, gem and item names that occur in this build."""
+def build_glossary(engine, names: dict[str, str], extra=()) -> dict[str, str]:
+    """Official translations of the skill, gem, item and passive names that occur in this build (and `extra`
+    names, e.g. of the build's target)."""
     wanted = {g["name"] for g in engine.gems()}
     for item in engine.equipped_item_details():
         wanted.update(p.strip() for p in item["name"].split(","))
         wanted.add(item["baseName"])
+    wanted.update(n["name"] for n in engine.allocated_nodes() if n["type"] in ("Notable", "Keystone"))
+    wanted.update(extra)
     return {n: names[n] for n in wanted if n in names}
 
 

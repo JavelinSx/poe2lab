@@ -1276,11 +1276,13 @@ def chat(req: ChatRequest):
     with session.lock:
         session.require()
         if session.assistant is None:
-            session.toolbox = Toolbox(session.engine, session.profile, session.db())
+            target, target_text, target_names = _assistant_target()
+            session.toolbox = Toolbox(session.engine, session.profile, session.db(), target)
             names = i18n(req.lang)["names"] if req.lang != "en" else {}
-            glossary = build_glossary(session.engine, names) if names else None
+            glossary = build_glossary(session.engine, names, target_names) if names else None
             session.assistant = Assistant(make_client(cfg), session.toolbox,
-                                          build_context(session.engine, session.bp, glossary, session.profile.config()),
+                                          build_context(session.engine, session.bp, glossary, session.profile.config(),
+                                                        target_text),
                                           style=load_settings().get("style", "short"))
         start = len(session.assistant.tool_log)
         try:
@@ -1288,6 +1290,25 @@ def chat(req: ChatRequest):
         except LLMError as err:
             raise HTTPException(502, str(err))
         return {"answer": answer, "tools": session.assistant.tool_log[start:], "proposals": session.toolbox.proposals}
+
+
+def _assistant_target() -> tuple[dict | None, str | None, list[str]]:
+    """The build the profile names as the target, loaded (as the comparison reference), its picture next to the
+    character's for the assistant's context, and the names it brings (for their official translations);
+    (None, None, []) without one or when it cannot be opened."""
+    name = session.bp.target if session.bp else None
+    if not name:
+        return None, None, []
+    try:
+        _, engine, bp = _reference(name)
+    except HTTPException:
+        return None, None, []
+    from ..analysis.target import context_text, summary
+    profile = MapProfile.for_level(engine.info()["level"], rage=bp.rage, mana_sustained=bp.mana_sustained)
+    target = {"name": name, "engine": engine, "profile": profile}
+    goal = summary(engine, profile.config(), name)
+    names = goal["notables"] + goal["ascendancyNotables"] + goal["keystones"] + [s["name"] for s in goal["skills"]]
+    return target, context_text(summary(session.engine, session.profile.config(), session.path.stem), goal), names
 
 
 @app.post("/api/chat/reset")

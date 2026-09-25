@@ -36,6 +36,7 @@ class BuildProfile:
     rage: int | None = None  # None = maximum
     mana_sustained: bool = False  # confirmed in game: the main skill can be spammed
     league: str | None = None
+    target: str | None = None  # a build of the list the player follows (a guide at its end game)
     corrections: list[Correction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     # filled when applied
@@ -53,7 +54,7 @@ class BuildProfile:
         main = raw.get("main_skill", {})
         return cls(
             group=main.get("group"), skill=main.get("skill", 1), rage=raw.get("rage"),
-            mana_sustained=raw.get("mana_sustained", False), league=raw.get("league"),
+            mana_sustained=raw.get("mana_sustained", False), league=raw.get("league"), target=raw.get("target"),
             corrections=[Correction(**c) for c in raw.get("corrections", [])],
             notes=raw.get("notes", []), path=path,
         )
@@ -102,6 +103,8 @@ def describe(profile: BuildProfile, rage: bool = True) -> list[str]:
         lines.append("свирепость: максимум" if profile.rage is None else f"свирепость: {profile.rage}")
     if profile.mana_sustained:
         lines.append("мана: держится в игре (подтверждено) — проверки дефицита маны отключены")
+    if profile.target:
+        lines.append(f"цель билда: «{profile.target}» — ассистент сравнивает персонажа с ней")
     for c in profile.corrections:
         up = f", аптайм {c.uptime:.0%}" + ("" if c.confirmed else " — не подтверждён")
         lines.append(f"поправка: «{c.line}» ({c.source}{up})")
