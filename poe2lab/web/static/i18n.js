@@ -1,6 +1,12 @@
 "use strict";
 // Interface texts. Game text (mod lines, skill and item names) stays as in PoB's data, which is English.
 
+// one / few / many: 1 скилл, 2 скилла, 5 скиллов
+function ruPlural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many;
+}
+
 const I18N = {
   ru: {
     builds: "Билды", loadingList: "загрузка…", noBuilds: "билдов нет", refresh: "обновить список",
@@ -430,6 +436,24 @@ const I18N = {
     tab_overview: "Обзор", tab_damage: "Урон", tab_gear: "Снаряжение", tab_compare: "Сравнение",
     tab_mechanics: "Механики", tab_profile: "Профиль", tab_assistant: "Ассистент",
     pickBuild: "Выберите билд слева",
+    toPlanner: "🎮 в игру", toPlannerHint: "Записать билд в планировщик билдов игры (Документы\\My Games\\Path of Exile 2\\BuildPlanner) — игра подхватит файл сразу. Самоцветы и выбор атрибутов — в подсказках узлов дерева, у камней и вещей — с какого уровня их брать.",
+    plannerExists: (f) => `В папке планировщика игры уже есть «${f}». Заменить его?`, plannerReplace: "Заменить",
+    plannerWritten: (f) => `Записано в планировщик игры: ${f}. В игре — планировщик билдов.`,
+    plannerReplaced: (f) => `Файл планировщика обновлён: ${f}`,
+    addFromPlanner: "Из планировщика игры:",
+    prPassives: (n) => `Пассивки: ${n}`, prAscendancy: (n) => `возвышение ${n}`, prWeaponSet: (ws, n) => `набор оружия ${ws}: ${n}`,
+    prAttributes: (n, c) => (c ? `атрибутных ${n}, выбор указан у ${c}` : `атрибутных ${n} — выбор подобран под требования`),
+    prJewels: (have, sockets) => `самоцветы: ${have} из ${sockets} гнёзд`, prNotes: (n) => `заметок: ${n}`,
+    prLevels: (n) => `с уровнями взятия: ${n}`,
+    prSkills: (n, s) => `Камни: ${n} ${ruPlural(n, "скилл", "скилла", "скиллов")}, ${s} ${ruPlural(s, "поддержка", "поддержки", "поддержек")}`,
+    prSkillLevels: (from, lv) => `«с какого уровня» — у ${from}, уровень камня — у ${lv}`,
+    prItems: (n) => `Вещи: ${n}`, prFrom: (n) => `с ${n} ур.`,
+    prGemLevel: (lv, q) => (q ? `ур. ${lv}, кач. ${q}%` : `ур. ${lv}`),
+    prKind_unique: "уник", prKind_rare: "редкая", prKind_magic: "магическая", prKind_normal: "обычная", prKind_missing: "не собралась",
+    prSkillsList: "Камни — по порядку файла", prItemsList: "Вещи — по слотам",
+    prUnknown: (list) => `Поля, которых poe2lab пока не знает (не использованы): ${list}`,
+    prPlanKept: "Уровни «с какого» и заметки гайда сохранены с билдом: «Прокачка» по нему берёт уровни камней из гайда, а «🎮 в игру» вернёт их в файл.",
+    lvGuideLevels: "Уровни камней — по плану гайда (из его файла планировщика), где он их указал.",
     lvTitle: "Что вставлять на прокачке", lvLevel: "Уровень", lvNow: (n) => `мой уровень: ${n}`,
     lvHint: "Двигай ползунок — покажу, что вставлять на другом уровне. Зелёная рамка — замена, пока поддержки из билда нет.",
     lvOpensAt: (n) => `откроется на ~${n} ур.`, lvFromItem: "даёт предмет", lvNoSupports: "без поддержек",
@@ -466,7 +490,7 @@ const I18N = {
     plannerSub: (author, level) => `Автор: ${author}. Уровень по потраченным очкам: ${level}. Вещи — моды из файла, имплициты баз — средние значения; уники — копия из PoB.`,
     plannerMissing: (list) => `Не нашлось в данных PoB: ${list}.`,
     plannerShort: (list) => `Требования атрибутов не закрыты: ${list} — в файле нет самоцветов и части модов на атрибуты. Нейтральные атрибутные ноды отданы туда, где нехватка больше.`,
-    plannerHint: "Такой билд удобно поставить эталоном: «Сравнение → С билдом-эталоном» покажет, чего твоему персонажу не хватает до гайда. Учти: в формате .build нет самоцветов, рун, качества и настроек PoB (заряды, состояния врага) — урон и защита гайда выйдут ниже, чем в его полном PoB-коде. Основным выбран скилл с наибольшим уроном.",
+    plannerHint: "Такой билд удобно поставить целью: «Сравнение → С билдом» покажет, чего твоему персонажу не хватает до гайда. В файлах планировщика нет рун, качества и настроек PoB (заряды, состояния врага), а самоцветы есть только в файлах из poe2lab — поэтому урон и защита гайда обычно выходят ниже, чем в его полном PoB-коде. Основным выбран скилл с наибольшим уроном.",
     plannerOk: "понятно",
     attr_Str: "сила", attr_Dex: "ловкость", attr_Int: "интеллект",
     leagueLabel: "Лига для цен:",
@@ -1034,6 +1058,24 @@ const I18N = {
     tab_overview: "Overview", tab_damage: "Damage", tab_gear: "Gear", tab_compare: "Compare",
     tab_mechanics: "Mechanics", tab_profile: "Profile", tab_assistant: "Assistant",
     pickBuild: "Pick a build on the left",
+    toPlanner: "🎮 to game", toPlannerHint: "Write the build to the game's build planner (Documents\\My Games\\Path of Exile 2\\BuildPlanner): the game picks the file up at once. Jewels and attribute choices go in the tree nodes' hover notes, gems and items say from which level to take them.",
+    plannerExists: (f) => `The game's planner folder already has “${f}”. Replace it?`, plannerReplace: "Replace",
+    plannerWritten: (f) => `Written to the game's build planner: ${f}. In game: the build planner.`,
+    plannerReplaced: (f) => `Build planner file updated: ${f}`,
+    addFromPlanner: "From the game's planner:",
+    prPassives: (n) => `Passives: ${n}`, prAscendancy: (n) => `ascendancy ${n}`, prWeaponSet: (ws, n) => `weapon set ${ws}: ${n}`,
+    prAttributes: (n, c) => (c ? `attribute nodes ${n}, chosen on ${c}` : `attribute nodes ${n}: the choice made for the requirements`),
+    prJewels: (have, sockets) => `jewels: ${have} of ${sockets} sockets`, prNotes: (n) => `notes: ${n}`,
+    prLevels: (n) => `with levels: ${n}`,
+    prSkills: (n, s) => `Gems: ${n} skills, ${s} supports`,
+    prSkillLevels: (from, lv) => `“from level” on ${from}, gem level on ${lv}`,
+    prItems: (n) => `Items: ${n}`, prFrom: (n) => `from ${n}`,
+    prGemLevel: (lv, q) => (q ? `lvl ${lv}, ${q}% quality` : `lvl ${lv}`),
+    prKind_unique: "unique", prKind_rare: "rare", prKind_magic: "magic", prKind_normal: "normal", prKind_missing: "not built",
+    prSkillsList: "Gems, in the file's order", prItemsList: "Items, by slot",
+    prUnknown: (list) => `Fields poe2lab does not know yet (not used): ${list}`,
+    prPlanKept: "The guide's levels and notes are kept with the build: levelling by it takes the gems' levels from the guide, and “🎮 to game” writes them back.",
+    lvGuideLevels: "Gem levels: the guide's own plan (its planner file), where it gives them.",
     lvTitle: "What to socket while levelling", lvLevel: "Level", lvNow: (n) => `my level: ${n}`,
     lvHint: "Move the slider to see what to socket at another level. A green frame is a stand-in until the build's support can be had.",
     lvOpensAt: (n) => `opens at ~${n}`, lvFromItem: "from an item", lvNoSupports: "no supports",
@@ -1070,7 +1112,7 @@ const I18N = {
     plannerSub: (author, level) => `Author: ${author}. Level by the points spent: ${level}. Items: the file's mods, base implicits at their middle; uniques: PoB's copy.`,
     plannerMissing: (list) => `Not found in PoB's data: ${list}.`,
     plannerShort: (list) => `Attribute requirements not met: ${list}; the file has no jewels and not every attribute mod. Neutral attribute nodes went where the shortfall was largest.`,
-    plannerHint: "A build like this makes a good reference: Compare → With a reference build shows what your character lacks against the guide. Mind that the .build format has no jewels, runes, quality or PoB's configuration (charges, the enemy's state): the guide's damage and defence come out lower than in its full PoB code. The main skill is the one dealing the most damage.",
+    plannerHint: "A build like this makes a good target: Compare → With a build shows what your character lacks against the guide. Planner files have no runes, quality or PoB's configuration (charges, the enemy's state), and jewels only in files from poe2lab: the guide's damage and defence usually come out lower than in its full PoB code. The main skill is the one dealing the most damage.",
     plannerOk: "got it",
     attr_Str: "Strength", attr_Dex: "Dexterity", attr_Int: "Intelligence",
     leagueLabel: "League for prices:",

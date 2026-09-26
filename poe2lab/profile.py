@@ -37,6 +37,7 @@ class BuildProfile:
     mana_sustained: bool = False  # confirmed in game: the main skill can be spammed
     league: str | None = None
     target: str | None = None  # a build of the list the player follows (a guide at its end game)
+    planner: dict | None = None  # a build from the game's planner format: the guide's source, levels and notes
     corrections: list[Correction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     # filled when applied
@@ -55,6 +56,7 @@ class BuildProfile:
         return cls(
             group=main.get("group"), skill=main.get("skill", 1), rage=raw.get("rage"),
             mana_sustained=raw.get("mana_sustained", False), league=raw.get("league"), target=raw.get("target"),
+            planner=raw.get("planner"),
             corrections=[Correction(**c) for c in raw.get("corrections", [])],
             notes=raw.get("notes", []), path=path,
         )

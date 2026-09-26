@@ -34,7 +34,9 @@ async function api(path, opts = {}) {
     try { msg = (await res.json()).detail || msg; } catch (_) { /* not json */ }
     // FastAPI's own 404 for an unknown path: the page is newer than the server that serves it
     if (res.status === 404 && msg === "Not Found") msg = t("serverOutdated");
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -271,11 +273,19 @@ function renderAddBuild() {
     if (!name.value.trim()) name.placeholder = f.name.replace(/\.[^.]+$/, "");
   } });
   hideBuildChrome();
+  const fromGame = h("div", { class: "planner-files" });
+  api("/api/planner").then((p) => {
+    if (!p.files.length) return;
+    fromGame.replaceChildren(h("span", { class: "muted", title: p.dir }, t("addFromPlanner")),
+      ...p.files.map((f) => h("button", { class: "ghost small", title: `${p.dir}\\${f.file}`,
+        onclick: (e) => importFromPlanner(f.file, e.currentTarget) }, f.name)));
+  }).catch(() => { /* no planner folder: nothing to offer */ });
   $("#view").replaceChildren(h("div", { class: "card stack add-build" },
     h("h3", {}, t("addTitle")), h("div", { class: "sub" }, t("addSub")),
     name, code,
     h("div", { class: "row small" }, h("button", { class: "ghost small", onclick: () => file.click() }, t("addFile")),
       h("span", { class: "muted" }, t("addFileHint")), file),
+    fromGame,
     h("div", { class: "row" }, go, state.build
       ? h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")) : null)));
   code.focus();
@@ -286,8 +296,36 @@ $("#add-build").addEventListener("click", renderAddBuild);
 // what a build planner file became: level, what could not be matched, attributes still short
 function plannerReport(r) {
   const short = Object.entries(r.attributes.short || {}).filter(([, v]) => v > 0);
+  const p = r.passives || {};
+  const skills = r.skills || [], items = r.items || [];
+  const from = (x) => (x.from ? chip("tag", t("prFrom", x.from)) : null);
+  const kinds = {};
+  items.forEach((i) => { kinds[i.kind] = (kinds[i.kind] || 0) + 1; });
+  const passiveLine = [t("prAscendancy", p.ascendancy || 0),
+    ...Object.entries(p.weaponSets || {}).map(([ws, n]) => t("prWeaponSet", ws, n)),
+    t("prAttributes", p.attributes || 0, p.attributesChosen || 0),
+    p.jewelSockets ? t("prJewels", (p.jewels || []).length, p.jewelSockets) : null,
+    p.notes ? t("prNotes", p.notes) : null, p.levels ? t("prLevels", p.levels) : null].filter(Boolean).join(" · ");
+  const skillRow = (s) => h("li", {}, gemName(s.name), s.level ? h("span", { class: "muted small" }, " " + t("prGemLevel", s.level, s.quality)) : null,
+    " ", from(s), s.note ? h("div", { class: "small muted" }, s.note) : null,
+    s.supports.length ? h("div", { class: "small" }, s.supports.map((x, i) => [i ? ", " : "", trName(x.name),
+      x.from > 1 ? h("span", { class: "muted" }, ` (${t("prFrom", x.from)})`) : null])) : null);
+  const itemRow = (i) => h("li", { class: i.kind === "missing" ? "bad" : "" }, h("b", {}, slotName(i.slot)), ": ",
+    trItem(i.name), " ", chip(i.kind === "missing" ? "must" : "tag", t("prKind_" + i.kind)), " ", from(i));
   const card = h("div", { class: "card planner-report" }, h("h3", {}, t("plannerTitle", r.name)),
     h("div", { class: "sub" }, t("plannerSub", r.author || "—", r.level)),
+    r.link ? h("div", { class: "small" }, h("a", { href: r.link, target: "_blank", rel: "noopener" }, r.link)) : null,
+    r.description ? h("p", { class: "small pr-description" }, r.description) : null,
+    r.passives ? h("div", { class: "pr-grid" },
+      h("div", {}, h("b", {}, t("prPassives", p.total)), h("div", { class: "small muted" }, passiveLine)),
+      h("div", {}, h("b", {}, t("prSkills", skills.length, skills.reduce((n, s) => n + s.supports.length, 0))),
+        h("div", { class: "small muted" }, t("prSkillLevels", skills.filter((s) => s.from).length, skills.filter((s) => s.level).length))),
+      h("div", {}, h("b", {}, t("prItems", items.length)),
+        h("div", { class: "small muted" }, Object.entries(kinds).map(([k, n]) => `${t("prKind_" + k)}: ${n}`).join(" · ")))) : null,
+    skills.length ? h("details", {}, h("summary", {}, t("prSkillsList")), h("ul", { class: "pr-list" }, skills.map(skillRow))) : null,
+    items.length ? h("details", {}, h("summary", {}, t("prItemsList")), h("ul", { class: "pr-list" }, items.map(itemRow))) : null,
+    (r.unknown || []).length ? h("p", { class: "small warn" }, t("prUnknown", r.unknown.join(", "))) : null,
+    r.passives && (skills.some((s) => s.from) || items.some((i) => i.from)) ? h("p", { class: "small" }, t("prPlanKept")) : null,
     r.missing.length ? h("p", { class: "bad small" }, t("plannerMissing", r.missing.join(", "))) : null,
     short.length ? h("p", { class: "small" }, t("plannerShort", short.map(([a, v]) => `${t("attr_" + a)} −${v}`).join(", "))) : null,
     h("p", { class: "hint" }, t("plannerHint")),
@@ -325,6 +363,7 @@ function renderHeader() {
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
   $("#bh-reload").title = t("reloadHint");
+  $("#bh-planner").title = t("toPlannerHint");
   renderChanges();
   $("#bh-sub").textContent = `${trName(b.info.class)} / ${b.info.ascendancy ? trName(b.info.ascendancy) : t("noAscendancy")} · ${t("level", b.info.level)}`;
   // a picker with skill icons (a <select> cannot show images)
@@ -389,6 +428,34 @@ function renderReloadCode() {
 }
 
 $("#bh-reload").addEventListener("click", () => (state.build.kind === "pob" ? updateViaPob() : renderReloadCode()));
+$("#bh-planner").addEventListener("click", () => exportToPlanner());
+
+// the open build into the game's build planner folder (the game picks the file up at once)
+async function exportToPlanner(overwrite = false) {
+  const btn = $("#bh-planner");
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/planner/export?${buildQuery()}`,
+      { method: "POST", body: { overwrite, lang: LANG, who: $("#bh-sub").textContent } });
+    toast(t(r.overwritten ? "plannerReplaced" : "plannerWritten", r.file), true);
+  } catch (e) {
+    if (e.status !== 409) toast(e.message);
+    else if (!overwrite && await confirmInPage(t("plannerExists", e.message), t("plannerReplace"))) {
+      btn.disabled = false;
+      return exportToPlanner(true);
+    }
+  } finally { btn.disabled = false; }
+}
+
+async function importFromPlanner(file, btn) {
+  btn.disabled = true;
+  try {
+    const r = await api("/api/planner/import", { method: "POST", body: { file } });
+    toast(t("added", r.name), true);
+    await openBuild(r.name);
+    if (r.report) plannerReport(r.report);
+  } catch (e) { toast(e.message); btn.disabled = false; }
+}
 
 // A PoB-saved build changes only when PoB saves it: open PoB on that build (or bring it forward), tell the player
 // what to do there, and pick the save up by ourselves.
@@ -2230,6 +2297,7 @@ function renderSkillsLeveling(r) {
       source,
       h("div", { class: "lv-head" }, h("span", { class: "muted" }, t("lvLevel")), shown, slider, now),
       h("div", { class: "hint" }, t("lvHint")),
+      r.guide ? h("div", { class: "hint" }, t("lvGuideLevels")) : null,
       body),
     h("div", { class: "card" }, next),
     h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lvWhere")),

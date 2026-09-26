@@ -85,3 +85,103 @@ def test_added_from_the_interface(tmp_path, monkeypatch):
     assert r["name"] == "Test - 0.5.5 Ice Strike" and r["report"]["author"] == "someone"
     assert r["report"]["missing"] == [] and set(r["report"]["worn"]) == {"Ring 1", "Belt"}
     assert (tmp_path / f"{r['name']}.txt").is_file()
+
+
+def test_everything_the_format_holds_is_read():
+    # the format's forms: a level or [from, to]; a note naming the attribute; bare ids for passives and skills
+    assert buildplanner.interval(14) == [14, 100] and buildplanner.interval([41, 90]) == [41, 90]
+    assert buildplanner.interval(None) is None and buildplanner.interval("x") is None
+    assert buildplanner.attribute_choice("+5 to Dexterity") == "dex"
+    assert buildplanner.attribute_choice("<b>{+5 к интеллекту}") == "int" and buildplanner.attribute_choice("Сила") == "str"
+    assert buildplanner.attribute_choice("Strength or Intelligence") is None and buildplanner.attribute_choice("") is None
+    bare = buildplanner.parse(json.dumps({"name": "x", "passives": ["dexterity5"], "skills": ["Metadata/Items/Gems/SkillGemIceStrike"]}))
+    assert bare["passives"] == [{"id": "dexterity5"}] and bare["inventory_slots"] == []
+    odd = dict(PLAN, extra=1, passives=PLAN["passives"] + [{"id": "dexterity6", "colour": "red"}])
+    assert buildplanner.unknown_fields(odd) == ["extra", "passives.colour"]
+
+
+def test_the_guide_s_levels_and_notes_are_kept():
+    plan = json.loads(json.dumps(PLAN))
+    plan["description"] = "<b>{Ice Strike} from act 2"
+    plan["skills"][0]["level_interval"] = [14, 100]
+    plan["skills"][0]["support_skills"][0]["level_interval"] = 22
+    plan["inventory_slots"][0]["level_interval"] = [40, 100]
+    plan["passives"][2]["additional_text"] = "+5 to Intelligence"  # the neutral attribute node: its choice
+    code, report = buildplanner.to_code(json.dumps(plan), PobEngine())
+    assert report["description"] == "Ice Strike from act 2" and report["unknown"] == []
+    ice = report["skills"][0]
+    assert (ice["name"], ice["from"], ice["supports"][0]["from"]) == ("Ice Strike", 14, 22)
+    ring = next(i for i in report["items"] if i["slot"] == "Ring 1")
+    assert (ring["kind"], ring["from"]) == ("rare", 40)
+    assert report["passives"]["attributesChosen"] == 1 and report["attributes"]["chosen"] == {"Str": 0, "Dex": 0, "Int": 0}
+    assert report["plan"]["skills"][0]["from"] == 14 and report["plan"]["notes"] == {"attributes28": "+5 to Intelligence"}
+
+
+@pytest.fixture(scope="module")
+def rich():
+    """The monk (3 jewels, attribute choices) exported the way poe2lab writes it for the game, then imported back."""
+    source = PobEngine()
+    source.load_code((FIXTURES / "monk.txt").read_text())
+    levels = {"Ice Strike": 15}
+    text = buildplanner.export_rich(source, "monk", levels=levels, description="<b>{monk}", lang="ru",
+                                    plan={"source": {"author": "someone", "link": "https://example.org/guide"}})
+    engine = PobEngine()
+    code, report = buildplanner.to_code(text, engine)
+    return source, engine, report, json.loads(text)
+
+
+def test_the_export_carries_what_the_format_has_no_field_for(rich):
+    source, _, _, data = rich
+    assert data["author"] == "someone" and data["link"] == "https://example.org/guide" and data["description"] == "<b>{monk}"
+    jewel_notes = [p for p in data["passives"] if p["id"].startswith("jewel_slot") and p.get("additional_text")]
+    assert len(jewel_notes) == 3
+    assert any(p.get("additional_text", "").startswith("+5 к ") for p in data["passives"])
+    # an item's level requirement is when to take it; a unique is named for the game
+    assert all(e.get("level_interval", [0])[0] > 1 for e in data["inventory_slots"] if "level_interval" in e)
+    worn = {u["slot"] for u in source.equipped_item_details() if u["rarity"] == "UNIQUE"}
+    assert len([e for e in data["inventory_slots"] if e.get("unique_name")]) == len(worn)
+
+
+def test_jewels_and_attribute_choices_come_back(rich):
+    source, engine, report, _ = rich
+    assert report["missing"] == [] and len(report["passives"]["jewels"]) == 3
+    assert report["attributes"]["chosen"] == {"Str": 0, "Dex": 0, "Int": 0}  # every choice read, none guessed
+
+    def jewels(e):
+        return sorted(e._json("""
+local out = _poe2lab_array({})
+for nodeId, slot in pairs(build.itemsTab.sockets) do
+  local item = build.itemsTab.items[slot.selItemId]
+  if item and build.spec.allocNodes[nodeId] then out[#out + 1] = item.name end
+end
+return _poe2lab_json(out)"""))
+    assert [j.split(",")[0] for j in jewels(engine)] == [j.split(",")[0] for j in jewels(source)]
+    for attr in ("Str", "Dex", "Int"):
+        assert engine.stats()[attr] == pytest.approx(source.stats()[attr], abs=10)
+
+
+def test_the_game_s_planner_folder(tmp_path, monkeypatch):
+    from poe2lab.web.server import app, session
+    monkeypatch.setenv("POE2LAB_BUILDPLANNER", str(tmp_path / "planner"))
+    monkeypatch.setattr(library, "PROJECT_BUILDS", tmp_path / "builds")
+    monkeypatch.setattr(library, "TRASH", tmp_path / "builds" / ".trash")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    h = {"X-Poe2lab": "1"}
+    with TestClient(app) as client:
+        assert client.get("/api/planner").json() == {"dir": str(tmp_path / "planner"), "exists": False, "files": []}
+        client.post("/api/load", json={"name": "titan"}, headers=h)
+        first = client.post("/api/planner/export?build=titan", json={"lang": "ru"}, headers=h).json()
+        assert first["file"] == "titan.build" and not first["overwritten"]
+        written = json.loads((tmp_path / "planner" / "titan.build").read_text(encoding="utf-8"))
+        assert "poe2lab" in written["description"] and any(s.get("level_interval") for s in written["skills"])
+        assert client.post("/api/planner/export?build=titan", json={}, headers=h).status_code == 409
+        assert client.post("/api/planner/export?build=titan", json={"overwrite": True}, headers=h).json()["overwritten"]
+        listed = client.get("/api/planner").json()
+        assert [f["file"] for f in listed["files"]] == ["titan.build"]
+        assert client.post("/api/planner/import", json={"file": "../titan.txt"}, headers=h).status_code == 404
+        added = client.post("/api/planner/import", json={"file": "titan.build"}, headers=h).json()
+    session.engine = None
+    assert added["report"]["missing"] == [] and len(added["report"]["passives"]["jewels"]) == 3
+    profile = json.loads((tmp_path / "builds" / f"{added['name']}.profile.json").read_text(encoding="utf-8"))
+    assert profile["planner"]["skills"] and "plan" not in added["report"]
+

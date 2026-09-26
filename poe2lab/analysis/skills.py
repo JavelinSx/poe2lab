@@ -341,10 +341,12 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             "mechanics": {m.key: {"name": m.name, "explain": m.explain} for m in MECHANICS}}
 
 
-def leveling_view(engine, config: dict, groups: list[dict] | None = None) -> dict:
+def leveling_view(engine, config: dict, groups: list[dict] | None = None, levels: dict[str, int] | None = None) -> dict:
     """When each gem of the build can be had, and for each damaging skill the supports to use at each stage of
-    levelling - the build's own when available, otherwise the best alternatives PoB finds (several, to choose)."""
+    levelling - the build's own when available, otherwise the best alternatives PoB finds (several, to choose).
+    `levels`: the level a guide gives for a gem (its planner file), by gem name: used instead of when the gem drops."""
     groups = groups or engine.skill_groups()
+    levels = levels or {}
     timeline = {}
     plans = []
     for g in groups:
@@ -352,10 +354,11 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None) -> dic
             continue
         skill = next((x for x in g["gems"] if not x["support"]), None)
         for gem in g["gems"]:
-            gem["available"] = available_level(gem)
+            gem["available"] = levels.get(gem["name"]) or available_level(gem)
             if gem["available"] is not None:
                 at = timeline.setdefault(gem["available"], {})
-                entry = at.setdefault(gem["name"], {"name": gem["name"], "support": gem["support"], "skills": []})
+                entry = at.setdefault(gem["name"], {"name": gem["name"], "support": gem["support"], "skills": [],
+                                                    "guide": gem["name"] in levels})
                 if g["actives"][0]["name"] not in entry["skills"]:
                     entry["skills"].append(g["actives"][0]["name"])
         measure = _measure_group(engine, config, g)
@@ -393,5 +396,5 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None) -> dic
         plans.append({"group": g["index"], "skill": g["actives"][0]["name"], "main": g["main"],
                       "skillAvailable": skill and skill["available"], "slots": len(own), "stages": compact})
     return {"timeline": [{"level": lv, "gems": sorted(timeline[lv].values(), key=lambda x: (x["support"], x["name"]))}
-                         for lv in sorted(timeline)], "plans": plans,
+                         for lv in sorted(timeline)], "plans": plans, "guide": bool(levels),
             "uncutSkillArea": UNCUT_SKILL_AREA, "uncutSupportArea": UNCUT_SUPPORT_AREA}

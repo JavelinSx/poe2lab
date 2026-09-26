@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.items import breakeven, compare
-from ..analysis.skills import build_view as skill_build_view, leveling_view as skill_leveling_view
+from ..analysis.skills import available_level, build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.report import score as report_score
@@ -24,7 +24,7 @@ from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import plan_sockets
-from ..analysis.threats import MapProfile, survivable_hits
+from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
 from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
                          make_client)
@@ -426,21 +426,124 @@ class AddBuildRequest(BaseModel):
 
 @app.post("/api/builds")
 def add_build(req: AddBuildRequest):
+    return _add_build(req.name, req.code)
+
+
+def _add_build(name: str, code: str) -> dict:
     report = None
-    code = req.code
     if buildplanner.parse(code) is not None:
         # a build planner file: PoB builds it in an engine of its own (the open build stays as it is)
         try:
             code, report = buildplanner.to_code(code, PobEngine())
         except (buildplanner.BuildPlannerError, PobError) as err:
             raise HTTPException(400, f"не удалось собрать билд из файла планировщика: {err}")
-    name = req.name
     if not name.strip() and report and report["name"]:
         name = re.sub(r"\s+", " ", re.sub(r"[^\w\- .()]", " ", report["name"])).strip()[:60]
     try:
-        return {"name": library.add(name, code), "report": report}
+        name = library.add(name, code)
     except library.LibraryError as err:
         raise HTTPException(400, str(err))
+    if report:
+        # the guide's own levels, notes and source stay with the build: the levelling view and the export use them
+        library.save_profile(name, {"planner": report.pop("plan")})
+    return {"name": name, "report": report}
+
+
+# ---------- the game's build planner folder ----------
+class PlannerExport(BaseModel):
+    overwrite: bool = False
+    lang: str = "ru"
+    who: str = ""  # the class, ascendancy and level as the page shows them (its own translations)
+
+
+class PlannerImport(BaseModel):
+    file: str
+
+
+@app.get("/api/planner")
+def planner_files():
+    """The .build files in the game's planner folder (the game shows them in its build planner)."""
+    folder = buildplanner.planner_dir()
+    files = sorted(folder.glob("*.build"), key=lambda p: p.stat().st_mtime, reverse=True) if folder.is_dir() else []
+    return {"dir": str(folder), "exists": folder.is_dir(),
+            "files": [{"file": p.name, "name": p.stem, "size": p.stat().st_size, "mtime": p.stat().st_mtime}
+                      for p in files[:60]]}
+
+
+def _planner_description(lang: str, who: str = "") -> str:
+    """What the planner file says about the build in its description: who, the main skill, the key numbers."""
+    e, ru = session.engine, lang == "ru"
+    info = e.info()
+    out = e.what_if(config=session.profile.config())
+    names = i18n("ru")["names"] if ru else {}
+    tr = lambda n: names.get(n) or n  # noqa: E731
+
+    def num(v):
+        return f"{v:,.0f}".replace(",", "\u00a0" if ru else ",")
+    dps = out.get("CombinedDPS") or 0
+    dps_text = (f"{dps / 1e6:.1f} млн".replace(".", ",") if ru else f"{dps / 1e6:.1f}M") if dps >= 1e6 else num(dps)
+    res = " / ".join(f"{out.get(k, 0):.0f}" for k in ("FireResist", "ColdResist", "LightningResist"))
+    immune = (out.get("ChaosMaximumHitTaken") or 0) >= IMMUNE_HIT
+    res += (", иммунитет к хаосу" if ru else ", immune to chaos") if immune else f" / {out.get('ChaosResist', 0):.0f}"
+    skill = tr(e.main_skill())
+    who = re.sub(r"[{}]", "", who).strip() or (f"{tr(info['ascendancy'] or info['class'])}, "
+                                               + (f"{info['level']} ур." if ru else f"level {info['level']}"))
+    if ru:
+        lines = [f"<b>{{{who}}}", f"Основной скилл: {skill}, около {dps_text} урона в секунду по PoB.",
+                 f"Жизнь {num(out.get('Life', 0))}, энергощит {num(out.get('EnergyShield', 0))}, сопротивления {res}.",
+                 "Самоцветы и выбор атрибутов — в подсказках узлов дерева.",
+                 "Собрано в poe2lab: github.com/JavelinSx/poe2lab"]
+    else:
+        lines = [f"<b>{{{who}}}", f"Main skill: {skill}, about {dps_text} damage per second by PoB.",
+                 f"Life {num(out.get('Life', 0))}, energy shield {num(out.get('EnergyShield', 0))}, resistances {res}.",
+                 "Jewels and attribute choices: in the tree nodes' hover notes.",
+                 "Made with poe2lab: github.com/JavelinSx/poe2lab"]
+    return "\n".join(lines)
+
+
+@app.post("/api/planner/export")
+def planner_export(req: PlannerExport, build: str | None = None):
+    """The open build into the game's planner folder, as the game reads it (see buildplanner.export_rich); 409 when a
+    file of that name is there and overwrite is not asked."""
+    with session.lock:
+        session.require(build)
+        folder = buildplanner.planner_dir()
+        path = folder / f"{session.path.stem}.build"
+        existed = path.exists()
+        if existed and not req.overwrite:
+            raise HTTPException(409, path.name)
+        e = session.engine
+        levels = {g["name"]: lv for grp in e.skill_groups() for g in grp["gems"] if (lv := available_level(g))}
+        lang = req.lang if req.lang in ("ru", "en") else "ru"
+        text = _errors(lambda: buildplanner.export_rich(
+            e, session.path.stem, levels=levels, plan=session.bp.planner, description=_planner_description(lang, req.who),
+            lang=lang, names=i18n("ru")["names"] if lang == "ru" else None))
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(500, f"не удалось записать файл: {err}")
+        return {"path": str(path), "file": path.name, "overwritten": existed}
+
+
+@app.post("/api/planner/import")
+def planner_import(req: PlannerImport):
+    """A .build file of the game's planner folder added to the build list."""
+    folder = buildplanner.planner_dir()
+    path = folder / req.file
+    if Path(req.file).name != req.file or path.suffix.lower() != ".build" or not path.is_file():
+        raise HTTPException(404, f"нет файла {req.file!r} в папке планировщика")
+    return _add_build("", path.read_text(encoding="utf-8-sig"))
+
+
+def _guide_levels(bp) -> dict[str, int]:
+    """The levels a guide's planner file gives its gems (from 1 means "from the start": the drop level stays)."""
+    out = {}
+    for s in ((bp.planner or {}).get("skills") or []) if bp else []:
+        for g in [s] + list(s.get("supports") or []):
+            if g.get("from") and g["from"] > 1 and g.get("known", True):
+                out.setdefault(g["name"], g["from"])
+    return out
 
 
 class FavoriteRequest(BaseModel):
@@ -659,9 +762,10 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
             _, engine, bp = _reference(name)
             profile = MapProfile.for_level(engine.info()["level"], rage=bp.rage, mana_sustained=bp.mana_sustained)
             data = session.cached(("skills", "leveling", "target", name),
-                                  lambda: skill_leveling_view(engine, profile.config())) | {"of": name}
+                                  lambda: skill_leveling_view(engine, profile.config(), levels=_guide_levels(bp))) | {"of": name}
         else:
-            data = session.cached(("skills", "leveling"), lambda: skill_leveling_view(e, cfg))
+            data = session.cached(("skills", "leveling"),
+                                  lambda: skill_leveling_view(e, cfg, levels=_guide_levels(session.bp)))
         return _json(data)
 
 

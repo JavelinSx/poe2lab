@@ -623,3 +623,13 @@ details > summary .ico { margin-left: 2px; }
 .lv-mile { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
 .lv-mile b { color: var(--gold); }
 @media (max-width: 700px) { .lv-skill { flex-direction: column; } .lv-skill-head { width: auto; } }
+
+/* the game's build planner: the files of its folder, the import report */
+.planner-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.planner-files:empty { display: none; }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 8px 0; }
+.pr-list { margin: 6px 0; padding-left: 18px; }
+.pr-list li { margin: 4px 0; }
+.pr-description { white-space: pre-line; color: var(--muted); }
+.planner-report a { color: var(--gold); word-break: break-all; }
+.bh-title #bh-planner { margin-left: 6px; }

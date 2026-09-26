@@ -110,6 +110,12 @@ def add(name: str, text: str) -> str:
     return name
 
 
+def save_profile(name: str, raw: dict):
+    """The profile of a build of the list (builds/<name>.profile.json)."""
+    PROJECT_BUILDS.mkdir(exist_ok=True)
+    (PROJECT_BUILDS / f"{name}.profile.json").write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def remove(name: str) -> str:
     """A code build goes to builds/.trash with its profile; a PoB-saved build is hidden. Returns what happened."""
     entry = next((b for b in entries() if b["name"] == name), None)
