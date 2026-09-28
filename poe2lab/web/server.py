@@ -887,7 +887,7 @@ def _slot_choice(slot: str) -> dict:
     """The bases the slot takes (with what the page shows of each) and the uniques on them."""
     def compute():
         names = set(session.engine.slot_bases(slot))
-        bases = sorted((b for b in _item_data()["bases"] if b["name"] in names),
+        bases = sorted(itemcraft.endgame_bases([b for b in _item_data()["bases"] if b["name"] in names]),
                        key=lambda b: (b["type"], b["subType"], -b["level"], b["name"]))
         uniques = sorted(({"name": u["name"], "base": u["base"], "lines": u["lines"], "level": u["level"],
                            "raw": u["raw"], "ranged": any(jewelcraft.RANGE.search(l) for l in u["lines"])}
@@ -906,6 +906,7 @@ def gear_create(slot: str, build: str | None = None):
         return _json({"slot": slot, "bases": c["bases"], "uniques": [{k: v for k, v in u.items() if k != "raw"}
                                                                       for u in c["uniques"]],
                       "limits": itemcraft.LIMITS, "itemLevel": itemcraft.DEFAULT_ITEM_LEVEL,
+                      "itemLevels": itemcraft.ITEM_LEVELS,
                       "maxQuality": quality.DEFAULT_MAX})
 
 

@@ -14,6 +14,11 @@ from .data.moddb import ModDB
 
 LIMITS = {"normal": (0, 0), "magic": (1, 1), "rare": (3, 3)}  # rarity -> (prefixes, suffixes)
 DEFAULT_ITEM_LEVEL = 82
+# the item levels an end-game item is made at: every best tier (T1) rolls from 82, on jewellery too (PoB's data:
+# a ring's best life, resistances and attributes want 81-82), so below 80 a made item only loses tiers
+ITEM_LEVELS = (80, 81, 82)
+ENDGAME_BASE = 65  # an armour's or weapon's base from this level (the expert tier) - or its type's best
+ALL_BASES = ("Ring", "Amulet", "Belt", "Quiver", "Jewel", "Flask", "Charm")  # none above 64: each for its implicit
 RARE_TITLE = "Crafted Item"
 SETS = ("Item", "Desecrated")
 
@@ -37,6 +42,17 @@ def families(db: ModDB, base_tags, item_level: int) -> list[dict]:
                                "open": m.level <= item_level} for i, m in enumerate(mods)]})
     out.sort(key=lambda f: (f["type"], f["set"] != "Item", f["tiers"][-1]["lines"]))
     return out
+
+
+def endgame_bases(bases: list[dict]) -> list[dict]:
+    """The bases an end-game item is made on. For armour and weapons: the expert tier (a base from level 65) or the
+    best level of its type (sceptres stop at 65), since a lower base of the same defence or weapon only has less of
+    it; the few low bases of no defence type are for uniques (they stay in the uniques' list). Jewellery and quivers:
+    every base - none goes above level 64, and each has its own implicit."""
+    top: dict[str, int] = {}
+    for b in bases:
+        top[b["type"]] = max(top.get(b["type"], 0), b["level"])
+    return [b for b in bases if b["type"] in ALL_BASES or b["level"] >= min(ENDGAME_BASE, top[b["type"]])]
 
 
 def _roll(value) -> float:

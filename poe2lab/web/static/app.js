@@ -1172,9 +1172,10 @@ async function itemEditor(slot) {
         for (const side of ["Prefix", "Suffix"]) ed.slots[side] = ed.slots[side].slice(0, cat.limits[k][side === "Prefix" ? 0 : 1]);
         draw(); refresh();
       } }, t("jwRarity_" + k))));
-    const ilvl = h("input", { type: "number", min: 1, max: 100, value: ed.ilvl, style: "width:64px",
-      onchange: () => { ed.ilvl = Math.max(1, Math.min(100, Number(ilvl.value) || cat.itemLevel)); loadMods(); } });
-    const parts = [head, h("div", { class: "row" }, rarity, h("label", { class: "muted small" }, t("mkItemLevel"), " ", ilvl))];
+    // an end-game item: 80-82 (every best tier rolls from 82, jewellery's too)
+    const ilvl = h("div", { class: "segmented", title: t("mkItemLevelHint") }, (cat.itemLevels || [cat.itemLevel]).map((lv) =>
+      h("button", { class: ed.ilvl === lv ? "active" : "", onclick: () => { if (ed.ilvl !== lv) { ed.ilvl = lv; loadMods(); } } }, String(lv))));
+    const parts = [head, h("div", { class: "row" }, rarity, h("span", { class: "muted small" }, t("mkItemLevel")), ilvl)];
     if (b.quality) {
       const val = h("span", { class: "q-val" }, `${ed.quality}%`);
       parts.push(h("div", { class: "q-row" }, h("b", {}, t("gearQuality")), val,

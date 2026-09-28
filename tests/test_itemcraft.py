@@ -62,3 +62,14 @@ def test_a_rare_item_as_the_game_copies_it(fams):
 def test_what_the_game_would_not_make(fams, rarity, picks, error):
     with pytest.raises(itemcraft.CraftError, match=error):
         itemcraft.make(BASE, rarity, 70, picks, fams, None, 0.5, resolve)
+
+
+def test_end_game_bases_only():
+    b = lambda name, type_, level, sub="": {"name": name, "type": type_, "subType": sub, "level": level}  # noqa: E731
+    bases = [b("Warlord Cuirass", "Body Armour", 80, "Armour"), b("Expert", "Body Armour", 65, "Armour"),
+             b("Rusted Cuirass", "Body Armour", 12, "Armour"), b("Unique only", "Body Armour", 20),
+             b("Sceptre", "Sceptre", 65), b("Old Sceptre", "Sceptre", 26),
+             b("Iron Ring", "Ring", 0), b("Biostatic Ring", "Ring", 52)]
+    assert [x["name"] for x in itemcraft.endgame_bases(bases)] == [
+        "Warlord Cuirass", "Expert", "Sceptre", "Iron Ring", "Biostatic Ring"]  # every ring: each has its implicit
+    assert itemcraft.ITEM_LEVELS == (80, 81, 82) and itemcraft.DEFAULT_ITEM_LEVEL == 82
