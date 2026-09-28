@@ -2501,16 +2501,20 @@ function openTreeViewer(graph, tree, asc) {
     line: "rgba(153,161,174,.28)", node: "#2b303a", nodeEdge: "rgba(153,161,174,.55)", bg: col("--bg", "#0f1115") };
   // the ascendancy: the plan (the best set of notables the points left buy) counts as growth, with its road; the
   // other notables PoB values are "useful" (pale); with no points left, every option worth something is growth
-  const plans = asc ? [asc.plan, ...(asc.choices || []).map((c) => c.plan)].filter(Boolean) : [];
-  const ascUseful = asc ? [...(asc.options || []), ...(asc.choices || []).flatMap((c) => c.notables)].filter((o) => o.value > 0.05) : [];
-  const planned = new Set(plans.flatMap((p) => p.ids));
-  const ascGrowth = plans.length ? [...planned] : ascUseful.map((o) => o.id);
-  const growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascGrowth]);
-  const road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...plans.flatMap((p) => p.path),
-    ...(plans.length ? [] : ascUseful.flatMap((o) => o.path || []))]);
-  const useful = new Set(ascUseful.map((o) => o.id).filter((id) => !growth.has(id)));
-  const worth = new Map([...(tree.growth || []).map((g) => [g.id, g]), ...ascUseful.map((o) => [o.id, o])]);
-  const respec = new Set((tree.respec || []).map((b) => b.id));
+  let planned, growth, road, useful, worth, respec;
+  const suggest = (tree, asc) => {
+    const plans = asc ? [asc.plan, ...(asc.choices || []).map((c) => c.plan)].filter(Boolean) : [];
+    const ascUseful = asc ? [...(asc.options || []), ...(asc.choices || []).flatMap((c) => c.notables)].filter((o) => o.value > 0.05) : [];
+    planned = new Set(plans.flatMap((p) => p.ids));
+    const ascGrowth = plans.length ? [...planned] : ascUseful.map((o) => o.id);
+    growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascGrowth]);
+    road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...plans.flatMap((p) => p.path),
+      ...(plans.length ? [] : ascUseful.flatMap((o) => o.path || []))]);
+    useful = new Set(ascUseful.map((o) => o.id).filter((id) => !growth.has(id)));
+    worth = new Map([...(tree.growth || []).map((g) => [g.id, g]), ...ascUseful.map((o) => [o.id, o])]);
+    respec = new Set((tree.respec || []).map((b) => b.id));
+  };
+  suggest(tree, asc);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const R = { Normal: 22, Notable: 36, Keystone: 52, Socket: 30, ClassStart: 46, AscendClassStart: 46, Mastery: 30 };
   // each node's own picture (unpacked from the game), loaded once and drawn when the node is big enough to see it
@@ -2552,6 +2556,24 @@ function openTreeViewer(graph, tree, asc) {
   const dot = (c, ring) => h("span", { class: "tv-dot", style: ring ? `border:2px solid ${c}` : `background:${c}` });
   let edited = false, busy = false;
   const pointsBox = h("span", { class: "tv-points" });
+  const regrow = h("button", { class: "ghost small tv-regrow", title: t("tvRegrowHint"), onclick: async () => {
+    if (busy) return;
+    busy = true;
+    regrow.disabled = true;
+    regrow.textContent = t("tvRegrowing");
+    try {
+      const points = state.treePoints || 6;
+      const [tr, as] = await Promise.all([api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`),
+        api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`).catch(() => null)]);
+      suggest(tr, as);
+      regrow.classList.remove("stale");
+      draw();
+      toast(tr.growth.length ? t("tvRegrown", tr.growth.length) : t("treeNothing"), !!tr.growth.length);
+    } catch (e) { toast(e.message); }
+    busy = false;
+    regrow.disabled = false;
+    regrow.textContent = t("tvRegrow");
+  } }, t("tvRegrow"));
   const drawPoints = () => {
     const b = graph.budget;
     if (!b) return;
@@ -2566,14 +2588,15 @@ function openTreeViewer(graph, tree, asc) {
     if (edited) { resetCache(); switchTab("tree"); }  // the tab's numbers follow the edits
   };
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox,
+  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox, regrow,
     h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
       useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : null, dot(C.bad, true), t("tvRespec")),
     h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
   document.body.append(overlay);
   document.addEventListener("keydown", onKey);
 
-  const visible = () => graph.nodes.filter((n) => (showAsc ? n.asc : !n.asc));
+  // a node with no links at all is not reached by a path (sockets and notables granted otherwise): shown taken only
+  const visible = () => graph.nodes.filter((n) => (showAsc ? n.asc : !n.asc) && (n.alloc || n.links.length));
   function fit() {
     const all = visible();
     const focus = showAsc ? all : all.filter((n) => n.alloc || growth.has(n.id) || road.has(n.id));
@@ -2646,7 +2669,7 @@ function openTreeViewer(graph, tree, asc) {
         ctx.clip();
         ctx.fillStyle = C.node;
         ctx.fill();
-        if (!status) ctx.filter = "grayscale(1) brightness(0.55)";
+        if (!status) ctx.filter = "brightness(0.8)";
         ctx.drawImage(img, x - r, y - r, 2 * r, 2 * r);
         ctx.restore();
         ctx.beginPath();
@@ -2785,6 +2808,7 @@ function openTreeViewer(graph, tree, asc) {
       byId.clear();
       for (const x of graph.nodes) byId.set(x.id, x);
       edited = true;
+      regrow.classList.add("stale");  // the green suggestions were for the tree before this click
       drawPoints();
       hover = byId.get(n.id) || null;
       showTip(hover, e.clientX - at.left, e.clientY - at.top);

@@ -614,6 +614,7 @@ details > summary .ico { margin-left: 2px; }
 .gear-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
 .gear-top > .card { position: sticky; top: 8px; }
 .tv-points { font-size: 13px; }
+.tv-regrow.stale { border-color: var(--good); color: var(--good); box-shadow: 0 0 0 1px rgba(95, 201, 141, .35); }
 .tv-act { margin-top: 6px; font-weight: 600; }
 .tree-canvas.busy { cursor: progress; }
 
