@@ -613,6 +613,10 @@ details > summary .ico { margin-left: 2px; }
 .tip-name.r-magic { color: #9d9dff; }
 .gear-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
 .gear-top > .card { position: sticky; top: 8px; }
+.tv-points { font-size: 13px; }
+.tv-act { margin-top: 6px; font-weight: 600; }
+.tree-canvas.busy { cursor: progress; }
+
 /* the build constructor */
 .nb { max-width: 1100px; }
 .nb h2 { margin: 0; }

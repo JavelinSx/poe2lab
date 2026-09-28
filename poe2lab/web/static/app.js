@@ -2022,7 +2022,7 @@ TABS.tree = async (view) => {
     h("div", { class: "row" }, openTree, h("span", { class: "muted small" }, t("psOpenTreeHint"))),
     h("div", { class: "sub" }, t("treeIntro", r.allocated)),
     asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error)) : ascendancyCard(asc, graph),
-    planCard(r.plan), jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : jewelCard(jw),
+    planCard(r.plan, r.points), jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : jewelCard(jw),
     growth, roadOnly, respec, takenCard(graph),
     listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
     listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
@@ -2074,7 +2074,15 @@ function editButton(action, node) {
     onclick: () => treeCall(`/api/tree/${action}`, { id: node.id, name: node.name }) }, action === "add" ? t("take") : t("drop"));
 }
 
-function planCard(plan) {
+function pointsLine(p) {
+  if (!p) return null;
+  const left = p.total - p.used;
+  return h("div", { class: "tv-points" }, h("b", { class: left < 0 ? "neg" : "" }, t("tvPoints", p.used, p.total)),
+    h("span", { class: left < 0 ? "neg" : "muted" }, " · " + (left < 0 ? t("tvOver", -left) : t("tvLeft", left))),
+    h("span", { class: p.asc > p.ascTotal ? "neg" : "muted" }, " · " + t("tvAscPoints", p.asc, p.ascTotal)));
+}
+
+function planCard(plan, points) {
   const optimize = h("button", { class: "primary", onclick: async () => {
     const r = await treeCall("/api/tree/optimize", { mode: state.mode, seed: Math.floor(Math.random() * 1e9) }, t("optimizing"));
     if (r) toast(r.found ? t("optimized", r.found) : t("optimizedNone"), !!r.found);
@@ -2108,12 +2116,11 @@ function planCard(plan) {
     ? h("li", {}, h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
     : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
       : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`);
-  const over = plan && plan.used > plan.budget;
+  // the points: what the character's level gives (pointsLine) - "more than the build had" said little for a build
+  // being made from nothing
   return h("div", { class: "card plan" },
-    h("h3", {}, t("planTitle")), h("div", { class: "sub" }, t("planSub", t("mode_" + state.mode))),
+    h("h3", {}, t("planTitle")), h("div", { class: "sub" }, t("planSub", t("mode_" + state.mode))), pointsLine(points),
     plan ? h("div", { class: "stack" },
-      h("div", {}, h("b", { class: over ? "neg" : "" }, t("planPoints", plan.used, plan.budget)),
-        over ? h("span", { class: "neg" }, " " + t("planOver", plan.used - plan.budget)) : null),
       h("div", {}, h("div", { class: "sub", style: "margin:0 0 4px" }, t("planVsBuild")), deltas(plan.changes, METRIC, 0.3)),
       plan.log.length ? h("details", {}, h("summary", {}, t("planLog", plan.log.length)), h("ul", { class: "plan-log" }, plan.log.map(logLine))) : null,
       h("div", { class: "hint" }, t("planNote")))
@@ -2543,9 +2550,23 @@ function openTreeViewer(graph, tree, asc) {
       fit(); draw();
     } }, label)));
   const dot = (c, ring) => h("span", { class: "tv-dot", style: ring ? `border:2px solid ${c}` : `background:${c}` });
-  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); window.removeEventListener("resize", draw); };
+  let edited = false, busy = false;
+  const pointsBox = h("span", { class: "tv-points" });
+  const drawPoints = () => {
+    const b = graph.budget;
+    if (!b) return;
+    const left = b.total - b.used;
+    pointsBox.replaceChildren(h("b", { class: left < 0 ? "neg" : "" }, t("tvPoints", b.used, b.total)),
+      h("span", { class: left < 0 ? "neg" : "muted" }, " · " + (left < 0 ? t("tvOver", -left) : t("tvLeft", left))),
+      h("span", { class: b.asc > b.ascTotal ? "neg" : "muted" }, " · " + t("tvAscPoints", b.asc, b.ascTotal)));
+  };
+  drawPoints();
+  const close = () => {
+    overlay.remove(); document.removeEventListener("keydown", onKey); window.removeEventListener("resize", draw);
+    if (edited) { resetCache(); switchTab("tree"); }  // the tab's numbers follow the edits
+  };
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg,
+  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox,
     h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
       useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : null, dot(C.bad, true), t("tvRespec")),
     h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
@@ -2714,11 +2735,14 @@ function openTreeViewer(graph, tree, asc) {
       road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null, useful.has(n.id) ? t("tvUseful") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
     const w = worth.get(n.id);
+    const start = n.type === "ClassStart" || n.type === "AscendClassStart";
+    const act = start ? null : n.alloc ? t("tvClickDrop", n.drop) : n.cost ? t("tvClickTake", n.cost) : t("tvUnreachable");
     tip.replaceChildren(...[h("div", { class: "row", style: "gap:8px;align-items:center" },
       n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
-      stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null].filter(Boolean));
+      stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null,
+      act ? h("div", { class: "tv-act " + (n.alloc ? "neg" : "pos") }, act) : null].filter(Boolean));
     tip.classList.remove("hidden");
     const bw = overlay.clientWidth;
     tip.style.left = `${Math.min(x + 16, bw - 340)}px`;
@@ -2740,13 +2764,34 @@ function openTreeViewer(graph, tree, asc) {
     if (n !== hover) { hover = n; draw(); }
     if (!pinned) showTip(n, e.clientX - overlay.getBoundingClientRect().left, e.clientY - overlay.getBoundingClientRect().top);
   });
-  canvas.addEventListener("click", (e) => {
-    if (drag && drag.moved) return;
-    const rect = canvas.getBoundingClientRect();
+  // a click as in PoB: a node not taken is taken with the path to it, a taken one goes with what hangs on it
+  canvas.addEventListener("click", async (e) => {
+    if ((drag && drag.moved) || busy) return;
+    const rect = canvas.getBoundingClientRect(), at = overlay.getBoundingClientRect();
     const n = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
-    pinned = n && n !== pinned ? n : null;
-    showTip(pinned || n, e.clientX - overlay.getBoundingClientRect().left, e.clientY - overlay.getBoundingClientRect().top);
-    draw();
+    if (!n || n.type === "ClassStart" || n.type === "AscendClassStart" || (!n.alloc && !n.cost)) {
+      pinned = n && n !== pinned ? n : null;
+      showTip(pinned || n, e.clientX - at.left, e.clientY - at.top);
+      draw();
+      return;
+    }
+    busy = true;
+    canvas.classList.add("busy");
+    try {
+      await api(`/api/tree/${n.alloc ? "remove" : "add"}`, { method: "POST", body: { id: n.id, name: n.name } });
+      const fresh = await api(`/api/tree/graph?${buildQuery()}`);
+      graph.nodes = fresh.nodes;
+      graph.budget = fresh.budget;
+      byId.clear();
+      for (const x of graph.nodes) byId.set(x.id, x);
+      edited = true;
+      drawPoints();
+      hover = byId.get(n.id) || null;
+      showTip(hover, e.clientX - at.left, e.clientY - at.top);
+      draw();
+    } catch (err) { toast(err.message); }
+    busy = false;
+    canvas.classList.remove("busy");
   });
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();

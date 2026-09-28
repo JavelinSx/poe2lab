@@ -363,8 +363,12 @@ for id, node in pairs(spec.nodes) do
     local arcs = _poe2lab_array({})
     for _, c in pairs(node.connections or {}) do arcs[#arcs + 1] = { id = c.id, orbit = c.orbit or 0 } end
     local g = node.group  -- PoB's group tables carry no id: the group's number is node.g
+    -- what a click would do: allocate the path to it (cost: points) or take it off with what hangs on it (drop)
+    local cost = (not node.alloc and node.path) and #node.path or 0
+    local drop = node.alloc and #(node.depends or {}) or 0
     nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "", icon = node.icon or "",
       stats = _poe2lab_array(node.sd or {}), asc = node.ascendancyName or "", alloc = node.alloc and true or false,
+      cost = cost, drop = drop,
       links = links, arcs = arcs, group = node.g or 0, o = node.o or 0,
       gx = g and g.x * tree.scaleImage or 0, gy = g and g.y * tree.scaleImage or 0,
       r = node.o and tree.orbitRadii[node.o + 1] and tree.orbitRadii[node.o + 1] * tree.scaleImage or 0 }
@@ -395,7 +399,20 @@ end
 local radii = _poe2lab_array({})
 for i, r in ipairs(tree.orbitRadii or {}) do radii[i] = r * tree.scaleImage end
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
-  ascendancyPoints = ascUsed, art = art, orbitRadii = radii })""")
+  ascendancyPoints = ascUsed, art = art, orbitRadii = radii })""") | {"budget": self.points_budget()}
+
+    def points_budget(self) -> dict:
+        """Passive points: used on the main tree (a node taken in both weapon sets counts once) and how many the
+        character's level gives (level - 1, the quest points of the acts done by that level, extra points from the
+        build - PoB's own count, EstimatePlayerProgress); ascendancy points used of 8."""
+        return self._json("""
+local used, asc, _, _, ws1, ws2 = build.spec:CountAllocNodes()
+local extra = build.calcsTab.mainOutput and build.calcsTab.mainOutput.ExtraPoints or 0
+local level = build.characterLevel or 1
+local quest = 0
+for _, a in ipairs(build.acts or {}) do if (a.level or 0) <= level then quest = a.questPoints or quest end end
+local total = math.min(level - 1 + quest + extra, 99 + (build.maxWeaponSets or 0) + extra)
+return _poe2lab_json({ used = used - math.min(ws1 or 0, ws2 or 0), total = total, asc = asc or 0, ascTotal = 8 })""")
 
     def class_ascendancies(self) -> list[dict]:
         """The ascendancies of the build's class with their notables - to choose from while none is taken."""

@@ -62,3 +62,17 @@ def test_made_from_the_interface_and_saved_into_itself(tmp_path, monkeypatch):
         assert any((tmp_path / ".trash").iterdir())
         assert client.get("/api/builds/code").json()["code"]
     server.session.engine = None
+
+
+def test_the_tree_s_points_and_what_a_click_does(engine):
+    """The points a level gives, and a node's cost (its path) before a click takes it, what drops with it after."""
+    engine.load_xml(newbuild.empty_build(engine, "Monk2", 92), "new")
+    budget = engine.points_budget()
+    assert budget == {"used": 0, "total": 115, "asc": 0, "ascTotal": 8}  # 91 by level, 24 from the acts' quests
+    graph = engine.tree_graph()
+    assert graph["budget"] == budget
+    node = next(n for n in graph["nodes"] if not n["alloc"] and n["type"] == "Notable" and not n["asc"] and 0 < n["cost"] <= 8)
+    assert len(engine.tree_add(node["id"])) == node["cost"] and engine.points_budget()["used"] == node["cost"]
+    after = {n["id"]: n for n in engine.tree_graph()["nodes"]}[node["id"]]
+    assert after["alloc"] and after["cost"] == 0 and after["drop"] >= 1
+    assert len(engine.tree_remove(node["id"])) == after["drop"]

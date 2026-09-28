@@ -1077,7 +1077,7 @@ def tree(mode: str = "balanced", points: int = 6, build: str | None = None):
         points = max(1, min(points, 10))
         result = session.cached(("tree", mode, points), lambda: analyse_tree(
             session.engine, session.profile, mode=mode, max_points=points))
-        return _json(result | {"plan": _plan_view()})
+        return _json(result | {"plan": _plan_view(), "points": session.engine.points_budget()})
 
 
 @app.get("/api/tree/graph")
