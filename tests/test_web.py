@@ -166,3 +166,118 @@ def test_a_profile_the_build_cannot_open_with_is_not_kept(client):
     assert client.get("/api/build").json()["profileRaw"] == before
     b = client.get("/api/build").json()
     assert b["info"]["mainActiveSkill"] >= 1
+
+
+def test_jewels_in_the_tree_s_sockets(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    client.post("/api/tree/reset", headers=H)
+    sockets = client.get("/api/jewels").json()["sockets"]
+    filled = [s for s in sockets if s["item"]]
+    assert len(filled) >= 2 and all(s["near"] and "dps" in s["without"] for s in filled)
+    first, second = filled[:2]
+    cat = client.get("/api/jewels/catalog").json()
+    assert {"Ruby", "Emerald", "Sapphire"} <= {b["name"] for b in cat["bases"]}
+    assert "Diamond" not in {b["name"] for b in cat["bases"]}  # uniques only
+    ruby = next(b for b in cat["bases"] if b["name"] == "Ruby")
+    prefixes = [m for m in ruby["mods"] if m["type"] == "Prefix" and m["set"] == "Jewel"]
+    # a jewel made on a base: previewed against the one in the socket, with the game's limits
+    craft = {"node": first["node"], "base": "Ruby", "rarity": "rare",
+             "mods": [{"id": prefixes[0]["id"], "roll": 1}, {"id": prefixes[1]["id"], "roll": 0}]}
+    p = client.post("/api/jewels/preview", json=craft, headers=H).json()
+    assert p["item"]["type"] == "Jewel" and len(p["item"]["explicit"]) >= 2 and "dps" in p["change"]
+    too_many = craft | {"rarity": "magic"}
+    r = client.post("/api/jewels/preview", json=too_many, headers=H)
+    assert r.status_code == 400 and "префиксов не больше 1" in r.json()["detail"]
+    weapon = client.get("/api/item/Weapon 1").json()["text"]
+    r = client.post("/api/jewels/preview", json={"node": first["node"], "text": weapon}, headers=H)
+    assert r.status_code == 400 and "не самоцвет" in r.json()["detail"]
+    # a unique into one socket, the other taken out: edits of the plan
+    adorned = next(u for u in cat["uniques"] if u["name"] == "The Adorned")
+    plan = client.post("/api/jewels/set", json={"node": first["node"], "unique": adorned["name"], "roll": 1}, headers=H).json()
+    assert plan["log"][-1] == {"action": "jewel", "target": first["near"], "added": "The Adorned, Diamond",
+                               "removed": first["item"]["name"]}
+    r = client.post("/api/jewels/preview", json={"node": second["node"], "unique": "The Adorned"}, headers=H)
+    assert r.status_code == 400 and "не больше 1" in r.json()["detail"]  # Limited to: 1
+    client.post("/api/jewels/remove", json={"node": second["node"]}, headers=H)
+    now = {s["node"]: s["item"] for s in client.get("/api/jewels").json()["sockets"]}
+    assert now[first["node"]]["name"] == "The Adorned, Diamond" and not now[second["node"]]
+    # reset: the build's own jewels are back
+    client.post("/api/tree/reset", headers=H)
+    back = {s["node"]: s["item"] and s["item"]["name"] for s in client.get("/api/jewels").json()["sockets"]}
+    assert back == {s["node"]: s["item"] and s["item"]["name"] for s in sockets}
+
+
+def test_a_jewel_copied_from_the_russian_client(client):
+    """The advanced copy names each affix: a jewel's are found among the jewel mods."""
+    import re
+    from poe2lab import gamedata, journal
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    node = client.get("/api/jewels").json()["sockets"][0]["node"]
+    ruby = next(b for b in client.get("/api/jewels/catalog").json()["bases"] if b["name"] == "Ruby")
+    m = next(m for m in ruby["mods"] if m["set"] == "Jewel" and len(m["lines"]) == 1 and "(" in m["lines"][0])
+    balance = gamedata.RAW / "data/balance"
+    ids = [r["Id"] for r in gamedata.read_table(balance / "mods.datc64", ["Id"])]
+    affix = journal._variants(list(gamedata.read_table(balance / "russian/mods.datc64", ["Name"]))[ids.index(m["id"])]["Name"])[0]
+    line = re.sub(r"\((\d+)-\d+\)", r"\1", m["lines"][0])  # rolled at the low end: "4(4-6)%" in the copy
+    copied = re.sub(r"\((\d+)-(\d+)\)", r"\1(\1-\2)", m["lines"][0])
+    side = "Префикс" if m["type"] == "Prefix" else "Суффикс"
+    text = "\n".join(["Класс предмета: Самоцветы", "Редкость: Волшебный", "Рубин", "--------", "Уровень предмета: 80",
+                      "--------", f'{{ {side} "{affix}" (Уровень: 1) — Тег }}', copied])
+    r = client.post("/api/jewels/preview", json={"node": node, "text": text}, headers=H)
+    assert r.status_code == 200, r.json()
+    assert r.json()["item"]["baseName"] == "Ruby" and r.json()["item"]["explicit"][0]["line"] == line
+
+
+def test_gems_in_any_skill(client):
+    """Supports into a skill by the game's rules, a skill gem swapped, a new skill, gems taken out; reset puts back."""
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    client.post("/api/tree/reset", headers=H)
+    shape = lambda: [[x["name"] for x in g["gems"]] for g in client.get("/api/skills?view=build").json()["groups"]]  # noqa: E731
+    start = shape()
+    groups = client.get("/api/skills?view=build").json()["groups"]
+    # the main skill has its five supports: one more is refused, and a support of a family it has is named
+    main = next(g for g in groups if g["main"])
+    assert sum(x["support"] for x in main["gems"]) == 5
+    opts = client.get(f"/api/gems/options?group={main['index']}&kind=support").json()
+    assert opts["skill"] == main["actives"][0]["name"] and opts["gems"]
+    has = {x["family"]: x["name"] for x in main["gems"] if x["support"]}
+    assert all(x["blocked"] == ({"code": "family", "gem": has[x["family"]]} if x["family"] in has else {"code": "full"})
+               for x in opts["gems"])
+    r = client.post("/api/gems/preview", json={"group": main["index"], "gem": opts["gems"][-1]["id"]}, headers=H)
+    assert r.status_code == 400 and "не больше 5" in r.json()["detail"]
+    # a skill with room: a support in, then another tier of it is refused
+    room = next(g for g in groups if g["actives"] and g["gems"][0]["index"] == 1 and not g["gems"][0]["support"]
+                and sum(x["support"] for x in g["gems"]) < 4)
+    opts = client.get(f"/api/gems/options?group={room['index']}&kind=support").json()["gems"]
+    families = [x["family"] for x in opts]
+    pick = next(x for x in opts if not x["blocked"] and families.count(x["family"]) > 1)
+    body = {"group": room["index"], "gem": pick["id"]}
+    p = client.post("/api/gems/preview", json=body, headers=H).json()
+    assert "dps" in p["change"] and p["own"]["before"] >= 0 and p["dropped"] == []
+    r = client.post("/api/gems/set", json=body, headers=H).json()
+    assert r["plan"]["log"][-1] == {"action": "gem", "target": room["actives"][0]["name"], "added": pick["name"],
+                                    "level": None, "quality": 0, "removed": None, "dropped": []}
+    after = client.get(f"/api/gems/options?group={room['index']}&kind=support").json()["gems"]
+    twin = next(x for x in after if x["family"] == pick["family"] and x["id"] != pick["id"])
+    assert twin["blocked"] == {"code": "family", "gem": pick["name"]}
+    r = client.post("/api/gems/preview", json={"group": room["index"], "gem": twin["id"]}, headers=H)
+    assert r.status_code == 400 and "того же вида" in r.json()["detail"]
+    # ... but in its place it goes in
+    at = next(x["index"] for x in client.get("/api/skills?view=build").json()["groups"][room["index"] - 1]["gems"]
+              if x["name"] == pick["name"])
+    assert client.post("/api/gems/preview", json=body | {"gem": twin["id"], "index": at}, headers=H).status_code == 200
+    # a new skill: a skill gem at the highest level the character can use; one above it is refused
+    skills = client.get("/api/gems/options?kind=skill").json()
+    gem = next(x for x in skills["gems"] if x["usable"] >= 1)
+    r = client.post("/api/gems/preview", json={"gem": gem["id"], "level": gem["usable"] + 1}, headers=H)
+    # past the character's level, or (a character of 90 and more) past the gem's cap
+    assert r.status_code == 400 and ("уровня персонажа" in r.json()["detail"] or "от 1 до" in r.json()["detail"])
+    r = client.post("/api/gems/set", json={"gem": gem["id"], "quality": 20}, headers=H).json()
+    added = client.get("/api/skills?view=build").json()["groups"]
+    assert len(added) == len(groups) + 1 and r["plan"]["log"][-1]["level"] == gem["usable"]
+    # the new skill taken out with its gem: gone again
+    client.post("/api/gems/remove", json={"group": r["group"], "index": 1}, headers=H)
+    assert len(client.get("/api/skills?view=build").json()["groups"]) == len(groups)
+    assert client.post("/api/gems/remove", json={"group": main["index"], "index": 99}, headers=H).status_code == 400
+    client.post("/api/tree/reset", headers=H)
+    assert shape() == start

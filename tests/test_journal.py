@@ -144,7 +144,7 @@ def test_estimate_moves_towards_what_rolls(db):
 def greater_draws(db, level, low, n=80, seed=2):
     """Transmutations by an orb that adds nothing below `level`; with `low`, a mod with no tier that high rolls."""
     tags = tuple(db.bases[BASE]["tags"])
-    pool = db.rollable(tags, 80)
+    pool = sorted(db.rollable(tags, 80), key=lambda m: m.id)  # PoB lists mods in Lua table order: vary by run
     top = {}
     for m in pool:
         top[journal.family(m)] = max(top.get(journal.family(m), 0), m.level)

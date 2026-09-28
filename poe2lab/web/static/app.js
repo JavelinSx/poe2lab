@@ -1456,10 +1456,11 @@ const fitChips = (f) => (f && (f.fits.length || f.misses.length) ? h("div", { cl
 TABS.tree = async (view) => {
   view.replaceChildren(loading(t("treeLoading")));
   const points = state.treePoints || 6;
-  const [r, graph, asc] = await Promise.all([
+  const [r, graph, asc, jw] = await Promise.all([
     cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`)),
     treeGraph(),
-    ascData().catch((e) => ({ error: e.message }))]);
+    ascData().catch((e) => ({ error: e.message })),
+    cached("jewels", () => api(`/api/jewels?${buildQuery()}`)).catch((e) => ({ error: e.message }))]);
   const pointsSel = h("select", { onchange: (e) => { state.treePoints = Number(e.target.value); switchTab("tree"); } },
     [3, 4, 5, 6, 8, 10].map((n) => h("option", { value: n, selected: n === points }, t("upToPoints", n))));
   const nodeName = (n) => h("span", { title: n.name, class: "named" }, icon(n.name, "ico passive"), trName(n.name));
@@ -1528,7 +1529,8 @@ TABS.tree = async (view) => {
     h("div", { class: "row" }, openTree, h("span", { class: "muted small" }, t("psOpenTreeHint"))),
     h("div", { class: "sub" }, t("treeIntro", r.allocated)),
     asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error)) : ascendancyCard(asc, graph),
-    planCard(r.plan), growth, roadOnly, respec, takenCard(graph),
+    planCard(r.plan), jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : jewelCard(jw),
+    growth, roadOnly, respec, takenCard(graph),
     listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
     listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
 };
@@ -1568,7 +1570,15 @@ function planCard(plan) {
     (list || []).forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
     return Object.entries(counts).map(([n, c]) => (c > 1 ? `${c}× ${trName(n)}` : trName(n))).join(", ");
   };
-  const logLine = (e) => e.action === "swap"
+  const logLine = (e) => e.action === "jewel"
+    ? h("li", {}, t("jwLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${jwName(e.removed)}`) : null,
+      e.removed && e.added ? " " : null, e.added ? h("span", { class: "pos" }, `+ ${jwName(e.added)}`) : null)
+    : e.action === "gem"
+    ? h("li", {}, t("gmLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${trName(e.removed)}`) : null,
+      e.removed && e.added ? " " : null,
+      e.added ? h("span", { class: "pos" }, `+ ${trName(e.added)}${e.level ? ` (${t("gmLevelQ", e.level, e.quality)})` : ""}`) : null,
+      e.dropped && e.dropped.length ? h("span", { class: "muted" }, " " + t("gmDropped", e.dropped.map(trName).join(", "))) : null)
+    : e.action === "swap"
     ? h("li", {}, h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
     : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
       : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`);
@@ -1583,6 +1593,154 @@ function planCard(plan) {
       h("div", { class: "hint" }, t("planNote")))
       : h("p", { class: "muted" }, t("planEmpty")),
     h("div", { class: "row", style: "margin-top:10px" }, optimize, save, reset));
+}
+
+// ---- jewels in the tree's sockets: each socket's jewel and what it gives; take it out, or put in a unique, one
+// made the way the game makes them (a base, a rarity, the mods that base rolls) or one copied from the game ----
+const JW_DELTA = [["dps", "m_dps"], ["ehp", "m_ehp"]];
+const JW_RANGE = /\(-?[\d.]+--?[\d.]+\)/;
+const jwName = (n) => itemTitle({ name: n, baseName: (n || "").split(", ")[1] || "" });
+
+function jewelCard(jw) {
+  const art = (s) => s.item ? itemIcon(s.item.name, s.item.baseName, s.item.rarity) || h("span", { class: "jw-gem" }) : h("span", { class: "jw-hole" });
+  const tile = (s) => h("button", { class: "jw-socket" + (s.item ? " r-" + (s.item.rarity || "normal").toLowerCase() : " vacant"),
+    title: t("jwOpen"), onclick: () => jewelEditor(s) },
+  h("div", { class: "jw-art" }, art(s)),
+  h("div", { class: "jw-name" }, s.item ? itemTitle(s.item) : t("jwEmpty")),
+  h("div", { class: "muted small" }, t("jwNear", trName(s.near))),
+  s.without ? h("div", { class: "jw-without" }, h("span", { class: "muted small" }, t("jwWithout")), deltas(s.without, JW_DELTA, 0.3)) : null);
+  return h("div", { class: "card" }, h("h3", {}, t("jwTitle")),
+    jw.sockets.length ? h("div", { class: "sub" }, t("jwSub")) : null,
+    jw.sockets.length ? h("div", { class: "jw-grid" }, jw.sockets.map(tile)) : h("p", { class: "muted" }, t("jwNone")));
+}
+
+let JW_CATALOG = null;
+async function jewelEditor(socket) {
+  if (!JW_CATALOG) {
+    try { JW_CATALOG = await api("/api/jewels/catalog"); } catch (e) { toast(e.message); return; }
+  }
+  const cat = JW_CATALOG;
+  const emptySlots = () => ({ Prefix: [], Suffix: [] });
+  const own = socket.item && cat.bases.find((b) => b.name === socket.item.baseName);
+  const ed = { tab: "create", base: (own || cat.bases.find((b) => b.colour === "int") || cat.bases[0]).name, rarity: "rare",
+    slots: emptySlots(), corruption: null, unique: null, roll: 0.5, text: "", q: "" };
+
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const close = () => { clearTimeout(timer); back.remove(); document.removeEventListener("keydown", onKey, true); };
+  const body = h("div", { class: "stack" });
+  const preview = h("div", { class: "stack" });
+  const put = h("button", { class: "primary", disabled: true, onclick: () => {
+    const s = spec();
+    close();
+    treeCall("/api/jewels/set", { node: socket.node, ...s });
+  } }, t("jwPut"));
+  const remove = socket.item ? h("button", { class: "ghost", onclick: () => {
+    close();
+    treeCall("/api/jewels/remove", { node: socket.node });
+  } }, t("jwRemove")) : null;
+
+  // what goes to the server: a unique, a made jewel or a pasted one; null when nothing is chosen yet
+  const spec = () => {
+    if (ed.tab === "unique") return ed.unique ? { unique: ed.unique.name, base: ed.unique.base, roll: ed.roll } : null;
+    if (ed.tab === "paste") return ed.text.trim() ? { text: ed.text } : null;
+    const mods = [...ed.slots.Prefix, ...ed.slots.Suffix].filter(Boolean);
+    return mods.length || ed.corruption ? { base: ed.base, rarity: ed.rarity, mods, corruption: ed.corruption } : null;
+  };
+  let seq = 0, timer = null;
+  const refresh = () => { clearTimeout(timer); timer = setTimeout(runPreview, 250); };
+  async function runPreview() {
+    const s = spec(), my = ++seq;
+    put.disabled = true;
+    if (!s) { preview.replaceChildren(h("p", { class: "muted" }, t("jwPick"))); return; }
+    preview.replaceChildren(loading(t("counting")));
+    try {
+      const r = await api("/api/jewels/preview", { method: "POST", body: { node: socket.node, ...s } });
+      if (my !== seq) return;
+      preview.replaceChildren(itemCard(r.item, null, t("jwResult")),
+        h("div", {}, h("div", { class: "sub", style: "margin:0 0 4px" }, t(socket.item ? "jwVsNow" : "jwVsEmpty")), deltas(r.change, METRIC, 0.3)));
+      put.disabled = false;
+    } catch (e) { if (my === seq) preview.replaceChildren(h("p", { class: "neg" }, e.message)); }
+  }
+
+  const modText = (m) => m.lines.map(trMod).join(" / ");
+  const rollSlider = (value, on) => h("div", { class: "jw-roll", title: t("jwRollHint") }, t("jwRollLow"),
+    h("input", { type: "range", min: 0, max: 100, value: Math.round(value * 100), oninput: (e) => on(Number(e.target.value) / 100) }),
+    t("jwRollHigh"));
+
+  const drawCreate = () => {
+    const base = cat.bases.find((b) => b.name === ed.base);
+    const byId = Object.fromEntries([...base.mods, ...base.corruption].map((m) => [m.id, m]));
+    const limits = cat.limits[ed.rarity];
+    const baseTiles = h("div", { class: "jw-bases" }, cat.bases.map((b) => h("button", {
+      class: "jw-base" + (b.name === ed.base ? " sel" : ""), title: trName(b.name),
+      onclick: () => { if (ed.base !== b.name) { ed.base = b.name; ed.slots = emptySlots(); ed.corruption = null; draw(); refresh(); } } },
+    itemIcon(null, b.name, "normal") || h("span", { class: "jw-gem c-" + b.colour }), h("span", { class: "small" }, trName(b.name)))));
+    const rarity = h("div", { class: "segmented" }, ["magic", "rare"].map((k) => h("button", { class: ed.rarity === k ? "active" : "",
+      onclick: () => {
+        ed.rarity = k;
+        for (const side of ["Prefix", "Suffix"]) ed.slots[side] = ed.slots[side].slice(0, cat.limits[k][side === "Prefix" ? 0 : 1]);
+        draw(); refresh();
+      } }, t("jwRarity_" + k))));
+    // one mod per family, as in the game: the families already on the jewel are not offered again
+    const slot = (side, i) => {
+      const cur = ed.slots[side][i] || null;
+      const used = new Set([...ed.slots.Prefix, ...ed.slots.Suffix].filter((x) => x && x !== cur).map((x) => byId[x.id].group));
+      const opts = base.mods.filter((m) => m.type === side && !used.has(m.group));
+      const option = (m) => h("option", { value: m.id, selected: !!cur && cur.id === m.id }, modText(m));
+      const desecrated = opts.filter((m) => m.set === "Desecrated");
+      const sel = h("select", { class: cur ? "" : "muted", onchange: () => {
+        ed.slots[side][i] = sel.value ? { id: sel.value, roll: cur ? cur.roll : 0.5 } : null;
+        draw(); refresh();
+      } }, h("option", { value: "" }, t("jwNoMod")),
+      h("optgroup", { label: t("jwModsNormal") }, opts.filter((m) => m.set !== "Desecrated").map(option)),
+      desecrated.length ? h("optgroup", { label: t("jwModsDesecrated") }, desecrated.map(option)) : null);
+      const ranged = cur && byId[cur.id].lines.some((l) => JW_RANGE.test(l));
+      return h("div", { class: "jw-slot" + (cur && byId[cur.id].set === "Desecrated" ? " desecrated" : "") }, sel,
+        ranged ? rollSlider(cur.roll, (v) => { cur.roll = v; refresh(); }) : null);
+    };
+    const side = (name, n) => [h("div", { class: "jw-side" }, t(name === "Prefix" ? "jwPrefixes" : "jwSuffixes")),
+      ...Array.from({ length: n }, (_, i) => slot(name, i))];
+    const corr = h("select", { class: ed.corruption ? "" : "muted", onchange: () => {
+      ed.corruption = corr.value ? { id: corr.value, roll: 0.5 } : null;
+      draw(); refresh();
+    } }, h("option", { value: "" }, t("jwNoCorruption")),
+    base.corruption.map((m) => h("option", { value: m.id, selected: !!ed.corruption && ed.corruption.id === m.id }, modText(m))));
+    const corrRanged = ed.corruption && byId[ed.corruption.id].lines.some((l) => JW_RANGE.test(l));
+    return [baseTiles, rarity, ...side("Prefix", limits[0]), ...side("Suffix", limits[1]),
+      h("div", { class: "jw-side" }, t("jwCorruption")),
+      h("div", { class: "jw-slot" }, corr, corrRanged ? rollSlider(ed.corruption.roll, (v) => { ed.corruption.roll = v; refresh(); }) : null)];
+  };
+
+  const drawUnique = () => {
+    const match = (u) => !ed.q || [u.name, trName(u.name), trName(u.base)].join(" ").toLowerCase().includes(ed.q.toLowerCase());
+    const cards = () => cat.uniques.filter(match).map((u) => h("button", {
+      class: "jw-unique" + (ed.unique === u ? " sel" : ""), title: u.lines.map(trMod).join("\n"),
+      onclick: () => { ed.unique = u; draw(); refresh(); } },
+    itemIcon(u.name, u.base, "unique"), h("div", {}, h("div", { class: "jw-uname" }, trName(u.name)), h("div", { class: "muted small" }, trName(u.base)))));
+    const list = h("div", { class: "jw-uniques" }, cards());
+    const q = h("input", { type: "search", placeholder: t("jwSearch"), value: ed.q, oninput: () => { ed.q = q.value; list.replaceChildren(...cards()); } });
+    return [q, list, ed.unique && ed.unique.ranged ? rollSlider(ed.roll, (v) => { ed.roll = v; refresh(); }) : null];
+  };
+
+  const drawPaste = () => {
+    const ta = h("textarea", { rows: 12, placeholder: t("jwPastePh"), spellcheck: "false", oninput: () => { ed.text = ta.value; refresh(); } }, ed.text);
+    return [ta];
+  };
+
+  const tabs = () => h("div", { class: "segmented" }, [["create", t("jwCreate")], ["unique", t("jwUniques")], ["paste", t("jwPaste")]]
+    .map(([k, label]) => h("button", { class: ed.tab === k ? "active" : "", onclick: () => { ed.tab = k; draw(); refresh(); } }, label)));
+  const draw = () => body.replaceChildren(tabs(), ...(ed.tab === "create" ? drawCreate() : ed.tab === "unique" ? drawUnique() : drawPaste()));
+
+  back.append(h("div", { class: "ask card stack jw-editor", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "jw-head" }, h("h3", {}, t("jwEditTitle", trName(socket.near))),
+      h("button", { class: "ghost small", title: t("cancel"), onclick: close }, "✕")),
+    socket.item ? h("details", {}, h("summary", {}, t("jwNow", itemTitle(socket.item))), itemCard(socket.item, null, "")) : null,
+    h("div", { class: "jw-main" }, body, h("div", { class: "jw-out stack" }, preview, h("div", { class: "row" }, put, remove)))));
+  document.body.append(back);
+  document.addEventListener("keydown", onKey, true);
+  draw();
+  runPreview();
 }
 
 // ---------- loot filter ----------

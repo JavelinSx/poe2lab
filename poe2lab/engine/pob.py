@@ -290,7 +290,12 @@ return _poe2lab_json(out)""")
                     dps = self.what_if(config=config)["CombinedDPS"]
                     out.append({"group": g["index"], "skill": i, "name": name, "dps": dps})
         finally:
-            self.set_main_skill(group, active)
+            # back to the build's own choice as it was, even a group with no active skill left (a skill its item
+            # grants, missing from a planner file): no range check here
+            self._lua(f"build.mainSocketGroup = {group}\n"
+                      f"local g = build.skillsTab.socketGroupList[{group}]\n"
+                      f"if g then g.mainActiveSkill = {active} end")
+            self.recalc()
         return sorted(out, key=lambda x: -x["dps"])
 
     def monster_damage(self, level: int) -> float:
@@ -627,6 +632,57 @@ for _, slot in ipairs(build.itemsTab.orderedSlots) do
 end
 return _poe2lab_json(out)""")
 
+    def jewel_sockets(self) -> list[dict]:
+        """The jewel sockets allocated in the tree: each with its slot ("Jewel <node id>"), the nearest allocated
+        notable (where it is, in words) and the jewel in it as the page shows items (none when empty)."""
+        return self._json("""
+local out = _poe2lab_array({})
+for nodeId, slot in pairs(build.itemsTab.sockets) do
+  local node = build.spec.nodes[nodeId]
+  if node and build.spec.allocNodes[nodeId] then
+    local near, best = "", math.huge
+    for _, n in pairs(build.spec.allocNodes) do
+      if n.type == "Notable" and not n.ascendancyName and n.x and node.x then
+        local d = (n.x - node.x) ^ 2 + (n.y - node.y) ^ 2
+        if d < best then best, near = d, n.dn or "" end
+      end
+    end
+    local item = build.itemsTab.items[slot.selItemId]
+    out[#out + 1] = { node = nodeId, slot = slot.slotName, near = near,
+                      item = item and _poe2lab_item_view(item, slot.slotName) or false }
+  end
+end
+return _poe2lab_json(out)""")
+
+    def resolve_ranges(self, pairs: list[tuple[str, float]]) -> list[str]:
+        """Item lines with each range - "(4-8)%" - resolved where its roll puts it (0: the low end, 1: the high
+        end), by PoB's own itemLib.applyRange as it reads an affix's roll; leading {tags} and lines with no range
+        stay as they are."""
+        rows = ", ".join(f"{{ {lua_string(line)}, {float(r)} }}" for line, r in pairs)
+        return self._json(f"""
+local out = _poe2lab_array({{}})
+for i, p in ipairs({{ {rows} }}) do
+  local line, prefix = p[1], ""
+  while true do
+    local tok, rest = line:match("^({{[^}}]*}})(.*)$")
+    if not tok then break end
+    prefix, line = prefix .. tok, rest
+  end
+  if line:match("%(%-?[%d%.]+%-%-?[%d%.]+%)") then line = itemLib.applyRange(line, p[2]) end
+  out[i] = prefix .. line
+end
+return _poe2lab_json(out)""")
+
+    def clear_slot(self, slot: str):
+        """Take off whatever is in a slot (gear or a jewel socket), recalculated."""
+        self._lua(f"""
+local slot = build.itemsTab.slots[ {lua_string(slot)} ]
+if not slot then error("no slot " .. {lua_string(slot)}, 0) end
+slot:SetSelItemId(0)
+build.itemsTab:PopulateSlots()
+build.buildFlag = true
+build.calcsTab:BuildOutput()""")
+
     def parse_item(self, text: str) -> dict:
         """An item's text (PoB's or the game's, in English) read the way equipped_item_details shows gear."""
         return self._json(f"return _poe2lab_json(_poe2lab_item_view(_poe2lab_item({lua_string(text)}), ''))")
@@ -955,7 +1011,8 @@ for gi, g in ipairs(build.skillsTab.socketGroupList) do
         end
       end
       gems[#gems + 1] = { index = i, id = gem.gemId or "", name = ge.name, support = ge.support and true or false,
-        enabled = gem.enabled ~= false, level = gem.level or 1, tier = d.Tier or 0, tags = tags(d),
+        enabled = gem.enabled ~= false, level = gem.level or 1, quality = gem.quality or 0, tier = d.Tier or 0,
+        maxLevel = d.naturalMaxLevel or 1, tags = tags(d), lineage = ge.isLineage and true or false,
         family = d.gemFamily or "", reqLevel = (ge.levels[d.Tier or 1] or ge.levels[1] or {}).levelRequirement or 0,
         description = ge.description or "", fits = fits, stats = statIds(ge),
         types = ge.support and arr({}) or types(ge.skillTypes) }
@@ -1075,6 +1132,108 @@ build.skillsTab:ProcessSocketGroup(a.group)
 _poe2lab_added = nil
 wipeGlobalCache()
 build.calcsTab:BuildOutput()""")
+
+    def skills_snapshot(self, name: str):
+        """Remember every socket group (gems, levels, qualities, what is switched on, the main skill) under `name`:
+        PoB's own undo state of the skills tab."""
+        self._lua(f"""
+_poe2lab_skill_snaps = _poe2lab_skill_snaps or {{}}
+_poe2lab_skill_snaps[ {lua_string(name)} ] = build.skillsTab:CreateUndoState()""")
+
+    def skills_restore(self, name: str):
+        """Put back the socket groups remembered by skills_snapshot, recalculated. The snapshot is used up: PoB
+        restores its very tables."""
+        self._lua(f"""
+local snap = _poe2lab_skill_snaps and _poe2lab_skill_snaps[ {lua_string(name)} ]
+if not snap then error("no skills snapshot {name}", 0) end
+_poe2lab_skill_snaps[ {lua_string(name)} ] = nil
+build.skillsTab:RestoreUndoState(snap)
+for _, g in ipairs(build.skillsTab.socketGroupList) do build.skillsTab:ProcessSocketGroup(g) end
+build.buildFlag = true
+wipeGlobalCache()
+build.calcsTab:BuildOutput()""")
+
+    def set_gem(self, group: int, index: int | None, gem_id: str, level: int | None = None, quality: int = 0) -> int:
+        """Socket a gem (a data.gems id) into socket group `group`: in place of the gem at `index`, or after the
+        group's gems when index is None. Group 0 is a new socket group - a new skill. Level None: the highest the
+        character's level allows. Recalculated; returns the group's number."""
+        lvl = "build.skillsTab:ProcessGemLevel(d)" if level is None else str(int(level))
+        return self._json(f"""
+local d = data.gems[ {lua_string(gem_id)} ]
+if not d then error("no gem " .. {lua_string(gem_id)}, 0) end
+local list = build.skillsTab.socketGroupList
+local g = list[{int(group)}]
+if {int(group)} == 0 then
+  g = {{ label = "", enabled = true, gemList = {{}} }}
+  table.insert(list, g)
+elseif not g then
+  error("no socket group {int(group)}", 0)
+end
+local inst = {{ nameSpec = d.name, gemId = {lua_string(gem_id)}, level = {lvl}, quality = {int(quality)}, enabled = true,
+  enableGlobal1 = true, enableGlobal2 = true, count = 1, corruptLevel = 0, corrupted = false }}
+local at = {int(index or 0)}
+if at > 0 and g.gemList[at] then g.gemList[at] = inst else table.insert(g.gemList, inst) end
+build.skillsTab:ProcessSocketGroup(g)
+build.buildFlag = true
+wipeGlobalCache()
+build.calcsTab:BuildOutput()
+for i, x in ipairs(list) do if x == g then return _poe2lab_json(i) end end""")
+
+    def remove_gem(self, group: int, index: int):
+        """Take the gem at `index` out of socket group `group`; a group left empty goes (the skill is gone), the
+        main skill's number following. Recalculated."""
+        self._lua(f"""
+local list = build.skillsTab.socketGroupList
+local gi = {int(group)}
+local g = list[gi]
+if not g or not g.gemList[{int(index)}] then error("no gem {int(index)} in socket group {int(group)}", 0) end
+table.remove(g.gemList, {int(index)})
+if #g.gemList == 0 then
+  table.remove(list, gi)
+  if build.mainSocketGroup > gi then build.mainSocketGroup = build.mainSocketGroup - 1
+  elseif build.mainSocketGroup == gi then build.mainSocketGroup = 1 end
+else
+  build.skillsTab:ProcessSocketGroup(g)
+end
+build.buildFlag = true
+wipeGlobalCache()
+build.calcsTab:BuildOutput()""")
+
+    def gem_catalog(self) -> list[dict]:
+        """The gems the game gives: skill and support gems cut from uncut gems (a tier above 0) and lineage supports.
+        Each with its colour code, family, level cap and the character level each gem level needs."""
+        return self._json(self._GEM_HELPERS + """
+local colours = { colorCodes.STRENGTH, colorCodes.DEXTERITY, colorCodes.INTELLIGENCE }
+local out = arr({})
+for id, d in pairs(data.gems) do
+  local ge = d.grantedEffect
+  if ge and not ge.hidden and ((d.Tier or 0) > 0 or ge.isLineage) then
+    local reqs, max = arr({}), d.naturalMaxLevel or 1
+    for i = 1, max do reqs[i] = (ge.levels[i] or {}).levelRequirement or 0 end
+    out[#out + 1] = { id = id, name = ge.name, support = ge.support and true or false, tier = d.Tier or 0,
+      lineage = ge.isLineage and true or false, family = type(d.gemFamily) == "string" and d.gemFamily or ge.name,
+      color = tostring(colours[ge.color] or colorCodes.NORMAL), tags = tags(d), maxLevel = max, reqs = reqs,
+      description = ge.description or "", types = ge.support and arr({}) or types(ge.skillTypes) }
+  end
+end
+return _poe2lab_json(out)""")
+
+    def gem_fits(self, group: int) -> list[str]:
+        """The support gems (data.gems ids) that can support one of the group's active skills."""
+        return self._json(f"""
+local g = build.skillsTab.socketGroupList[{int(group)}]
+local out = _poe2lab_array({{}})
+if g then
+  for id, d in pairs(data.gems) do
+    local ge = d.grantedEffect
+    if ge and ge.support then
+      for _, a in ipairs(g.displaySkillList or {{}}) do
+        if calcLib.canGrantedEffectSupportActiveSkill(ge, a) then out[#out + 1] = id break end
+      end
+    end
+  end
+end
+return _poe2lab_json(out)""")
 
     def item_text(self, slot: str) -> str:
         """The equipped item in PoB's text format - edit it and pass it back via what_if(replace_item=...)."""

@@ -35,7 +35,8 @@ from ..economy import trade
 from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
-from .. import buildplanner, crafting, feedback, gamedata, glossary, icons, itemtext, journal, library, lootfilter, pobapp
+from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemtext, jewelcraft, journal,
+               library, lootfilter, pobapp)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -98,6 +99,10 @@ class Session:
 
     def db(self) -> ModDB:
         return self.cached("db", lambda: ModDB.from_engine(self.engine))
+
+    def jewel_db(self) -> ModDB:
+        """Jewel affixes: a jewel copied from the Russian client is read by them (poe2lab.itemtext)."""
+        return self.cached("jewel-db", lambda: ModDB.from_engine(self.engine, sets=("Jewel", "Desecrated")))
 
     def prices(self) -> PriceBook | None:
         if self._prices is False:
@@ -766,6 +771,8 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
         else:
             data = session.cached(("skills", "leveling"),
                                   lambda: skill_leveling_view(e, cfg, levels=_guide_levels(session.bp)))
+        if view == "build":
+            data = data | {"plan": _plan_view()}  # gem edits are edits of the plan
         return _json(data)
 
 
@@ -847,13 +854,18 @@ def ascendancy_view(mode: str = "balanced", build: str | None = None):
 def _plan_start():
     if session.plan is None:
         session.engine.tree_snapshot("plan-base")
+        session.engine.skills_snapshot("plan-base")
         session.plan = {"budget": session.engine.tree_points(),
-                        "base": session.engine.what_if(config=session.profile.config()), "log": []}
+                        "base": session.engine.what_if(config=session.profile.config()), "log": [],
+                        "jewels": {}}  # socket slot -> the jewel's text before the first edit (None: it was empty)
+
+
+GAME_DATA_KEYS = ("db", "jewel-db", "unique-catalog", "jewel-catalog", "gem-catalog")
 
 
 def _plan_changed():
-    """Every analysis now sees the planned tree: drop cached results (the mod database does not depend on it)."""
-    session.cache = {k: v for k, v in session.cache.items() if k == "db"}
+    """Every analysis now sees the planned tree: drop cached results (the game's data does not depend on it)."""
+    session.cache = {k: v for k, v in session.cache.items() if k in GAME_DATA_KEYS}
     session.assistant = session.toolbox = None
 
 
@@ -898,9 +910,284 @@ def tree_reset():
         session.require()
         if session.plan is not None:
             session.engine.tree_restore("plan-base")
+            session.engine.skills_restore("plan-base")
+            for slot, text in session.plan.get("jewels", {}).items():  # the jewels as they were
+                if text:
+                    session.engine.equip_item(slot, text)
+                else:
+                    session.engine.clear_slot(slot)
             session.plan = None
             _plan_changed()
         return {"ok": True}
+
+
+# ---- jewels in the tree's sockets: put in, taken out - edits of the plan like the tree's own ----
+
+def _jewel_slot(node: int) -> dict:
+    socket = next((s for s in session.engine.jewel_sockets() if s["node"] == node), None)
+    if socket is None:
+        raise HTTPException(400, "это не взятое гнездо самоцвета: сначала возьми его на дереве")
+    return socket
+
+
+@app.get("/api/jewels")
+def jewels(build: str | None = None):
+    """The allocated jewel sockets, the jewel in each and what taking it out would cost (damage, defences)."""
+    with session.lock:
+        session.require(build)
+
+        def compute():
+            e, cfg = session.engine, session.profile.config()
+            base = e.what_if(config=cfg)
+            out = []
+            for s in sorted(e.jewel_sockets(), key=lambda s: (not s["item"], s["near"])):
+                if s["item"]:
+                    s["without"] = metric_changes(e.what_if(config=cfg, remove_slot=s["slot"]), base)
+                out.append(s)
+            return {"sockets": out}
+
+        return _json(session.cached("jewels", compute))
+
+
+def _jewel_catalog() -> dict:
+    return session.cached("jewel-catalog", lambda: jewelcraft.catalog(
+        session.engine.export_item_data(jewelcraft.MOD_SETS),
+        session.cached("unique-catalog", session.engine.unique_catalog)))
+
+
+@app.get("/api/jewels/catalog")
+def jewel_catalog():
+    """What a jewel can be made of, as the game makes them: the bases with the mods each rolls, the rarities' limits
+    and the unique jewels (see poe2lab.jewelcraft)."""
+    with session.lock:
+        session.require()
+        return _json(_jewel_catalog())
+
+
+class JewelEdit(BaseModel):
+    """A jewel for a socket (the node id), one of: `unique` (its name; `base` too when it comes on several) rolled
+    at `roll`, one made on `base` (rarity, mods [{"id", "roll"}], corruption {"id", "roll"}) or `text` copied from
+    the game, Russian or English, or PoB's."""
+    node: int
+    text: str = ""
+    unique: str = ""
+    base: str = ""
+    rarity: str = "rare"
+    mods: list[dict] = []
+    corruption: dict | None = None
+    roll: float = 0.5
+
+
+def _jewel_text(req: JewelEdit) -> str:
+    cat = _jewel_catalog()
+    try:
+        if req.unique:
+            u = next((u for u in cat["uniques"] if u["name"] == req.unique and req.base in ("", u["base"])), None)
+            if u is None:
+                raise HTTPException(400, f"нет такого уникального самоцвета: {req.unique}")
+            return jewelcraft.rolled_unique(u, req.roll, session.engine.resolve_ranges)
+        if req.base:
+            base = next((b for b in cat["bases"] if b["name"] == req.base), None)
+            if base is None:
+                raise HTTPException(400, f"на базе {req.base} самоцвет не создать: она бывает только уникальной")
+            return jewelcraft.make(base, req.rarity, req.mods, req.corruption, session.engine.resolve_ranges)
+    except jewelcraft.CraftError as err:
+        raise HTTPException(400, str(err))
+    if not req.text.strip():
+        raise HTTPException(400, "нет самоцвета: выбери уникальный, создай или вставь текст")
+    return _english_item(req.text, jewel=True)
+
+
+def _jewel_checked(req: JewelEdit, socket: dict) -> tuple[str, dict]:
+    """The jewel's text and how the page shows it, if the game would let it into this socket."""
+    text = _jewel_text(req)
+    item = _errors(lambda: session.engine.parse_item(text))
+    if item["type"] != "Jewel":
+        raise HTTPException(400, f"это не самоцвет: {item['baseName'] or item['name']}")
+    limit = jewelcraft.limited_to(text)
+    if limit is not None:
+        name = item["name"].split(",")[0]
+        held = sum(1 for s in session.engine.jewel_sockets()
+                   if s["item"] and s["node"] != socket["node"] and s["item"]["name"].split(",")[0] == name)
+        if held >= limit:
+            raise HTTPException(400, f"«{name}» можно вставить не больше {limit}: он уже стоит в другом гнезде")
+    return text, item
+
+
+@app.post("/api/jewels/preview")
+def jewel_preview(req: JewelEdit):
+    """The jewel as it would be in the socket - its text, lines and what it changes against the socket as it is."""
+    with session.lock:
+        session.require()
+        socket = _jewel_slot(req.node)
+        text, item = _jewel_checked(req, socket)
+        e, cfg = session.engine, session.profile.config()
+        after = _errors(lambda: e.what_if(config=cfg, replace_item=(socket["slot"], text)))
+        return _json({"text": text, "item": item, "change": metric_changes(after, e.what_if(config=cfg))})
+
+
+@app.post("/api/jewels/set")
+def jewel_set(req: JewelEdit):
+    """A jewel into an allocated socket - an edit of the plan, like the tree's own."""
+    with session.lock:
+        session.require()
+        socket = _jewel_slot(req.node)
+        text, item = _jewel_checked(req, socket)
+        _plan_start()
+        session.plan["jewels"].setdefault(socket["slot"], session.engine.item_text(socket["slot"]) if socket["item"] else None)
+        _errors(lambda: session.engine.equip_item(socket["slot"], text))
+        session.plan["log"].append({"action": "jewel", "target": socket["near"], "added": item["name"],
+                                    "removed": socket["item"]["name"] if socket["item"] else None})
+        _plan_changed()
+        return _json(_plan_view())
+
+
+@app.post("/api/jewels/remove")
+def jewel_remove(req: JewelEdit):
+    with session.lock:
+        session.require()
+        socket = _jewel_slot(req.node)
+        if not socket["item"]:
+            return _json(_plan_view())
+        _plan_start()
+        session.plan["jewels"].setdefault(socket["slot"], session.engine.item_text(socket["slot"]))
+        session.engine.clear_slot(socket["slot"])
+        session.plan["log"].append({"action": "jewel", "target": socket["near"], "added": None,
+                                    "removed": socket["item"]["name"]})
+        _plan_changed()
+        return _json(_plan_view())
+
+
+# ---- gems: any skill's gems taken out, put in or swapped - edits of the plan, by the game's rules (gemcraft) ----
+
+def _gem_catalog() -> dict[str, dict]:
+    return session.cached("gem-catalog", lambda: {g["id"]: g for g in session.engine.gem_catalog()})
+
+
+def _skill_name(groups: list[dict], group: int) -> str:
+    g = next((x for x in groups if x["index"] == group), None)
+    return (g["actives"][0]["name"] if g and g["actives"] else
+            g["gems"][0]["name"] if g and g["gems"] else "")
+
+
+@app.get("/api/gems/options")
+def gem_options(group: int = 0, index: int | None = None, kind: str = "support"):
+    """The gems that can go into a skill: for kind=support the supports that can support the group's skill, each
+    with why the game would refuse it there (gemcraft.blocked) or none; for kind=skill every skill gem with the
+    highest level the character can use."""
+    if kind not in ("support", "skill"):
+        raise HTTPException(400, f"неизвестный вид {kind!r}")
+    with session.lock:
+        session.require()
+        e, level = session.engine, session.level or 1
+        cat, groups = _gem_catalog(), e.skill_groups()
+        if kind == "support":
+            fits = set(e.gem_fits(group)) if group else set()
+            gems = [g | {"blocked": gemcraft.blocked(g, groups, group, index, fits, level)}
+                    for g in cat.values() if g["support"] and g["id"] in fits]
+        else:
+            gems = [g | {"usable": gemcraft.usable_level(g, level)} for g in cat.values() if not g["support"]]
+        gems.sort(key=lambda g: (bool(g.get("blocked")), g["name"]))
+        target = next((x for x in groups if x["index"] == group), None)
+        current = next((x for x in target["gems"] if x["index"] == index), None) if target and index else None
+        return _json({"gems": gems, "level": level, "skill": _skill_name(groups, group), "current": current,
+                      "maxQuality": gemcraft.MAX_QUALITY})
+
+
+class GemEdit(BaseModel):
+    """A gem (a data.gems id) into socket group `group` (0: a new skill), in place of the gem at `index` or as one
+    more; a skill gem's level (None: the highest the character can use) and quality."""
+    group: int = 0
+    index: int | None = None
+    gem: str = ""
+    level: int | None = None
+    quality: int = 0
+
+
+def _gem_checked(req: GemEdit) -> tuple[dict, int | None, int, list[dict]]:
+    gem = _gem_catalog().get(req.gem)
+    if gem is None:
+        raise HTTPException(400, f"нет такого камня: {req.gem}")
+    e, groups = session.engine, session.engine.skill_groups()
+    fits = set(e.gem_fits(req.group)) if req.group and gem["support"] else set()
+    try:
+        level, quality = gemcraft.check(gem, groups, req.group, req.index, fits, session.level or 1, req.level,
+                                        req.quality)
+    except gemcraft.GemError as err:
+        raise HTTPException(400, str(err))
+    return gem, level, quality, groups
+
+
+def _apply_gem(req: GemEdit, gem: dict, level: int | None, quality: int) -> tuple[int, list[str]]:
+    """Socket it; a skill gem swapped in keeps the supports that can support it, the rest come out (the game does
+    not let a support into a skill it cannot support). Returns the group and the supports taken out."""
+    e = session.engine
+    group = _errors(lambda: e.set_gem(req.group, req.index, gem["id"], level, quality))
+    dropped = []
+    if not gem["support"] and req.group:
+        fits = set(e.gem_fits(group))
+        g = next(x for x in e.skill_groups() if x["index"] == group)
+        for x in sorted((x for x in g["gems"] if x["support"] and x["id"] not in fits), key=lambda x: -x["index"]):
+            e.remove_gem(group, x["index"])
+            dropped.append(x["name"])
+    return group, dropped
+
+
+@app.post("/api/gems/preview")
+def gem_preview(req: GemEdit):
+    """What the gem would change: the skill's own damage before and after, the build's numbers (its main skill),
+    the supports a swapped skill gem would lose."""
+    with session.lock:
+        session.require()
+        gem, level, quality, _ = _gem_checked(req)
+        e, cfg = session.engine, session.profile.config()
+        before = e.what_if(config=cfg)
+        own_before = e.what_if(config=cfg, main_socket_group=req.group)["CombinedDPS"] if req.group else 0
+        e.skills_snapshot("preview")
+        try:
+            group, dropped = _apply_gem(req, gem, level, quality)
+            after = e.what_if(config=cfg)
+            own_after = e.what_if(config=cfg, main_socket_group=group)["CombinedDPS"]
+        finally:
+            e.skills_restore("preview")
+        return _json({"change": metric_changes(after, before), "own": {"before": own_before, "after": own_after},
+                      "dropped": dropped, "level": level, "quality": quality})
+
+
+@app.post("/api/gems/set")
+def gem_set(req: GemEdit):
+    with session.lock:
+        session.require()
+        gem, level, quality, groups = _gem_checked(req)
+        at = next((x for g in groups if g["index"] == req.group for x in g["gems"] if x["index"] == req.index), None)
+        _plan_start()
+        group, dropped = _apply_gem(req, gem, level, quality)
+        session.plan["log"].append({"action": "gem", "target": _skill_name(session.engine.skill_groups(), group),
+                                    "added": gem["name"], "level": level, "quality": quality,
+                                    "removed": at["name"] if at else None, "dropped": dropped})
+        _plan_changed()
+        return _json({"plan": _plan_view(), "group": group})
+
+
+@app.post("/api/gems/remove")
+def gem_remove(req: GemEdit):
+    """Take a gem out of a skill; the skill gem itself (the first) takes its supports with it: the skill is gone."""
+    with session.lock:
+        session.require()
+        e, groups = session.engine, session.engine.skill_groups()
+        g = next((x for x in groups if x["index"] == req.group), None)
+        at = next((x for x in g["gems"] if x["index"] == req.index), None) if g else None
+        if at is None:
+            raise HTTPException(400, f"в скилле №{req.group} нет камня №{req.index}")
+        _plan_start()
+        whole = at["index"] == g["gems"][0]["index"]
+        for x in (sorted(g["gems"], key=lambda x: -x["index"]) if whole else [at]):
+            e.remove_gem(req.group, x["index"])
+        session.plan["log"].append({"action": "gem", "target": _skill_name(groups, req.group), "added": None,
+                                    "removed": at["name"],
+                                    "dropped": [x["name"] for x in g["gems"] if x is not at] if whole else []})
+        _plan_changed()
+        return _json({"plan": _plan_view()})
 
 
 class TreeOptimize(BaseModel):
@@ -1220,16 +1507,17 @@ def item_text(slot: str):
         return {"text": _errors(lambda: session.engine.item_text(slot))}
 
 
-def _english_item(text: str) -> str:
-    """PoB reads item text in English only: an item copied from the Russian client is translated first."""
+def _english_item(text: str, jewel: bool = False) -> str:
+    """PoB reads item text in English only: an item copied from the Russian client is translated first (a jewel
+    by the jewel affixes)."""
     if not itemtext.is_russian(text):
         return text
-    db = session.db()
-    if "names" not in _bare:
-        _bare["names"] = journal.Names(db)
+    db, key = (session.jewel_db(), "jewel-names") if jewel else (session.db(), "names")
+    if key not in _bare:
+        _bare[key] = journal.Names(db)
     uniques = session.cached("unique-catalog", session.engine.unique_catalog)
     try:
-        return itemtext.to_english(text, db, _bare["names"], uniques)
+        return itemtext.to_english(text, db, _bare[key], uniques)
     except itemtext.TranslationError as err:
         raise HTTPException(400, f"не смог прочитать предмет: {err}")
 

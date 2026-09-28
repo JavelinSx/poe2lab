@@ -603,6 +603,51 @@ details > summary .ico { margin-left: 2px; }
 .verdict-head { display: block; font-size: 13px; font-weight: 400; opacity: .85; }
 @media (max-width: 700px) { .cmp-items { grid-template-columns: 1fr; } .doll-wrap { --cell: 34px; } }
 
+/* jewels in the tree's sockets: a tile per socket, an editor to make or pick one */
+.jw-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.jw-socket { width: 196px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px; text-align: center;
+  cursor: pointer; background: rgba(7, 8, 11, .9); border: 1px solid #2c323d; border-radius: 8px; color: var(--text); font: inherit; }
+.jw-socket:hover { border-color: #6a7385; }
+.jw-socket.vacant { border-style: dashed; }
+.jw-socket.r-unique { border-color: rgba(175, 96, 37, .6); }
+.jw-socket.r-rare { border-color: rgba(214, 195, 90, .45); }
+.jw-socket.r-magic { border-color: rgba(136, 136, 255, .45); }
+.jw-socket.r-unique .jw-name { color: #d08a4a; }
+.jw-socket.r-rare .jw-name { color: #e2cf6a; }
+.jw-socket.r-magic .jw-name { color: #9d9dff; }
+.jw-art { height: 54px; display: flex; align-items: center; justify-content: center; }
+.jw-art .item-ico { margin: 0; }
+.jw-name { font-weight: 600; line-height: 1.2; }
+.jw-hole { width: 40px; height: 40px; border-radius: 50%; border: 2px dashed #3a414d; }
+.jw-gem { display: inline-block; width: 26px; height: 26px; margin: 7px; transform: rotate(45deg); border-radius: 5px; background: #9a9a9a; }
+.jw-gem.c-str { background: #c8463a; }
+.jw-gem.c-dex { background: #4fae5a; }
+.jw-gem.c-int { background: #5467d8; }
+.jw-without .deltas { justify-content: center; }
+.jw-editor { max-width: 900px; width: 100%; max-height: 92vh; overflow: auto; }
+.jw-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.jw-head h3 { margin: 0; }
+.jw-main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.jw-bases { display: flex; flex-wrap: wrap; gap: 8px; }
+.jw-base { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 96px; padding: 6px 4px; cursor: pointer;
+  background: rgba(7, 8, 11, .9); border: 1px solid #2c323d; border-radius: 6px; color: var(--text); font: inherit; }
+.jw-base .item-ico { width: 40px; height: 40px; margin: 0; padding: 2px; }
+.jw-base.sel, .jw-unique.sel { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.jw-side { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 4px; }
+.jw-slot { display: flex; flex-direction: column; gap: 4px; }
+.jw-slot select { width: 100%; }
+.jw-slot select.muted { color: var(--muted); }
+.jw-slot.desecrated select { border-color: rgba(160, 90, 200, .6); }
+.jw-roll { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.jw-roll input[type=range] { flex: 1; accent-color: var(--gold); }
+.jw-uniques { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; max-height: 360px; overflow: auto; }
+.jw-unique { display: flex; align-items: center; gap: 8px; text-align: left; padding: 6px; cursor: pointer;
+  background: rgba(7, 8, 11, .9); border: 1px solid #2c323d; border-radius: 6px; color: var(--text); font: inherit; }
+.jw-unique .item-ico { width: 36px; height: 36px; margin: 0; padding: 2px; }
+.jw-uname { color: #d08a4a; font-weight: 600; }
+.jw-editor textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+@media (max-width: 760px) { .jw-main { grid-template-columns: 1fr; } }
+
 /* levelling: a level slider, each skill's supports as sockets */
 .lv-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lv-head input[type=range] { flex: 1; min-width: 180px; accent-color: var(--gold); }

@@ -99,8 +99,9 @@ class ModDB:
         self.bases = {b["name"]: b for b in exported["bases"]}
 
     @classmethod
-    def from_engine(cls, engine) -> "ModDB":
-        return cls(engine.export_item_data())
+    def from_engine(cls, engine, sets=("Item", "Desecrated")) -> "ModDB":
+        """PoB's affixes of these mod sets (gear by default; jewels are the "Jewel" set) and every item base."""
+        return cls(engine.export_item_data(sets))
 
     def rollable(self, base_tags, item_level: int = 100, sets=("Item",)) -> list[Mod]:
         tags = set(base_tags)
