@@ -3313,7 +3313,12 @@ function aiSettingsCard(settings, onSaved) {
 TABS.assistant = async () => {
   const settings = await api("/api/llm");
   const wrap = h("div", { class: "stack" });
-  const redraw = (s) => { wrap.replaceChildren(aiSettingsCard(s, redraw), chatCard(s.active.configured)); loadStatus(); };
+  // no key: the prompt for any chat AI first, the key settings after it; with a key the chat, the prompt below
+  const redraw = (s) => {
+    wrap.replaceChildren(...(s.active.configured ? [aiSettingsCard(s, redraw), chatCard(true), promptCard(s)]
+      : [promptCard(s), aiSettingsCard(s, redraw)]));
+    loadStatus();
+  };
   redraw(settings);
   return wrap;
 };
@@ -3348,6 +3353,63 @@ function chatCard(configured) {
   const reset = h("button", { class: "ghost", onclick: async () => { await api("/api/chat/reset", { method: "POST" }); state.chat = []; draw(); } }, t("resetChat"));
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send.click(); });
   return h("div", { class: "card chat" }, log, h("div", { class: "chat-input" }, input, h("div", { class: "stack" }, send, reset)));
+}
+
+// ---- no key: the question with the build and PoB's reports as one prompt, to paste into any chat AI ----
+const NP_CHATS = [["DeepSeek", "https://chat.deepseek.com"], ["ChatGPT", "https://chatgpt.com"], ["Claude", "https://claude.ai"],
+  ["Gemini", "https://gemini.google.com"]];
+const npState = { question: "", size: "compact", result: null };
+
+async function copyText(text, fallbackEl) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    if (!fallbackEl) return false;
+    const box = fallbackEl.closest("details");
+    if (box) box.open = true;  // a text in a closed block cannot be selected
+    fallbackEl.focus();
+    fallbackEl.select();
+    try { return document.execCommand("copy"); } catch (__) { return false; }
+  }
+}
+
+function promptCard(settings) {
+  const q = h("textarea", { rows: 3, placeholder: t("npPh"), oninput: () => { npState.question = q.value; } }, npState.question);
+  const out = h("div", { class: "stack" });
+  const seg = h("div", { class: "segmented" });
+  const drawSeg = () => seg.replaceChildren(...["compact", "full"].map((k) => h("button", { class: npState.size === k ? "active" : "",
+    onclick: () => { npState.size = k; drawSeg(); } }, t("npSize_" + k))));
+  drawSeg();
+  const show = (r) => {
+    const text = h("textarea", { rows: 8, readonly: true, class: "np-text" }, r.prompt);
+    const copy = async () => toast(t((await copyText(r.prompt, text)) ? "npCopied" : "npCopyFail"), true);
+    const step = (n, label, ...body) => h("div", { class: "np-step" }, h("span", { class: "np-num" }, n), h("div", { class: "stack" }, h("b", {}, label), ...body));
+    out.replaceChildren(
+      h("div", { class: "np-steps" },
+        step(1, t("npStep1"), h("button", { class: "primary", onclick: copy }, t("npCopy"))),
+        step(2, t("npStep2"), h("div", { class: "row" }, NP_CHATS.map(([name, url]) =>
+          h("a", { class: "np-link", href: url, target: "_blank", rel: "noopener noreferrer" }, name)))),
+        step(3, t("npStep3"), h("span", { class: "muted small" }, t("npStep3Hint")))),
+      h("div", { class: "muted small" }, t("npInfo", fmt(r.chars), fmt(Math.round(r.chars / 3))),
+        r.topics.length ? " · " + t("npTopics") + r.topics.map((x) => t("npTopic_" + x)).join(", ") : ""),
+      h("details", {}, h("summary", { class: "small" }, t("npShow")), text));
+  };
+  const go = h("button", { class: "primary", onclick: async () => {
+    const question = q.value.trim();
+    if (!question) { q.focus(); return; }
+    go.disabled = true;
+    out.replaceChildren(loading(t("npMaking")));
+    try {
+      npState.result = await api("/api/chat/prompt", { method: "POST",
+        body: { question, size: npState.size, style: settings.style || "short", lang: LANG } });
+      show(npState.result);
+    } catch (e) { out.replaceChildren(h("p", { class: "neg" }, e.message)); }
+    go.disabled = false;
+  } }, t("npMake"));
+  if (npState.result) show(npState.result);
+  return h("div", { class: "card stack np" }, h("h3", {}, t("npTitle")), h("div", { class: "sub" }, t("npSub")), q,
+    h("div", { class: "row" }, seg, go, h("span", { class: "muted small" }, t("npSizeHint"))), out);
 }
 
 const ATTR_RU = { Str: "силы", Dex: "ловкости", Int: "интеллекта" };

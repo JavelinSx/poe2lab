@@ -380,3 +380,16 @@ def test_an_item_of_one_s_own_for_a_slot(client):
                                     "worn": was["Gloves"]}
     client.post("/api/tree/reset", headers=H)
     assert {i["slot"]: i["name"] for i in client.get("/api/build").json()["items"]} == was
+
+
+def test_a_prompt_for_any_chat_ai(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    q = "Почему я умираю от хаоса и что поменять в шмоте?"
+    small = client.post("/api/chat/prompt", json={"question": q}, headers=H).json()
+    full = client.post("/api/chat/prompt", json={"question": q, "size": "full"}, headers=H).json()
+    assert small["topics"] == ["defence", "gear"] and small["reports"] == ["build_report", "stat_values"]
+    text = small["prompt"]
+    assert text.startswith("=== Мой вопрос ===\n" + q) and text.rstrip().endswith(q)  # the question first and last
+    assert "Furious Slam" in text and "build_report" in text and "Надетые предметы" in text
+    assert small["chars"] < full["chars"] and small["chars"] == len(text)
+    assert client.post("/api/chat/prompt", json={"question": " "}, headers=H).status_code == 400

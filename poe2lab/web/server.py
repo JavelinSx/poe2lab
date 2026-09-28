@@ -29,6 +29,7 @@ from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
                          make_client)
 from ..assistant.agent import STYLES
+from ..assistant import prompt as prompt_builder
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
 from ..economy import trade
@@ -2001,6 +2002,29 @@ def chat(req: ChatRequest):
 
 
 _chat_lock = threading.Lock()
+
+
+class PromptRequest(BaseModel):
+    question: str
+    size: str = "compact"  # compact | full
+    style: str = "short"
+    lang: str = "ru"
+
+
+@app.post("/api/chat/prompt")
+def chat_prompt(req: PromptRequest):
+    """A prompt for any chat AI, no key needed: the question, the rules, the build and PoB's reports for its topic
+    (poe2lab.assistant.prompt) - the player copies it into ChatGPT, DeepSeek, Claude, Gemini."""
+    if not req.question.strip():
+        raise HTTPException(400, "напиши вопрос")
+    with session.lock:
+        session.require()
+        target, target_text, target_names = _assistant_target()
+        names = i18n(req.lang)["names"] if req.lang != "en" else {}
+        glossary = build_glossary(session.engine, names, target_names) if names else None
+        return _json(prompt_builder.make(session.engine, session.bp, session.profile, session.db(), req.question,
+                                         size=req.size, style=req.style, lang=req.lang, glossary=glossary,
+                                         target=target, target_text=target_text))
 
 
 def _assistant_target() -> tuple[dict | None, str | None, list[str]]:

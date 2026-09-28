@@ -613,6 +613,15 @@ details > summary .ico { margin-left: 2px; }
 .tip-name.r-magic { color: #9d9dff; }
 .gear-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
 .gear-top > .card { position: sticky; top: 8px; }
+.np-steps { display: flex; gap: 10px; flex-wrap: wrap; }
+.np-step { flex: 1 1 200px; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); }
+.np-num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--gold); color: #1a1406; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; }
+.np-link { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); text-decoration: none; color: var(--text);
+  background: rgba(7, 8, 11, .6); font-weight: 600; }
+.np-link:hover { border-color: var(--gold); }
+.np-text { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .mk-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 16px;
   font-size: 16px; text-align: left; }
 .mk-btn .mk-ico { font-size: 26px; line-height: 1; }
