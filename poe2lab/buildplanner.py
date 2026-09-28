@@ -15,9 +15,10 @@ by their game ids; PoB's own data resolves all three. What the format does not k
 What the format does not keep at all is assumed the way the build is played, and the report says so: an attribute
 node without a choice goes where the requirements fall short (a node's name is only its place on the tree); weapons
 and armour of the end game get 20% quality; skill gems 20% quality; the states the build causes itself are counted in
-PoB's Configuration - charges it generates (its gems, passives or items say "gain a Power Charge"...), an enemy it
-blinds, a crit recently when it crits often - each kept only when it changes the numbers. Runes and the enemy states
-the build does not cause itself stay out: the damage range of the Damage tab shows what they would change.
+PoB's Configuration - charges it generates (its gems, passives or items say "gain a Power Charge"...), Rage at its
+maximum when it builds Rage, an enemy it blinds, a crit recently when it crits often, and each ailment its main skill
+keeps on the enemy at least half the fight (poe2lab.analysis.combat: chance per hit, hits per second, duration) -
+each kept only when it changes the numbers. Runes and what the build does not cause itself stay out.
 
 What the format has no field for rides in its notes (additional_text), where the game shows it on hover: poe2lab's
 export puts each jewel on its socket and the attribute chosen on each "+5 to any attribute" node, and reads them back.
@@ -28,6 +29,7 @@ import re
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
+from .analysis.combat import HELD, ailment_uptimes, generates_rage
 from .data.moddb import pattern
 from .engine.pob import lua_string
 
@@ -534,25 +536,33 @@ def _count_states(engine) -> list[dict]:
     for kind, (max_key, var) in CHARGES.items():
         if charge_sources.get(kind) and now.get(max_key, 0) > 0:
             wanted.append((kind, var, charge_sources[kind]))
+    wanted = [(key, var, True, sources, None) for key, var, sources in wanted]
+    skill = engine.main_skill()
+    if generates_rage(now, [l for _, l in lines]):
+        wanted.append(("Rage", "multiplierRage", int(now["MaximumRage"]), [skill], None))
     blind = list(dict.fromkeys(w for w, l in lines if l.startswith("Blind") and l == w or _BLIND_TEXT.search(l)))
     if blind:
-        wanted.append(("Blinded", "conditionEnemyBlinded", blind))
+        wanted.append(("Blinded", "conditionEnemyBlinded", True, blind, None))
     if (now.get("CritChance") or 0) >= CRIT_RECENTLY:
-        wanted.append(("CritRecently", "conditionCritRecently", [engine.main_skill()]))
+        wanted.append(("CritRecently", "conditionCritRecently", True, [skill], None))
+    for var, u in ailment_uptimes(now).items():
+        if u["uptime"] >= HELD:
+            wanted.append((var.removeprefix("conditionEnemy"), var, True, [skill], u["uptime"]))
     out, config = [], engine.config()
-    for key, var, sources in wanted:
+    for key, var, value, sources, held in wanted:
         if config.get(var):
             continue  # the file's own settings (a PoB code) already count it
         before = engine.what_if()
-        engine._lua(f"build.configTab.input[ {lua_string(var)} ] = true build.configTab:BuildModList() "
-                    "build.buildFlag = true build.calcsTab:BuildOutput()")
+        engine._lua(f"build.configTab.input[ {lua_string(var)} ] = {'true' if value is True else int(value)} "
+                    "build.configTab:BuildModList() build.buildFlag = true build.calcsTab:BuildOutput()")
         after = engine.what_if()
         change = {k: (after.get(k, 0) / before[k] - 1) * 100 if before.get(k) else 0.0 for k in ("CombinedDPS", "TotalEHP")}
         if max(abs(v) for v in change.values()) < KEEP_STATE:
             engine._lua(f"build.configTab.input[ {lua_string(var)} ] = nil build.configTab:BuildModList() "
                         "build.buildFlag = true build.calcsTab:BuildOutput()")
             continue
-        out.append({"kind": key, "from": sources[:3], "dps": change["CombinedDPS"], "ehp": change["TotalEHP"]})
+        out.append({"kind": key, "from": sources[:3], "dps": change["CombinedDPS"], "ehp": change["TotalEHP"],
+                    "uptime": held, "value": None if value is True else value})
     return out
 
 

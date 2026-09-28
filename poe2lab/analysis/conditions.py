@@ -2,6 +2,7 @@
 game) or on (PoB assumes them - worth confirming), and how much each one moves damage and defences."""
 from dataclasses import dataclass
 
+from .combat import ailment_uptimes, expected_dps
 from .gradients import hit_change, recovery_change, recovery_per_second
 
 NOISE_PCT = 0.5
@@ -41,13 +42,21 @@ QUEST_PREFIX = "quest"
 
 def damage_range(engine, config: dict, impacts: list[ConditionImpact]) -> dict:
     """DPS with no enemy debuffs assumed vs with every unticked enemy debuff that adds damage at once.
-    For when the player cannot say how often enemies are stunned/crushed/shocked: reality is in between."""
-    base = engine.what_if(config=config)["CombinedDPS"]
+    For when the player cannot say how often enemies are stunned/crushed/shocked: reality is in between - and
+    `expected` is where the build's own ailments put it (each for the share of the fight it holds, see
+    poe2lab.analysis.combat), with those shares in `uptimes`."""
+    out = engine.what_if(config=config)
+    base = out["CombinedDPS"]
+    ups = ailment_uptimes(out)
+    shares = [{"var": c.var, "label": c.label, "uptime": ups[c.var]["uptime"], "checked": c.checked}
+              for c in impacts if c.var in ups]
+    expected = expected_dps(base, impacts, ups)
     debuffs = [c for c in impacts if not c.checked and c.var.startswith(ENEMY_PREFIX) and c.dps_pct >= NOISE_PCT]
     if not debuffs:
-        return {"low": base, "high": base, "conditions": []}
+        return {"low": base, "high": base, "conditions": [], "expected": expected, "uptimes": shares}
     high = engine.what_if(config=config | {c.var: True for c in debuffs})["CombinedDPS"]
-    return {"low": base, "high": high, "conditions": [c.label for c in debuffs]}
+    return {"low": base, "high": high, "conditions": [c.label for c in debuffs], "expected": expected,
+            "uptimes": shares}
 
 
 def audit(engine, config: dict) -> list[ConditionImpact]:

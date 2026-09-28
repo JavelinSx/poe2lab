@@ -208,5 +208,7 @@ def test_states_the_build_causes_are_counted_and_kept(rich):
         assert s["from"] and max(abs(s["dps"]), abs(s["ehp"])) >= buildplanner.KEEP_STATE
     # each counted state is a Configuration setting of the build: it stays in its PoB code
     keys = {"Power": "usePowerCharges", "Frenzy": "useFrenzyCharges", "Endurance": "useEnduranceCharges",
-            "Blinded": "conditionEnemyBlinded", "CritRecently": "conditionCritRecently"}
-    assert all(config.get(keys[s["kind"]]) for s in states)
+            "Blinded": "conditionEnemyBlinded", "CritRecently": "conditionCritRecently", "Rage": "multiplierRage"}
+    assert all(config.get(keys.get(s["kind"], "conditionEnemy" + s["kind"])) for s in states)
+    # an ailment is counted only when the main skill holds it at least half the fight
+    assert all(s["uptime"] >= 0.5 for s in states if s["uptime"] is not None)

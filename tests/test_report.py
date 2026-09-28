@@ -77,6 +77,9 @@ def test_damage_range_brackets_enemy_debuffs(titan):
     assert rng["high"] > rng["low"] == pytest.approx(titan.what_if(config=cfg)["CombinedDPS"])
     assert "Is the enemy Heavy Stunned?" in rng["conditions"]
     assert not any("Adrenaline" in c for c in rng["conditions"])  # player buffs are not enemy debuffs
+    # the expected value sits within the range, with the shares of the fight the build's own ailments hold
+    assert rng["low"] * 0.5 <= rng["expected"] <= rng["high"] * 1.5
+    assert all(0 <= u["uptime"] <= 1 for u in rng["uptimes"])
 
 
 def test_energy_shield_build_gets_es_recovery_not_infinity():

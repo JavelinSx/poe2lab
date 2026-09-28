@@ -302,7 +302,8 @@ function assumedBlock(a) {
     a.attributeNodes ? t("prAssAttributes", a.attributeNodes) : null,
     a.itemQuality ? t("prAssQuality", a.itemQuality) : null,
     a.gemLevels ? t("prAssGemLevels", a.gemLevels, a.gemsLowered, a.gemQuality) : null,
-    ...(a.states || []).map((s) => t("prAssState", t("prState_" + s.kind), s.from.map(trName).join(", "), pct(s.dps), Math.abs(s.ehp) >= 0.5 ? pct(s.ehp) : "")),
+    ...(a.states || []).map((s) => t("prAssState", t("prState_" + s.kind, s.value) + (s.uptime ? ` (${t("prHeld", Math.round(s.uptime * 100))})` : ""),
+      s.from.map(trName).join(", "), pct(s.dps), Math.abs(s.ehp) >= 0.5 ? pct(s.ehp) : "")),
   ].filter(Boolean);
   return rows.length ? h("div", { class: "pr-assumed small" }, h("b", {}, t("prAssTitle")),
     h("ul", { class: "pr-list" }, rows.map((x) => h("li", {}, x))), h("div", { class: "hint" }, t("prAssRest"))) : null;
@@ -682,6 +683,14 @@ const stats = (lines) => h("ul", { class: "item-lines small" }, trLines(lines).m
 const unitName = (name) => (LANG === "ru" && name === "Maximum Rage" ? "максимум свирепости" : trMod(name));
 
 // ---------- overview ----------
+// the damage where the build's own ailments put it: each for the share of the fight it holds (analysis/combat.py)
+const expectedShown = (rng) => rng.uptimes && rng.uptimes.length && Math.abs(rng.expected / rng.low - 1) >= 0.005;
+function expectedLine(rng) {
+  if (!expectedShown(rng)) return null;
+  const shares = rng.uptimes.map((u) => `${conditionLabel(u.label).replace(/\?\s*$/, "")} ${Math.round(u.uptime * 100)}%`).join(", ");
+  return h("p", { title: t("expectedHint") }, t("expectedIs"), h("b", {}, fmt(rng.expected)), " ", h("span", { class: "muted small" }, t("expectedShares", shares)));
+}
+
 TABS.overview = async (view) => {
   view.replaceChildren(loading(t("calcReport")));
   const r = await report();
@@ -693,7 +702,8 @@ TABS.overview = async (view) => {
     h("div", { class: "card kpi" }, h("div", { class: "label" }, b.minions ? t("dpsMinions") : t("dps")),
       h("div", { class: "value" }, fmt(rng.low), rng.high > rng.low ? h("span", { class: "to" }, ` … ${fmt(rng.high)}`) : null),
       h("div", { class: "note" }, b.minions ? t("minionsNote", b.minions.count, fmt(b.minions.perMinion))
-        : rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill))),
+        : rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill)),
+      expectedShown(rng) ? h("div", { class: "note", title: t("expectedHint") }, t("expectedShort", fmt(rng.expected))) : null),
     h("div", { class: "card kpi" }, h("div", { class: "label" }, b.es > 0 ? t("lifeAndEs") : t("life")),
       h("div", { class: "value" }, fmt(b.life), b.es > 0 ? h("span", { class: "to" }, ` + ${fmt(b.es)}`) : null),
       b.es > 0 ? h("div", { class: "note" }, t("lifeEsNote")) : null),
@@ -799,6 +809,7 @@ TABS.damage = async (view) => {
   const [a, lo, b2, hi, c2] = t("range", fmt(rng.low), fmt(rng.high), fmt(rng.high / rng.low, 2));
   blocks.push(h("div", { class: "card" }, h("h3", {}, t("condTitle")),
     rng.conditions.length ? h("p", {}, a, h("b", {}, lo), b2, h("b", {}, hi), c2) : null,
+    expectedLine(rng),
     off.length ? h("div", { class: "sub" }, t("condOff")) : null,
     off.length ? h("table", {}, h("tbody", {}, off.map(condRow))) : null,
     on.length ? h("div", { class: "sub", style: "margin-top:12px" }, t("condOn")) : null,
