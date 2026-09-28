@@ -36,7 +36,7 @@ from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemtext, jewelcraft, journal,
-               library, lootfilter, pobapp)
+               library, lootfilter, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -731,10 +731,7 @@ def gear(mode: str = "balanced", build: str | None = None):
         return _json(session.cached(("gear", mode), compute))
 
 
-# ---- an equipped item's quality, rune sockets and runes: edits of the plan, by the game's rules ----
-
-MAX_QUALITY = 30  # the most PoB takes (its default item quality setting goes up to 30)
-
+# ---- an equipped item's quality, catalyst, rune sockets and runes: edits of the plan, by the game's rules ----
 
 def _gear_info(slot: str) -> dict:
     """The item in the slot with its quality, sockets and runes, and every augment that fits it - each with why the
@@ -747,8 +744,15 @@ def _gear_info(slot: str) -> dict:
     level, cls = session.level or 1, e.info()["class"]
     options = [o | {"refused": rune_refusal(o, info, [], level, cls)} for o in info["options"] if adds_stats(o)]
     options.sort(key=lambda o: (o["refused"] is not None, o["name"]))
+    lines = [l["line"] for k in ("enchant", "implicit", "runes", "explicit") for l in item[k]]
+    top = quality.max_quality(lines)
+    catalyst = quality.takes_catalyst(info["itemType"], lines)
     return {"slot": slot, "item": item, "quality": info["quality"], "hasQuality": info["hasQuality"],
-            "maxQuality": MAX_QUALITY if info["hasQuality"] else 0, "sockets": info["sockets"],
+            "maxQuality": top if info["hasQuality"] else 0, "sockets": info["sockets"],
+            "takesCatalyst": catalyst, "maxCatalystQuality": top if catalyst else 0,
+            "catalyst": quality.CATALYSTS[info["catalyst"] - 1][0] if info["catalyst"] else "",
+            "catalystQuality": info["catalystQuality"] if info["catalyst"] else 0,
+            "catalysts": [{"name": n, "kind": k} for n, k, _ in quality.CATALYSTS] if catalyst else [],
             "socketLimit": max(info["socketLimit"], info["sockets"]), "runes": info["runes"],
             "corrupted": info["corrupted"], "rarity": info["rarity"], "options": options}
 
@@ -761,27 +765,44 @@ def gear_item(slot: str, build: str | None = None):
 
 
 class GearEdit(BaseModel):
-    """The item in `slot` with this quality, this many rune sockets and these runes (a name or "None" per socket);
-    None: as it is."""
+    """The item in `slot` with this quality, this many rune sockets and these runes (a name or "None" per socket),
+    this catalyst (its name, "": none) at this quality; None: as it is."""
     slot: str
     quality: int | None = None
     sockets: int | None = None
     runes: list[str] | None = None
+    catalyst: str | None = None
+    catalyst_quality: int | None = None
 
 
 def _gear_text(req: GearEdit) -> tuple[dict, str]:
-    """The item's info and its edited text, if the game allows the edit: a corrupted item keeps its quality and
-    sockets and takes only the augments made for it, quality up to 30%, sockets added (never taken away) up to the
-    base's limit, each rune one the item's type takes and the character can use, a one-per-item rune once."""
+    """The item's info and its edited text, if the game allows the edit: a corrupted item keeps its quality,
+    catalyst and sockets and takes only the augments made for it; quality up to the item's maximum
+    (poe2lab.quality); a catalyst on jewellery only; sockets added (never taken away) up to the base's limit; each
+    rune one the item's type takes and the character can use, a one-per-item rune once."""
     info = _gear_info(req.slot)
+    catalyst = info["catalyst"] if req.catalyst is None else req.catalyst
+    cq = info["catalystQuality"] if req.catalyst_quality is None else req.catalyst_quality
+    recatalysed = (catalyst, cq) != (info["catalyst"], info["catalystQuality"])
     same = lambda a, b: a is None or a == b  # noqa: E731
-    if info["corrupted"] and not (same(req.quality, info["quality"]) and same(req.sockets, info["sockets"])):
-        raise HTTPException(400, "осквернённый предмет не изменить: ни качество, ни гнёзда")
+    if info["corrupted"] and (recatalysed or not (same(req.quality, info["quality"]) and same(req.sockets, info["sockets"]))):
+        raise HTTPException(400, "предмет с порчей не изменить: ни качество, ни катализатор, ни гнёзда")
     if req.quality is not None and req.quality != info["quality"]:
         if not info["hasQuality"]:
             raise HTTPException(400, "у этого предмета нет качества")
-        if not 0 <= req.quality <= MAX_QUALITY:
-            raise HTTPException(400, f"качество — от 0 до {MAX_QUALITY}%")
+        if not 0 <= req.quality <= info["maxQuality"]:
+            raise HTTPException(400, f"качество этого предмета — от 0 до {info['maxQuality']}%")
+    if recatalysed:
+        if not info["takesCatalyst"]:
+            raise HTTPException(400, "катализатор применяют к кольцам и амулетам")
+        try:
+            quality.catalyst_index(catalyst)
+        except ValueError:
+            raise HTTPException(400, f"нет такого катализатора: {catalyst}")
+        if not 0 <= cq <= info["maxCatalystQuality"]:
+            raise HTTPException(400, f"качество катализатора — от 0 до {info['maxCatalystQuality']}%")
+        if not catalyst:
+            cq = 0
     sockets = info["sockets"] if req.sockets is None else req.sockets
     if sockets < info["sockets"]:
         raise HTTPException(400, "гнездо для руны из предмета не убрать")
@@ -809,7 +830,13 @@ def _gear_text(req: GearEdit) -> tuple[dict, str]:
                 "level": f"{name} требует {why.get('level')} уровня персонажа",
                 "limit": f"{name} — не больше одной в предмете",
             }[why["code"]])
-    text = _errors(lambda: session.engine.edit_item(req.slot, req.quality, sockets, runes))
+    old = (quality.catalyst_index(info["catalyst"]), info["catalystQuality"])
+    new = (quality.catalyst_index(catalyst), cq)
+    text = _errors(lambda: session.engine.edit_item(req.slot, req.quality, sockets, runes, *new))
+    if new != old:
+        item = info["item"]
+        text = quality.recatalyse(text, [l["line"] for l in item["explicit"]], session.db(), item["tags"],
+                                  item["itemLevel"] or 100, old, new)
     return info, text
 
 
@@ -839,6 +866,9 @@ def gear_set(req: GearEdit):
             "action": "item", "target": req.slot, "item": info["item"]["name"],
             "quality": [info["quality"], new["quality"]] if new["quality"] != info["quality"] else None,
             "sockets": [info["sockets"], new["sockets"]] if new["sockets"] != info["sockets"] else None,
+            "catalyst": ([quality.CATALYSTS[new["catalyst"] - 1][0] if new["catalyst"] else "", new["catalystQuality"]]
+                         if (new["catalyst"], new["catalystQuality"]) != (quality.catalyst_index(info["catalyst"]),
+                                                                        info["catalystQuality"]) else None),
             "added": [r for i, r in enumerate(new["runes"]) if r != "None" and
                       r != (info["runes"][i] if i < len(info["runes"]) else "None")]})
         _plan_changed()

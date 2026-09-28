@@ -935,28 +935,33 @@ function slotCard(p) {
 // the item's quality, rune sockets and runes, changed as the game allows (the server checks: /api/gear/preview):
 // a draft previewed against the item as it is, applied as an edit of the plan
 function gearEdit(box, info, g) {
-  const d = { quality: info.quality, sockets: info.sockets, runes: [...info.runes], socket: null, kind: "all", q: "" };
+  const d = { quality: info.quality, sockets: info.sockets, runes: [...info.runes], catalyst: info.catalyst, cq: info.catalystQuality,
+    socket: null, kind: "all", q: "" };
   const best = {};  // socket -> the runes the build gains most from there (the Gear analysis), with what they give
   for (const s of g.sockets) if (s.slot === info.slot) best[s.index - 1] = Object.fromEntries(s.best.map((o) => [o.name, o]));
   const byName = Object.fromEntries(info.options.map((o) => [o.name, o]));
   const was = (i) => info.runes[i] || "None";
-  const changed = () => d.quality !== info.quality || d.sockets !== info.sockets || d.runes.some((r, i) => r !== was(i));
+  const changed = () => d.quality !== info.quality || d.sockets !== info.sockets || d.runes.some((r, i) => r !== was(i))
+    || d.catalyst !== info.catalyst || d.cq !== info.catalystQuality;
+  const body = () => ({ slot: info.slot, quality: d.quality, sockets: d.sockets, runes: d.runes, catalyst: d.catalyst, catalyst_quality: d.cq });
   const controls = h("div", { class: "stack" }), out = h("div", { class: "stack" });
   let seq = 0, timer = null;
   const refresh = () => { clearTimeout(timer); timer = setTimeout(preview, 250); };
-  const undo = () => { Object.assign(d, { quality: info.quality, sockets: info.sockets, runes: [...info.runes], socket: null }); drawControls(); preview(); };
+  const undo = () => {
+    Object.assign(d, { quality: info.quality, sockets: info.sockets, runes: [...info.runes], catalyst: info.catalyst, cq: info.catalystQuality, socket: null });
+    drawControls(); preview();
+  };
 
   async function preview() {
     const my = ++seq;
     if (!changed()) { out.replaceChildren(); return; }
     out.replaceChildren(loading(t("counting")));
     try {
-      const r = await api("/api/gear/preview", { method: "POST", body: { slot: info.slot, quality: d.quality, sockets: d.sockets, runes: d.runes } });
+      const r = await api("/api/gear/preview", { method: "POST", body: body() });
       if (my !== seq) return;
       out.replaceChildren(h("div", {}, h("div", { class: "sub", style: "margin:0 0 4px" }, t("gearVsNow")), deltas(r.change, METRIC, 0.3)),
         h("details", {}, h("summary", { class: "small" }, t("gearNewMods")), modsTip(r.item)),
-        h("div", { class: "row" }, h("button", { class: "primary", onclick: () => planCall("/api/gear/set",
-          { slot: info.slot, quality: d.quality, sockets: d.sockets, runes: d.runes }, { tab: "gear", rebuild: true }) }, t("gearApply")),
+        h("div", { class: "row" }, h("button", { class: "primary", onclick: () => planCall("/api/gear/set", body(), { tab: "gear", rebuild: true }) }, t("gearApply")),
         h("button", { class: "ghost", onclick: undo }, t("gearUndo"))));
     } catch (e) {
       if (my === seq) out.replaceChildren(h("p", { class: "neg" }, e.message), h("button", { class: "ghost small", onclick: undo }, t("gearUndo")));
@@ -1000,19 +1005,43 @@ function gearEdit(box, info, g) {
       Object.keys(rec).length ? h("div", { class: "muted small" }, t("gearBest")) : null);
   }
 
+  // quality as buttons and a slider up to the item's maximum (40% on a Breach ring, 200% on some uniques)
+  const qualityRow = (label, value, max, disabled, onSet) => {
+    const val = h("span", { class: "q-val" }, `${value}%`);
+    const qbtns = h("div", { class: "segmented" });
+    const drawQ = (cur) => qbtns.replaceChildren(...[...new Set([0, 10, 20, 30, max])].filter((q) => q <= max).sort((a, b) => a - b)
+      .map((q) => h("button", { class: cur === q ? "active" : "", disabled, onclick: () => set(q) }, `${q}%`)));
+    const range = h("input", { type: "range", min: 0, max, value, disabled, oninput: (e) => set(Number(e.target.value)) });
+    const set = (q) => { val.textContent = `${q}%`; range.value = q; drawQ(q); onSet(q); };
+    drawQ(value);
+    return h("div", { class: "q-row" }, h("b", {}, label), val, range, qbtns);
+  };
+
+  // a ring's or amulet's catalyst: the kind of mods it raises, by its quality
+  const catalystBlock = () => {
+    const tile = (c) => {
+      const name = `${c.name} Catalyst`;
+      const el = h("button", { class: "rune-opt" + (d.catalyst === c.name ? " sel" : "") + (info.corrupted ? " refused" : ""),
+        "aria-disabled": info.corrupted ? "true" : null,
+        onclick: () => {
+          if (info.corrupted) return;
+          d.catalyst = d.catalyst === c.name ? "" : c.name;
+          d.cq = d.catalyst ? d.cq || Math.min(20, info.maxCatalystQuality) : 0;
+          drawControls(); refresh();
+        } },
+      icon(name, "ico rune") || h("span", { class: "rune-dot" }), h("span", { class: "rune-name" }, trName(name)));
+      return hoverTip(el, () => h("div", { class: "stack" }, h("b", {}, trName(name)), h("div", { class: "small" }, t("gearCatTip", t("gearCatKind_" + c.kind)))));
+    };
+    return [h("div", { class: "stack" }, h("div", { class: "row" }, h("b", {}, t("gearCatalyst")),
+      h("span", { class: "muted small" }, d.catalyst ? t("gearCatNow", t("gearCatKind_" + info.catalysts.find((c) => c.name === d.catalyst).kind)) : t("gearNoCatalyst"))),
+    h("div", { class: "rune-grid cat-grid" }, info.catalysts.map(tile))),
+    d.catalyst ? qualityRow(t("gearCatalystQ"), d.cq, info.maxCatalystQuality, info.corrupted, (q) => { d.cq = q; refresh(); }) : null];
+  };
+
   function drawControls() {
     const parts = [];
-    if (info.hasQuality) {
-      const val = h("span", { class: "q-val" }, `${d.quality}%`);
-      const qbtns = h("div", { class: "segmented" });
-      const setQ = (q) => { d.quality = q; val.textContent = `${q}%`; range.value = q; drawQ(); refresh(); };
-      const range = h("input", { type: "range", min: 0, max: info.maxQuality, value: d.quality, disabled: info.corrupted,
-        oninput: (e) => setQ(Number(e.target.value)) });
-      const drawQ = () => qbtns.replaceChildren(...[0, 10, 20, 30].filter((q) => q <= info.maxQuality).map((q) =>
-        h("button", { class: d.quality === q ? "active" : "", disabled: info.corrupted, onclick: () => setQ(q) }, `${q}%`)));
-      drawQ();
-      parts.push(h("div", { class: "q-row" }, h("b", {}, t("gearQuality")), val, range, qbtns));
-    }
+    if (info.hasQuality) parts.push(qualityRow(t("gearQuality"), d.quality, info.maxQuality, info.corrupted, (q) => { d.quality = q; refresh(); }));
+    if (info.takesCatalyst) parts.push(...catalystBlock().filter(Boolean));
     if (info.socketLimit > 0) {
       const sock = (i) => {
         const name = d.runes[i] || "None";
@@ -1767,7 +1796,9 @@ function planCard(plan) {
       e.removed && e.added ? " " : null, e.added ? h("span", { class: "pos" }, `+ ${jwName(e.added)}`) : null)
     : e.action === "item"
     ? h("li", {}, t("gearLog", slotName(e.target)), " ", [e.quality ? t("gearLogQ", ...e.quality) : null,
-      e.sockets ? t("gearLogS", ...e.sockets) : null, ...(e.added || []).map((n) => "+ " + trName(n))].filter(Boolean).join(", "))
+      e.sockets ? t("gearLogS", ...e.sockets) : null,
+      e.catalyst ? t("gearLogC", e.catalyst[0] ? trName(`${e.catalyst[0]} Catalyst`) : t("gearNoCatalyst"), e.catalyst[1]) : null,
+      ...(e.added || []).map((n) => "+ " + trName(n))].filter(Boolean).join(", "))
     : e.action === "gem"
     ? h("li", {}, t("gmLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${trName(e.removed)}`) : null,
       e.removed && e.added ? " " : null,

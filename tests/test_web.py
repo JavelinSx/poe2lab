@@ -313,3 +313,35 @@ def test_gear_quality_sockets_and_runes(client):
     client.post("/api/tree/reset", headers=H)
     back = client.get(f"/api/gear/item?slot={slot}").json()
     assert (back["quality"], back["sockets"], back["runes"]) == (info["quality"], info["sockets"], info["runes"])
+
+
+def test_a_catalyst_on_jewellery(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    client.post("/api/tree/reset", headers=H)
+    jewellery = [client.get(f"/api/gear/item?slot={s}").json() for s in ("Ring 1", "Ring 2", "Amulet")]
+    assert all(j["takesCatalyst"] and len(j["catalysts"]) == 13 and j["maxCatalystQuality"] >= 20 for j in jewellery)
+    for j in (j for j in jewellery if j["corrupted"]):  # a corrupted one takes no catalyst
+        r = client.post("/api/gear/preview", json={"slot": j["slot"], "catalyst": "Flesh", "catalyst_quality": 20}, headers=H)
+        assert r.status_code == 400 and "с порчей" in r.json()["detail"]
+    ring = next(j for j in jewellery if not j["corrupted"])
+    slot, shown = ring["slot"], [l["line"] for l in ring["item"]["explicit"]]
+    # a catalyst raises its kind of mods: one of the thirteen changes this item's lines
+    raised = None
+    for c in ring["catalysts"]:
+        p = client.post("/api/gear/preview", json={"slot": slot, "catalyst": c["name"], "catalyst_quality": 20}, headers=H).json()
+        if [l["line"] for l in p["item"]["explicit"]] != shown:
+            raised = c["name"]
+            break
+    assert raised
+    r = client.post("/api/gear/preview", json={"slot": slot, "catalyst": raised,
+                                              "catalyst_quality": ring["maxCatalystQuality"] + 1}, headers=H)
+    assert r.status_code == 400 and "качество катализатора" in r.json()["detail"]
+    armour = next(i["slot"] for i in client.get("/api/build").json()["items"]
+                  if not i["corrupted"] and i["type"] not in ("Ring", "Amulet"))
+    r = client.post("/api/gear/preview", json={"slot": armour, "catalyst": "Flesh", "catalyst_quality": 20}, headers=H)
+    assert r.status_code == 400 and "кольцам и амулетам" in r.json()["detail"]
+    r = client.post("/api/gear/set", json={"slot": slot, "catalyst": raised, "catalyst_quality": 20}, headers=H).json()
+    assert (r["catalyst"], r["catalystQuality"]) == (raised, 20) and r["plan"]["log"][-1]["catalyst"] == [raised, 20]
+    client.post("/api/tree/reset", headers=H)
+    back = client.get(f"/api/gear/item?slot={slot}").json()
+    assert back["catalyst"] == ring["catalyst"] and [l["line"] for l in back["item"]["explicit"]] == shown

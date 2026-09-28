@@ -635,6 +635,7 @@ details > summary .ico { margin-left: 2px; }
 .rune-opt.refused { opacity: .4; cursor: default; }
 .rune-opt .rune-name { flex: 1; line-height: 1.2; }
 .rune-opt .star { color: var(--gold); }
+.cat-grid { max-height: none; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 @media (max-width: 900px) { .gear-top { grid-template-columns: 1fr; } .gear-top > .card { position: static; } }
 
 /* jewels in the tree's sockets: a tile per socket, an editor to make or pick one */

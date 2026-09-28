@@ -82,10 +82,13 @@ function _poe2lab_item(text, exact)
   return item
 end
 
--- an item with its quality, sockets and runes set (nil: as it is); runes past the sockets go
-function _poe2lab_item_edit(text, quality, sockets, runes)
+-- an item with its quality, sockets, runes and catalyst (its number, 0: none; and its quality) set (nil: as it is);
+-- runes past the sockets go
+function _poe2lab_item_edit(text, quality, sockets, runes, catalyst, catalystQuality)
   local item = _poe2lab_item(text, true)
   if quality then item.quality = quality end
+  if catalyst then item.catalyst = catalyst > 0 and catalyst or nil end
+  if catalystQuality then item.catalystQuality = catalystQuality end
   if sockets then
     wipeTable(item.sockets)
     for i = 1, sockets do item.sockets[i] = { group = i - 1 } end
@@ -690,18 +693,20 @@ end
 return _poe2lab_json(out)""")
 
     def edit_item(self, slot: str, quality: int | None = None, sockets: int | None = None,
-                  runes: list[str] | None = None) -> str:
-        """The equipped item's text with its quality, rune sockets and runes (a name or "None" per socket) set -
-        None: as it is. Nothing is equipped: equip_item(slot, text, exact=True) or what_if(replace_item=(slot,
-        text), keep_quality=True)."""
-        q = "nil" if quality is None else str(int(quality))
-        n = "nil" if sockets is None else str(int(sockets))
+                  runes: list[str] | None = None, catalyst: int | None = None,
+                  catalyst_quality: int | None = None) -> str:
+        """The equipped item's text with its quality, rune sockets and runes (a name or "None" per socket), its
+        catalyst (PoB's number, 0: none) and the catalyst's quality set - None: as it is. PoB scales by a catalyst
+        only the lines with mod tags (poe2lab.quality.recatalyse does the rest). Nothing is equipped:
+        equip_item(slot, text, exact=True) or what_if(replace_item=(slot, text), keep_quality=True)."""
+        num = lambda v: "nil" if v is None else str(int(v))  # noqa: E731
+        q, n, c, cq = num(quality), num(sockets), num(catalyst), num(catalyst_quality)
         r = "nil" if runes is None else "{ " + ", ".join(lua_string(x) for x in runes) + " }"
         return self._lua(f"""
 local slot = build.itemsTab.slots[ {lua_string(slot)} ]
 local item = slot and build.itemsTab.items[slot.selItemId]
 if not item then error("no item in slot " .. {lua_string(slot)}, 0) end
-return _poe2lab_item_edit(item.raw, {q}, {n}, {r}):BuildRaw()""")
+return _poe2lab_item_edit(item.raw, {q}, {n}, {r}, {c}, {cq}):BuildRaw()""")
 
     def clear_slot(self, slot: str):
         """Take off whatever is in a slot (gear or a jewel socket), recalculated."""
@@ -801,7 +806,7 @@ return _poe2lab_json(out)""")
 
     def socket_info(self, slot: str) -> dict:
         """Sockets of the equipped item, the runes / soul cores in them and which augments fit it; its quality,
-        whether its base takes quality and how many rune sockets the base can have."""
+        whether its base takes quality, how many rune sockets the base can have; its type and catalyst."""
         return self._json(f"""
 local slot = build.itemsTab.slots[ {lua_string(slot)} ]
 local item = slot and build.itemsTab.items[slot.selItemId]
@@ -823,7 +828,8 @@ end
 return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted = item.corrupted and true or false,
   rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options,
   quality = item.quality or 0, hasQuality = item.base.quality and true or false,
-  socketLimit = item.base.socketLimit or 0 }})""")
+  socketLimit = item.base.socketLimit or 0, itemType = item.base.type or "", catalyst = item.catalyst or 0,
+  catalystQuality = item.catalystQuality or 0 }})""")
 
     def _local_describer(self, statdesc_dir: Path) -> bool:
         """A second copy of PoB's StatDescriber reading description files from `statdesc_dir` (same layout as
