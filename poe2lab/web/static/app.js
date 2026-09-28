@@ -62,6 +62,24 @@ function confirmInPage(text, yes) {
   });
 }
 
+// a card beside an element while the pointer is over it: an item's mods, a rune's lines
+let TIP = null;
+function hideTip() { if (TIP) TIP.style.display = "none"; }
+function hoverTip(el, render) {
+  el.addEventListener("mouseenter", () => {
+    if (!TIP) { TIP = h("div", { class: "hover-tip card" }); document.body.append(TIP); }
+    TIP.replaceChildren(render());
+    TIP.style.display = "block";
+    const r = el.getBoundingClientRect(), w = TIP.offsetWidth, ht = TIP.offsetHeight;
+    const x = r.right + 10 + w <= innerWidth - 8 ? r.right + 10 : Math.max(8, r.left - w - 10);
+    TIP.style.left = `${x}px`;
+    TIP.style.top = `${Math.min(Math.max(8, r.top), Math.max(8, innerHeight - ht - 8))}px`;
+  });
+  el.addEventListener("mouseleave", hideTip);
+  el.addEventListener("click", hideTip);
+  return el;
+}
+
 function toast(msg, ok = false) {
   const el = $("#toast");
   el.textContent = msg;
@@ -828,11 +846,15 @@ TABS.damage = async (view) => {
 // ---------- gear ----------
 TABS.gear = async (view) => {
   view.replaceChildren(loading(t("calcGear")));
+  hideTip();
   const g = await cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`));
+  const items = gearMap(state.build.items);
+  if (!state.gear || state.gear.build !== state.build.name) state.gear = { build: state.build.name, slot: null, set: 1 };
+  const gs = state.gear;
+  if (!gs.slot || !items[gs.slot]) gs.slot = ["Body Armour", "Weapon 1", "Helmet"].find((s) => items[s]) || Object.keys(items)[0] || null;
 
   // the item a step is about, as its picture: many slots, so the eye finds the right one at once
-  const slotItem = (slot) => (state.build.items || []).find((i) => i.slot === slot);
-  const slotIcon = (slot) => { const it = slotItem(slot); return it ? itemIcon(it.name, it.baseName, it.rarity) : null; };
+  const slotIcon = (slot) => { const it = items[slot]; return it ? itemIcon(it.name, it.baseName, it.rarity) : null; };
   const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
     g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", { class: "step-body" },
       h("div", { class: "what" }, slotIcon(s.slot), chip("tag", slotName(s.slot)), " ",
@@ -841,37 +863,183 @@ TABS.gear = async (view) => {
       deltas(s.changes),
       howBlock(s.how))))) : h("p", { class: "muted" }, t("nothingToCraft")));
 
-  const socketCard = h("div", { class: "card" }, h("h3", {}, t("socketsTitle")),
-    h("div", { class: "sub" }, t("socketsSub") + (g.prices ? t("prices", trName(g.prices.league)) : "")),
-    g.sockets.length ? g.sockets.map((s) => h("div", { style: "margin-bottom:12px" },
-      h("div", { class: "row sock-row", style: "gap:6px" }, slotIcon(s.slot), chip("tag", slotName(s.slot)), t("socketNow", s.index),
-        h("b", { class: "named" }, icon(s.current), trName(s.current)), h("span", { class: "muted" }, t("gives", fmt(s.current_score, 1)))),
-      s.best.length ? h("table", {}, h("tbody", {}, s.best.map((o) => h("tr", {},
-        h("td", {}, h("div", { class: "named" }, icon(o.name, "ico rune"), trName(o.name)), h("div", { class: "mod muted" }, trMod(o.lines.join(" / ")))),
-        h("td", {}, deltas(o.changes)), h("td", { class: "num" }, trFree(o.price || ""))))))
-        : h("div", { class: "muted small" }, t("nothingBetter"))))
-      : h("p", { class: "muted" }, t("noSockets")));
+  // a slot with something to improve: a better rune for one of its sockets or a step of the craft path
+  const badges = {};
+  for (const s of [...g.sockets.filter((x) => x.best.length), ...g.craftPath]) {
+    badges[s.slot] = { cls: "better", sym: "▲", title: t("gearBadge") };
+  }
+  const dollBox = h("div", { class: "stack" }), side = h("div", { class: "stack" });
+  const pick = (slot) => { gs.slot = slot; draw(); };
+  const draw = () => {
+    const swap = hasSwapSet(items);
+    if (!swap && gs.set === 2) gs.set = 1;
+    dollBox.replaceChildren(...[
+      swap ? h("div", { class: "segmented", title: t("cmpWeapons") }, [1, 2].map((n) => h("button", { class: gs.set === n ? "active" : "",
+        onclick: () => {
+          gs.set = n;
+          const pos = Object.keys(SWAP_SLOT).find((p) => p === gs.slot || SWAP_SLOT[p] === gs.slot);  // the picked weapon follows the set
+          if (pos) gs.slot = n === 2 ? SWAP_SLOT[pos] : pos;
+          draw();
+        } }, n === 1 ? "⚔ I" : "⚔ II"))) : null,
+      doll(items, { set: gs.set, selected: gs.slot, onPick: pick, badges, tip: modsTip }),
+      h("div", { class: "muted small cmp-legend" }, t("gearPick"))].filter(Boolean));
+    drawSide();
+  };
 
-  const cards = g.slots.map((p) => {
-    const max = Math.max(...p.affixes.map((a) => a.score), 1);
-    return h("div", { class: "card" },
-      h("div", { class: "slot-head" }, h("div", { class: "row", style: "gap:0;flex-wrap:nowrap" }, itemIcon(p.item, p.base, p.rarity),
-        h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", { title: p.item }, trItem(p.item)))),
-        chip(p.corrupted ? "must" : "tag", p.corrupted ? t("corrupted") : t("craftable"))),
-      h("div", { class: "sub" }, t("affixCount", { ...p, base: trName(p.base) }) + (p.uncertain ? t("approx") : "")),
-      p.affixes.map((a) => h("div", { class: "affix" },
-        h("div", { class: "kind" }, a.type === "Prefix" ? t("prefix") : t("suffix")),
-        h("div", {}, h("span", { class: "mod", title: a.lines.join(" / ") }, trMod(a.lines.join(" / "))), h("span", { class: "tier" }, `${LANG === "ru" ? "тир " : "T"}${a.tier}/${a.tiers}`),
-          a.holds.length ? h("div", {}, chip("hold", t("holds") + a.holds.map(trFree).join(", "))) : null,
-          a.utility ? h("div", {}, chip("util", t("utility"))) : null),
-        scoreBar(a.score, max))),
-      p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null,
-      craftBlock(p.slot), tradeBlock(p.slot));
-  });
+  let seq = 0;
+  async function drawSide() {
+    const slot = gs.slot, my = ++seq;
+    const p = g.slots.find((x) => x.slot === slot);
+    if (!slot || !items[slot]) { side.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, t("slotEmpty")))); return; }
+    const edit = h("div", { class: "card" }, loading(t("counting")));
+    side.replaceChildren(...[edit, p ? slotCard(p) : null].filter(Boolean));
+    try {
+      const info = await api(`/api/gear/item?slot=${encodeURIComponent(slot)}&${buildQuery()}`);
+      if (my === seq) gearEdit(edit, info, g);
+    } catch (e) { if (my === seq) edit.replaceChildren(h("p", { class: "muted" }, e.message)); }
+  }
 
-  return h("div", { class: "stack" }, craftGuide(), h("div", { class: "grid two" }, path, socketCard),
-    h("div", { class: "section-title" }, t("slots")), h("div", { class: "grid cards" }, cards));
+  draw();
+  return h("div", { class: "stack" }, h("div", { class: "gear-top" }, h("div", { class: "card" }, dollBox), side),
+    path, craftGuide());
 };
+
+// an item's mods when the pointer is over it: its lines only, as the game lists them
+function modsTip(it) {
+  const lines = [...it.enchant.map((l) => [l, "enchant"]), ...it.implicit.map((l) => [l, "implicit"]), ...it.runes.map((l) => [l, "rune"]),
+    ...it.explicit.map((l) => [l, ""])];
+  return h("div", { class: "stack" }, h("div", { class: "item-name tip-name r-" + (it.rarity || "normal").toLowerCase() }, itemTitle(it)),
+    lines.length ? h("ul", { class: "item-lines small" }, lines.map(([l, cls]) => h("li", {
+      class: [cls, l.crafted ? "crafted" : "", l.desecrated ? "desecrated" : "", l.fractured ? "fractured" : ""].filter(Boolean).join(" ") }, trMod(l.line))),
+    it.corrupted ? h("li", { class: "corrupted" }, t("corrupted")) : null) : h("div", { class: "muted small" }, t("gearNoMods")));
+}
+
+// the analysis of one item: its mods by worth for the build, what to change, how to craft it, a replacement to buy
+function slotCard(p) {
+  const max = Math.max(...p.affixes.map((a) => a.score), 1);
+  return h("div", { class: "card" },
+    h("div", { class: "slot-head" }, h("div", { class: "row", style: "gap:0;flex-wrap:nowrap" }, itemIcon(p.item, p.base, p.rarity),
+      h("div", {}, h("div", { class: "slot" }, slotName(p.slot)), h("h3", { title: p.item }, trItem(p.item)))),
+      chip(p.corrupted ? "must" : "tag", p.corrupted ? t("corrupted") : t("craftable"))),
+    h("div", { class: "sub" }, t("affixCount", { ...p, base: trName(p.base) }) + (p.uncertain ? t("approx") : "")),
+    p.affixes.map((a) => h("div", { class: "affix" },
+      h("div", { class: "kind" }, a.type === "Prefix" ? t("prefix") : t("suffix")),
+      h("div", {}, h("span", { class: "mod", title: a.lines.join(" / ") }, trMod(a.lines.join(" / "))), h("span", { class: "tier" }, `${LANG === "ru" ? "тир " : "T"}${a.tier}/${a.tiers}`),
+        a.holds.length ? h("div", {}, chip("hold", t("holds") + a.holds.map(trFree).join(", "))) : null,
+        a.utility ? h("div", {}, chip("util", t("utility"))) : null),
+      scoreBar(a.score, max))),
+    p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null,
+    craftBlock(p.slot), tradeBlock(p.slot));
+}
+
+// the item's quality, rune sockets and runes, changed as the game allows (the server checks: /api/gear/preview):
+// a draft previewed against the item as it is, applied as an edit of the plan
+function gearEdit(box, info, g) {
+  const d = { quality: info.quality, sockets: info.sockets, runes: [...info.runes], socket: null, kind: "all", q: "" };
+  const best = {};  // socket -> the runes the build gains most from there (the Gear analysis), with what they give
+  for (const s of g.sockets) if (s.slot === info.slot) best[s.index - 1] = Object.fromEntries(s.best.map((o) => [o.name, o]));
+  const byName = Object.fromEntries(info.options.map((o) => [o.name, o]));
+  const was = (i) => info.runes[i] || "None";
+  const changed = () => d.quality !== info.quality || d.sockets !== info.sockets || d.runes.some((r, i) => r !== was(i));
+  const controls = h("div", { class: "stack" }), out = h("div", { class: "stack" });
+  let seq = 0, timer = null;
+  const refresh = () => { clearTimeout(timer); timer = setTimeout(preview, 250); };
+  const undo = () => { Object.assign(d, { quality: info.quality, sockets: info.sockets, runes: [...info.runes], socket: null }); drawControls(); preview(); };
+
+  async function preview() {
+    const my = ++seq;
+    if (!changed()) { out.replaceChildren(); return; }
+    out.replaceChildren(loading(t("counting")));
+    try {
+      const r = await api("/api/gear/preview", { method: "POST", body: { slot: info.slot, quality: d.quality, sockets: d.sockets, runes: d.runes } });
+      if (my !== seq) return;
+      out.replaceChildren(h("div", {}, h("div", { class: "sub", style: "margin:0 0 4px" }, t("gearVsNow")), deltas(r.change, METRIC, 0.3)),
+        h("details", {}, h("summary", { class: "small" }, t("gearNewMods")), modsTip(r.item)),
+        h("div", { class: "row" }, h("button", { class: "primary", onclick: () => planCall("/api/gear/set",
+          { slot: info.slot, quality: d.quality, sockets: d.sockets, runes: d.runes }, { tab: "gear", rebuild: true }) }, t("gearApply")),
+        h("button", { class: "ghost", onclick: undo }, t("gearUndo"))));
+    } catch (e) {
+      if (my === seq) out.replaceChildren(h("p", { class: "neg" }, e.message), h("button", { class: "ghost small", onclick: undo }, t("gearUndo")));
+    }
+  }
+
+  const runeTip = (o, why, gain) => h("div", { class: "stack" },
+    h("div", { class: "named" }, icon(o.name, "ico rune"), h("b", {}, trName(o.name))),
+    o.lines.length ? h("ul", { class: "item-lines small" }, o.lines.map((l) => h("li", {}, trMod(l)))) : null,
+    o.levelReq > 1 ? h("div", { class: "muted small" }, t("gearRuneLevel", o.levelReq)) : null,
+    gain ? h("div", {}, h("div", { class: "muted small" }, t("gearRuneGives")), deltas(gain.changes, METRIC, 0.3),
+      gain.price ? h("div", { class: "muted small" }, trFree(gain.price)) : null) : null,
+    why ? h("div", { class: "neg small" }, t("gearRefused_" + why.code, why.class ? trName(why.class) : why.level)) : null);
+
+  function runePicker() {
+    const i = d.socket, rec = best[i] || {};
+    const kindOf = (o) => (o.type === "Rune" || o.type === "SoulCore" ? o.type : "other");
+    const others = d.runes.filter((_, j) => j !== i);
+    const refused = (o) => o.refused || (o.limit === 1 && others.includes(o.name) ? { code: "limit" } : null);
+    const match = (o) => (d.kind === "all" || kindOf(o) === d.kind)
+      && (!d.q || [o.name, trName(o.name)].join(" ").toLowerCase().includes(d.q.toLowerCase()));
+    const tile = (o) => {
+      const why = refused(o);
+      const el = h("button", { class: "rune-opt" + (why ? " refused" : "") + (d.runes[i] === o.name ? " sel" : ""), "aria-disabled": why ? "true" : null,
+        onclick: () => {
+          if (why) return;
+          d.runes = d.runes.map((r, j) => (j === i ? o.name : r));
+          drawControls(); refresh();
+        } },
+      icon(o.name, "ico rune"), h("span", { class: "rune-name" }, trName(o.name)), rec[o.name] ? h("span", { class: "star" }, "★") : null);
+      return hoverTip(el, () => runeTip(o, why, rec[o.name]));
+    };
+    const list = () => info.options.filter(match)
+      .sort((a, b) => (!!rec[b.name] - !!rec[a.name]) || (!!refused(a) - !!refused(b)) || trName(a.name).localeCompare(trName(b.name)))
+      .map(tile);
+    const grid = h("div", { class: "rune-grid" }, list());
+    const q = h("input", { type: "search", placeholder: t("gearRuneSearch"), value: d.q, oninput: () => { d.q = q.value; grid.replaceChildren(...list()); } });
+    const seg = h("div", { class: "segmented" }, [["all", t("gearKind_all")], ["Rune", t("gearKind_rune")], ["SoulCore", t("gearKind_core")],
+      ["other", t("gearKind_other")]].map(([k, label]) => h("button", { class: d.kind === k ? "active" : "", onclick: () => { d.kind = k; drawControls(); } }, label)));
+    return h("div", { class: "rune-picker stack" }, h("div", { class: "row" }, h("b", {}, t("gearRunesFor", i + 1)), seg, q), grid,
+      Object.keys(rec).length ? h("div", { class: "muted small" }, t("gearBest")) : null);
+  }
+
+  function drawControls() {
+    const parts = [];
+    if (info.hasQuality) {
+      const val = h("span", { class: "q-val" }, `${d.quality}%`);
+      const qbtns = h("div", { class: "segmented" });
+      const setQ = (q) => { d.quality = q; val.textContent = `${q}%`; range.value = q; drawQ(); refresh(); };
+      const range = h("input", { type: "range", min: 0, max: info.maxQuality, value: d.quality, disabled: info.corrupted,
+        oninput: (e) => setQ(Number(e.target.value)) });
+      const drawQ = () => qbtns.replaceChildren(...[0, 10, 20, 30].filter((q) => q <= info.maxQuality).map((q) =>
+        h("button", { class: d.quality === q ? "active" : "", disabled: info.corrupted, onclick: () => setQ(q) }, `${q}%`)));
+      drawQ();
+      parts.push(h("div", { class: "q-row" }, h("b", {}, t("gearQuality")), val, range, qbtns));
+    }
+    if (info.socketLimit > 0) {
+      const sock = (i) => {
+        const name = d.runes[i] || "None";
+        const el = h("button", { class: "rune-sock" + (d.socket === i ? " sel" : "") + (name !== was(i) ? " new" : ""),
+          title: name === "None" ? t("gearSocketEmpty") : null, onclick: () => { d.socket = d.socket === i ? null : i; drawControls(); } },
+        name !== "None" ? icon(name, "ico rune") || h("span", { class: "rune-dot" }) : null);
+        return name === "None" ? el : hoverTip(el, () => runeTip(byName[name] || { name, lines: [] }, null, null));
+      };
+      const add = d.sockets < info.socketLimit && !info.corrupted ? h("button", { class: "rune-sock add", title: t("gearAddSocket"),
+        onclick: () => { d.sockets += 1; d.runes = [...d.runes, "None"]; d.socket = d.sockets - 1; drawControls(); refresh(); } }, "+") : null;
+      parts.push(h("div", { class: "q-row" }, h("b", {}, t("gearSockets", d.sockets, info.socketLimit)),
+        h("div", { class: "rune-socks" }, ...Array.from({ length: d.sockets }, (_, i) => sock(i)), ...(add ? [add] : [])),
+        d.socket === null && d.sockets ? h("span", { class: "muted small" }, t("gearSocketHint")) : null));
+      if (d.socket !== null) parts.push(runePicker());
+    } else {
+      parts.push(h("div", { class: "muted small" }, t("gearNoSockets")));
+    }
+    if (info.corrupted) parts.push(h("div", {}, chip("must", t("gearCorrupted"))));
+    controls.replaceChildren(...parts);
+  }
+
+  drawControls();
+  box.replaceChildren(...[info.plan ? planBar(info.plan) : null,
+    h("div", { class: "cmp-item-head" }, itemIcon(info.item.name, info.item.baseName, info.item.rarity),
+      h("div", {}, h("div", { class: "muted small" }, slotName(info.slot)), h("div", { class: "item-name" }, itemTitle(info.item)))),
+    controls, out].filter(Boolean));
+}
 
 // ---------- a replacement from the trade site: the key mods, then an item made for the build ----------
 const tradeState = {};  // slot -> the last answer, kept while the build is open
@@ -1183,16 +1351,19 @@ function verdictOf(r) {
 const BADGE = { better: "▲", worse: "▼", mixed: "±", same: "=", no: "✕" };
 
 // one inventory: each slot a cell with the item's picture framed by rarity; a click picks the slot
-function doll(items, { set, selected, onPick, badges }) {
+// badges: slot -> a comparison verdict ("better"...) or { cls, sym, title }; tip: (item, slot) -> the card shown on hover
+function doll(items, { set, selected, onPick, badges, tip }) {
   const slotOf = (pos) => (set === 2 && SWAP_SLOT[pos]) || pos;
   const cell = (key, style, extra = "") => {
     const it = items[key];
     const b = badges && badges[key];
-    return h("button", {
+    const badge = !b ? null : typeof b === "string" ? h("span", { class: "doll-badge " + b, title: t("cmpBadge_" + b) }, BADGE[b])
+      : h("span", { class: "doll-badge " + b.cls, title: b.title }, b.sym);
+    const el = h("button", {
       class: `doll-slot${extra}` + (it ? " r-" + (it.rarity || "normal").toLowerCase() : " vacant") + (selected === key ? " sel" : ""),
-      style, title: it ? `${slotName(key)}: ${itemTitle(it)}` : slotName(key), onclick: () => onPick(key),
-    }, it ? (itemArt(it) || h("span", { class: "doll-name" }, itemTitle(it))) : h("span", { class: "doll-empty" }, slotName(key)),
-    b ? h("span", { class: "doll-badge " + b, title: t("cmpBadge_" + b) }, BADGE[b]) : null);
+      style, title: it && tip ? null : it ? `${slotName(key)}: ${itemTitle(it)}` : slotName(key), onclick: () => onPick(key),
+    }, it ? (itemArt(it) || h("span", { class: "doll-name" }, itemTitle(it))) : h("span", { class: "doll-empty" }, slotName(key)), badge);
+    return it && tip ? hoverTip(el, () => tip(it, key)) : el;
   };
   return h("div", { class: "doll-wrap" },
     h("div", { class: "doll" }, Object.entries(DOLL).map(([pos, [c, r, w, hh]]) =>
@@ -1536,15 +1707,42 @@ TABS.tree = async (view) => {
 };
 
 // ---- tree plan: edits live in the engine only; every tab computes with them until reset ----
-async function treeCall(path, body, busyText) {
+// an edit of the plan from any tab, then the tab again; `rebuild`: the build's gear and gems are read anew (the header,
+// the inventory)
+async function planCall(path, body, { busy, tab = "tree", rebuild = false } = {}) {
   const view = $("#view");
-  view.replaceChildren(loading(busyText || t("counting")));
+  hideTip();
+  view.replaceChildren(loading(busy || t("counting")));
   try {
     const r = await api(path, { method: "POST", body: body || {} });
     resetCache();
-    await switchTab("tree");
+    if (rebuild) await refreshBuild();
+    await switchTab(tab);
     return r;
-  } catch (e) { toast(e.message); switchTab("tree"); return null; }
+  } catch (e) { toast(e.message); switchTab(tab); return null; }
+}
+const treeCall = (path, body, busyText) => planCall(path, body, { busy: busyText, rebuild: path === "/api/tree/reset" });
+
+async function refreshBuild() {
+  try {
+    state.build = await api("/api/build");
+    renderHeader();
+  } catch (e) { toast(e.message); }
+}
+
+async function savePlan() {
+  try {
+    const r = await api("/api/tree/save", { method: "POST", body: {} });
+    toast(t("planSaved", r.name), true);
+    loadBuildList();
+  } catch (e) { toast(e.message); }
+}
+
+// the plan in one line on the tabs that edit it besides the tree: how many edits, what they change, reset / save
+function planBar(plan) {
+  return h("div", { class: "plan-bar" }, h("b", {}, t("planBarTitle", plan.log.length)), deltas(plan.changes, METRIC, 0.3),
+    h("div", { class: "row" }, h("button", { class: "ghost small", onclick: savePlan }, t("planSave")),
+      h("button", { class: "ghost small", onclick: () => planCall("/api/tree/reset", {}, { tab: state.tab, rebuild: true }) }, t("planReset"))));
 }
 
 function editButton(action, node) {
@@ -1558,13 +1756,7 @@ function planCard(plan) {
     if (r) toast(r.found ? t("optimized", r.found) : t("optimizedNone"), !!r.found);
   } }, plan && plan.log.length ? t("optimizeMore") : t("optimize"));
   const reset = plan ? h("button", { class: "ghost", onclick: () => treeCall("/api/tree/reset") }, t("planReset")) : null;
-  const save = plan && plan.log.length ? h("button", { class: "ghost", onclick: async () => {
-    try {
-      const r = await api("/api/tree/save", { method: "POST", body: {} });
-      toast(t("planSaved", r.name), true);
-      loadBuildList();
-    } catch (e) { toast(e.message); }
-  } }, t("planSave")) : null;
+  const save = plan && plan.log.length ? h("button", { class: "ghost", onclick: savePlan }, t("planSave")) : null;
   const names = (list) => {
     const counts = {};
     (list || []).forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
@@ -1573,6 +1765,9 @@ function planCard(plan) {
   const logLine = (e) => e.action === "jewel"
     ? h("li", {}, t("jwLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${jwName(e.removed)}`) : null,
       e.removed && e.added ? " " : null, e.added ? h("span", { class: "pos" }, `+ ${jwName(e.added)}`) : null)
+    : e.action === "item"
+    ? h("li", {}, t("gearLog", slotName(e.target)), " ", [e.quality ? t("gearLogQ", ...e.quality) : null,
+      e.sockets ? t("gearLogS", ...e.sockets) : null, ...(e.added || []).map((n) => "+ " + trName(n))].filter(Boolean).join(", "))
     : e.action === "gem"
     ? h("li", {}, t("gmLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${trName(e.removed)}`) : null,
       e.removed && e.added ? " " : null,

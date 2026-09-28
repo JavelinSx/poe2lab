@@ -23,7 +23,7 @@ from ..analysis.tree import analyse as analyse_tree
 from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
-from ..analysis.sockets import plan_sockets
+from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
 from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
@@ -731,6 +731,128 @@ def gear(mode: str = "balanced", build: str | None = None):
         return _json(session.cached(("gear", mode), compute))
 
 
+# ---- an equipped item's quality, rune sockets and runes: edits of the plan, by the game's rules ----
+
+MAX_QUALITY = 30  # the most PoB takes (its default item quality setting goes up to 30)
+
+
+def _gear_info(slot: str) -> dict:
+    """The item in the slot with its quality, sockets and runes, and every augment that fits it - each with why the
+    game would refuse it in a socket (analysis.sockets.refusal: another socket's rune counts for "one per item")."""
+    e = session.engine
+    item = next((i for i in e.equipped_item_details() if i["slot"] == slot), None)
+    if item is None:
+        raise HTTPException(400, f"в слоте {slot} ничего не надето")
+    info = e.socket_info(slot)
+    level, cls = session.level or 1, e.info()["class"]
+    options = [o | {"refused": rune_refusal(o, info, [], level, cls)} for o in info["options"] if adds_stats(o)]
+    options.sort(key=lambda o: (o["refused"] is not None, o["name"]))
+    return {"slot": slot, "item": item, "quality": info["quality"], "hasQuality": info["hasQuality"],
+            "maxQuality": MAX_QUALITY if info["hasQuality"] else 0, "sockets": info["sockets"],
+            "socketLimit": max(info["socketLimit"], info["sockets"]), "runes": info["runes"],
+            "corrupted": info["corrupted"], "rarity": info["rarity"], "options": options}
+
+
+@app.get("/api/gear/item")
+def gear_item(slot: str, build: str | None = None):
+    with session.lock:
+        session.require(build)
+        return _json(_gear_info(slot) | {"plan": _plan_view()})
+
+
+class GearEdit(BaseModel):
+    """The item in `slot` with this quality, this many rune sockets and these runes (a name or "None" per socket);
+    None: as it is."""
+    slot: str
+    quality: int | None = None
+    sockets: int | None = None
+    runes: list[str] | None = None
+
+
+def _gear_text(req: GearEdit) -> tuple[dict, str]:
+    """The item's info and its edited text, if the game allows the edit: a corrupted item keeps its quality and
+    sockets and takes only the augments made for it, quality up to 30%, sockets added (never taken away) up to the
+    base's limit, each rune one the item's type takes and the character can use, a one-per-item rune once."""
+    info = _gear_info(req.slot)
+    same = lambda a, b: a is None or a == b  # noqa: E731
+    if info["corrupted"] and not (same(req.quality, info["quality"]) and same(req.sockets, info["sockets"])):
+        raise HTTPException(400, "осквернённый предмет не изменить: ни качество, ни гнёзда")
+    if req.quality is not None and req.quality != info["quality"]:
+        if not info["hasQuality"]:
+            raise HTTPException(400, "у этого предмета нет качества")
+        if not 0 <= req.quality <= MAX_QUALITY:
+            raise HTTPException(400, f"качество — от 0 до {MAX_QUALITY}%")
+    sockets = info["sockets"] if req.sockets is None else req.sockets
+    if sockets < info["sockets"]:
+        raise HTTPException(400, "гнездо для руны из предмета не убрать")
+    if sockets > info["socketLimit"]:
+        raise HTTPException(400, f"у этой базы не больше {info['socketLimit']} гнёзд для рун")
+    runes = list(info["runes"]) if req.runes is None else list(req.runes)
+    runes = (runes + ["None"] * sockets)[:sockets]
+    by_name = {o["name"]: o for o in info["options"]}
+    level, cls = session.level or 1, session.engine.info()["class"]
+    for i, name in enumerate(runes):
+        was = info["runes"][i] if i < len(info["runes"]) else "None"
+        if name == "None" and was != "None":
+            raise HTTPException(400, "руну из гнезда не вынуть — только заменить другой")
+        if name in ("None", was):
+            continue  # an empty socket, or the rune already there
+        opt = by_name.get(name)
+        if opt is None:
+            raise HTTPException(400, f"{name} в этот предмет не вставить")
+        why = rune_refusal(opt, info, runes[:i] + runes[i + 1:], level, cls)
+        if why:
+            raise HTTPException(400, {
+                "class": f"{name} — только для класса {why.get('class')}",
+                "unique": f"{name} не вставить в уникальный предмет",
+                "corrupted": f"{name} не вставить в осквернённый предмет",
+                "level": f"{name} требует {why.get('level')} уровня персонажа",
+                "limit": f"{name} — не больше одной в предмете",
+            }[why["code"]])
+    text = _errors(lambda: session.engine.edit_item(req.slot, req.quality, sockets, runes))
+    return info, text
+
+
+@app.post("/api/gear/preview")
+def gear_preview(req: GearEdit):
+    """The item as it would be, and what it changes against the item as it is."""
+    with session.lock:
+        session.require()
+        _, text = _gear_text(req)
+        e, cfg = session.engine, session.profile.config()
+        after = e.what_if(config=cfg, replace_item=(req.slot, text), keep_quality=True)
+        return _json({"item": _errors(lambda: e.parse_item(text)) | {"slot": req.slot},
+                      "change": metric_changes(after, e.what_if(config=cfg))})
+
+
+@app.post("/api/gear/set")
+def gear_set(req: GearEdit):
+    """The edit onto the build's item - an edit of the plan."""
+    with session.lock:
+        session.require()
+        info, text = _gear_text(req)
+        _plan_start()
+        session.plan["items"].setdefault(req.slot, session.engine.item_text(req.slot))
+        session.engine.equip_item(req.slot, text, exact=True)
+        new = session.engine.socket_info(req.slot)
+        session.plan["log"].append({
+            "action": "item", "target": req.slot, "item": info["item"]["name"],
+            "quality": [info["quality"], new["quality"]] if new["quality"] != info["quality"] else None,
+            "sockets": [info["sockets"], new["sockets"]] if new["sockets"] != info["sockets"] else None,
+            "added": [r for i, r in enumerate(new["runes"]) if r != "None" and
+                      r != (info["runes"][i] if i < len(info["runes"]) else "None")]})
+        _plan_changed()
+        return _json(_gear_info(req.slot) | {"plan": _plan_view()})
+
+
+@app.get("/api/plan")
+def plan_view(build: str | None = None):
+    """The plan of edits (tree, jewels, gems, gear) against the build, or null."""
+    with session.lock:
+        session.require(build)
+        return _json(_plan_view())
+
+
 @app.get("/api/mechanics")
 def mechanics(build: str | None = None):
     with session.lock:
@@ -857,7 +979,7 @@ def _plan_start():
         session.engine.skills_snapshot("plan-base")
         session.plan = {"budget": session.engine.tree_points(),
                         "base": session.engine.what_if(config=session.profile.config()), "log": [],
-                        "jewels": {}}  # socket slot -> the jewel's text before the first edit (None: it was empty)
+                        "items": {}}  # slot -> its item's text before the first edit (None: it was empty)
 
 
 GAME_DATA_KEYS = ("db", "jewel-db", "unique-catalog", "jewel-catalog", "gem-catalog")
@@ -911,9 +1033,9 @@ def tree_reset():
         if session.plan is not None:
             session.engine.tree_restore("plan-base")
             session.engine.skills_restore("plan-base")
-            for slot, text in session.plan.get("jewels", {}).items():  # the jewels as they were
+            for slot, text in session.plan["items"].items():  # the jewels and gear as they were
                 if text:
-                    session.engine.equip_item(slot, text)
+                    session.engine.equip_item(slot, text, exact=True)
                 else:
                     session.engine.clear_slot(slot)
             session.plan = None
@@ -1034,7 +1156,7 @@ def jewel_set(req: JewelEdit):
         socket = _jewel_slot(req.node)
         text, item = _jewel_checked(req, socket)
         _plan_start()
-        session.plan["jewels"].setdefault(socket["slot"], session.engine.item_text(socket["slot"]) if socket["item"] else None)
+        session.plan["items"].setdefault(socket["slot"], session.engine.item_text(socket["slot"]) if socket["item"] else None)
         _errors(lambda: session.engine.equip_item(socket["slot"], text))
         session.plan["log"].append({"action": "jewel", "target": socket["near"], "added": item["name"],
                                     "removed": socket["item"]["name"] if socket["item"] else None})
@@ -1050,7 +1172,7 @@ def jewel_remove(req: JewelEdit):
         if not socket["item"]:
             return _json(_plan_view())
         _plan_start()
-        session.plan["jewels"].setdefault(socket["slot"], session.engine.item_text(socket["slot"]))
+        session.plan["items"].setdefault(socket["slot"], session.engine.item_text(socket["slot"]))
         session.engine.clear_slot(socket["slot"])
         session.plan["log"].append({"action": "jewel", "target": socket["near"], "added": None,
                                     "removed": socket["item"]["name"]})

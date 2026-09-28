@@ -603,6 +603,40 @@ details > summary .ico { margin-left: 2px; }
 .verdict-head { display: block; font-size: 13px; font-weight: 400; opacity: .85; }
 @media (max-width: 700px) { .cmp-items { grid-template-columns: 1fr; } .doll-wrap { --cell: 34px; } }
 
+/* the Gear tab: the inventory beside the picked item's block; hover cards; quality, rune sockets and runes */
+.hover-tip { position: fixed; z-index: 90; display: none; max-width: 380px; padding: 10px 12px; pointer-events: none;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
+.hover-tip .item-lines { margin: 4px 0 0; }
+.tip-name { font-weight: 600; }
+.tip-name.r-unique { color: #d08a4a; }
+.tip-name.r-rare { color: #e2cf6a; }
+.tip-name.r-magic { color: #9d9dff; }
+.gear-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
+.gear-top > .card { position: sticky; top: 8px; }
+.plan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid rgba(214, 165, 79, .35); background: rgba(214, 165, 79, .06); }
+.q-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.q-row input[type=range] { flex: 1; min-width: 120px; accent-color: var(--gold); }
+.q-val { font-weight: 700; color: var(--gold); min-width: 3.5ch; }
+.rune-socks { display: flex; gap: 10px; }
+.rune-sock { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; padding: 0;
+  cursor: pointer; border: 2px solid #3a414d; background: radial-gradient(circle, #1b1f27 55%, #0b0d11); color: var(--muted); font: inherit; }
+.rune-sock .ico { width: 34px; height: 34px; margin: 0; }
+.rune-sock.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(214, 165, 79, .35); }
+.rune-sock.new { border-color: var(--good); }
+.rune-sock.add { border-style: dashed; font-size: 22px; }
+.rune-dot { width: 16px; height: 16px; border-radius: 50%; background: #8fa4c8; }
+.rune-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; max-height: 340px; overflow: auto; }
+.rune-opt { display: flex; align-items: center; gap: 6px; padding: 5px 6px; text-align: left; cursor: pointer; font: inherit; font-size: 13px;
+  background: rgba(7, 8, 11, .9); border: 1px solid #2c323d; border-radius: 6px; color: var(--text); }
+.rune-opt .ico { width: 28px; height: 28px; margin: 0; }
+.rune-opt:hover { border-color: #6a7385; }
+.rune-opt.sel { border-color: var(--gold); }
+.rune-opt.refused { opacity: .4; cursor: default; }
+.rune-opt .rune-name { flex: 1; line-height: 1.2; }
+.rune-opt .star { color: var(--gold); }
+@media (max-width: 900px) { .gear-top { grid-template-columns: 1fr; } .gear-top > .card { position: static; } }
+
 /* jewels in the tree's sockets: a tile per socket, an editor to make or pick one */
 .jw-grid { display: flex; flex-wrap: wrap; gap: 12px; }
 .jw-socket { width: 196px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 8px; text-align: center;

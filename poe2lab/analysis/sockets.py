@@ -32,16 +32,31 @@ def _score(changes, mode, weights):
     return score(SimpleNamespace(one=changes), mode, weights)
 
 
-def _allowed(opt: dict, info: dict, others: list[str], char_level: int, char_class: str) -> bool:
-    if any(opt["name"].startswith(prefix) and char_class != cls for prefix, cls in CLASS_ONLY.items()):
-        return False
-    if info["rarity"] == "UNIQUE" and not opt["unique"]:
-        return False
-    if opt["levelReq"] > char_level:
-        return False
-    if opt["limit"] == 1 and opt["name"] in others:
-        return False
+def adds_stats(opt: dict) -> bool:
+    """False for an augment that transforms or destroys the item rather than adding to it."""
     return not any(x in l for x in NOT_STAT_AUGMENT for l in opt["lines"])
+
+
+def refusal(opt: dict, info: dict, others: list[str], char_level: int, char_class: str) -> dict | None:
+    """Why the game would not let this augment into this item's socket, or None: {"code": class (another class's
+    rune; "class" names it), unique (not into a unique item), corrupted, level (the character level it needs), limit
+    (one per item, and one is in another socket)}. `others`: the augments of the item's other sockets."""
+    cls = next((c for prefix, c in CLASS_ONLY.items() if opt["name"].startswith(prefix)), None)
+    if cls and cls != char_class:
+        return {"code": "class", "class": cls}
+    if info["rarity"] == "UNIQUE" and not opt["unique"]:
+        return {"code": "unique"}
+    if info["corrupted"] and not opt["corrupted"]:
+        return {"code": "corrupted"}
+    if opt["levelReq"] > char_level:
+        return {"code": "level", "level": opt["levelReq"]}
+    if opt["limit"] == 1 and opt["name"] in others:
+        return {"code": "limit"}
+    return None
+
+
+def _allowed(opt: dict, info: dict, others: list[str], char_level: int, char_class: str) -> bool:
+    return adds_stats(opt) and refusal(opt, info, others, char_level, char_class) is None
 
 
 def plan_sockets(engine, config: dict, mode: str, weights: dict, top: int = 3) -> list[SocketSlot]:

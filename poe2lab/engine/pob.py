@@ -73,10 +73,28 @@ local function extendModList(base, lines)
   return modList
 end
 
-function _poe2lab_item(text)
+-- exact: the quality as the text has it; otherwise PoB's rule for a pasted item (below 20% counts as 20%: the
+-- player would quality it) - right for a candidate, wrong for the build's own item or one edited on purpose
+function _poe2lab_item(text, exact)
   local item = new("Item"):Item(text)
   if not item.base then error("PoB could not read the item (unknown base?)", 0) end
-  item:NormaliseQuality()
+  if not exact then item:NormaliseQuality() end
+  return item
+end
+
+-- an item with its quality, sockets and runes set (nil: as it is); runes past the sockets go
+function _poe2lab_item_edit(text, quality, sockets, runes)
+  local item = _poe2lab_item(text, true)
+  if quality then item.quality = quality end
+  if sockets then
+    wipeTable(item.sockets)
+    for i = 1, sockets do item.sockets[i] = { group = i - 1 } end
+    item.itemSocketCount = sockets
+  end
+  if runes then for i = 1, item.itemSocketCount do item.runes[i] = runes[i] or "None" end end
+  for i = #item.runes, item.itemSocketCount + 1, -1 do item.runes[i] = nil end
+  item:UpdateRunes()
+  item:BuildAndParseRaw()
   return item
 end
 
@@ -101,13 +119,9 @@ function _poe2lab_item_view(item, slotName)
     runes = lines(item.runeModLines), enchant = lines(item.enchantModLines) }
 end
 
+-- the equipped item's own text with other runes: its quality stays what it is
 function _poe2lab_item_runes(text, names)
-  local item = _poe2lab_item(text)
-  for i = 1, item.itemSocketCount do item.runes[i] = names[i] or "None" end
-  item:UpdateRunes()
-  item:BuildAndParseRaw()
-  item:NormaliseQuality()
-  return item
+  return _poe2lab_item_edit(text, nil, nil, names)
 end
 
 function _poe2lab_with_gems_disabled(pairsList, fn)
@@ -525,7 +539,7 @@ return _poe2lab_json(removed)""")
     def what_if(self, add_nodes=(), remove_nodes=(), mods=(), enemy_mods=(), config=None,
                 remove_slot: str | None = None, disable_gems=(), main_socket_group: int | None = None,
                 replace_item: tuple[str, str] | None = None,
-                replace_runes: tuple[str, list[str]] | None = None) -> dict[str, float]:
+                replace_runes: tuple[str, list[str]] | None = None, keep_quality: bool = False) -> dict[str, float]:
         """Recalculate without changing the build, as if:
         - passive nodes were added/removed,
         - extra player mod lines were present (e.g. "10% increased Attack Speed"),
@@ -534,7 +548,8 @@ return _poe2lab_json(removed)""")
         - the item in remove_slot (e.g. "Ring 1") was taken off,
         - gems given as (socket group, gem index) pairs were disabled,
         - offence was reported for main_socket_group instead of the build's main skill,
-        - replace_item = (slot, item text) was equipped instead (PoB format or text copied from the game),
+        - replace_item = (slot, item text) was equipped instead (PoB format or text copied from the game; its
+          quality below 20% counts as 20%, as PoB takes a pasted item, unless keep_quality),
         - replace_runes = (slot, [rune / soul core names per socket]) were socketed into the equipped item."""
         add = ", ".join(str(int(n)) for n in add_nodes)
         remove = ", ".join(str(int(n)) for n in remove_nodes)
@@ -553,7 +568,8 @@ return _poe2lab_json(removed)""")
             extra += f", repSlotName = {lua_string(remove_slot)}"
         if replace_item:
             slot_name, text = replace_item
-            extra += f", repSlotName = {lua_string(slot_name)}, repItem = _poe2lab_item({lua_string(text)})"
+            extra += (f", repSlotName = {lua_string(slot_name)}, "
+                      f"repItem = _poe2lab_item({lua_string(text)}, {'true' if keep_quality else 'false'})")
         if main_socket_group:
             extra += f", mainSocketGroup = {int(main_socket_group)}"
         gems = ", ".join(f"{{ {int(g)}, {int(i)} }}" for g, i in disable_gems)
@@ -673,6 +689,20 @@ for i, p in ipairs({{ {rows} }}) do
 end
 return _poe2lab_json(out)""")
 
+    def edit_item(self, slot: str, quality: int | None = None, sockets: int | None = None,
+                  runes: list[str] | None = None) -> str:
+        """The equipped item's text with its quality, rune sockets and runes (a name or "None" per socket) set -
+        None: as it is. Nothing is equipped: equip_item(slot, text, exact=True) or what_if(replace_item=(slot,
+        text), keep_quality=True)."""
+        q = "nil" if quality is None else str(int(quality))
+        n = "nil" if sockets is None else str(int(sockets))
+        r = "nil" if runes is None else "{ " + ", ".join(lua_string(x) for x in runes) + " }"
+        return self._lua(f"""
+local slot = build.itemsTab.slots[ {lua_string(slot)} ]
+local item = slot and build.itemsTab.items[slot.selItemId]
+if not item then error("no item in slot " .. {lua_string(slot)}, 0) end
+return _poe2lab_item_edit(item.raw, {q}, {n}, {r}):BuildRaw()""")
+
     def clear_slot(self, slot: str):
         """Take off whatever is in a slot (gear or a jewel socket), recalculated."""
         self._lua(f"""
@@ -770,7 +800,8 @@ end
 return _poe2lab_json(out)""")
 
     def socket_info(self, slot: str) -> dict:
-        """Sockets of the equipped item, the runes / soul cores in them and which augments fit it."""
+        """Sockets of the equipped item, the runes / soul cores in them and which augments fit it; its quality,
+        whether its base takes quality and how many rune sockets the base can have."""
         return self._json(f"""
 local slot = build.itemsTab.slots[ {lua_string(slot)} ]
 local item = slot and build.itemsTab.items[slot.selItemId]
@@ -790,7 +821,9 @@ for name, rune in pairs(data.itemMods.Runes) do
   end
 end
 return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted = item.corrupted and true or false,
-  rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options }})""")
+  rarity = item.rarity or "", baseType = baseType or "", specificType = specificType or "", options = options,
+  quality = item.quality or 0, hasQuality = item.base.quality and true or false,
+  socketLimit = item.base.socketLimit or 0 }})""")
 
     def _local_describer(self, statdesc_dir: Path) -> bool:
         """A second copy of PoB's StatDescriber reading description files from `statdesc_dir` (same layout as
@@ -906,12 +939,13 @@ end
 configTab:BuildModList()
 build.calcsTab:BuildOutput()""")
 
-    def equip_item(self, slot: str, item_text: str):
+    def equip_item(self, slot: str, item_text: str, exact: bool = False):
         """Really equip an item (in memory) and recalculate. Unlike what_if(replace_item=...) this persists,
-        so several slots can be changed together; equip the old text again to undo."""
+        so several slots can be changed together; equip the old text again (exact: its quality as written) to
+        undo."""
         self._lua(f"""
 local itemsTab = build.itemsTab
-local item = _poe2lab_item({lua_string(item_text)})
+local item = _poe2lab_item({lua_string(item_text)}, {'true' if exact else 'false'})
 itemsTab:AddItem(item, true)
 itemsTab.slots[ {lua_string(slot)} ]:SetSelItemId(item.id)
 itemsTab:PopulateSlots()

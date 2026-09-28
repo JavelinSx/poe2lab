@@ -281,3 +281,35 @@ def test_gems_in_any_skill(client):
     assert client.post("/api/gems/remove", json={"group": main["index"], "index": 99}, headers=H).status_code == 400
     client.post("/api/tree/reset", headers=H)
     assert shape() == start
+
+
+def test_gear_quality_sockets_and_runes(client):
+    """An item's quality, rune sockets and runes by the game's rules; applied as an edit of the plan, reset puts back."""
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    client.post("/api/tree/reset", headers=H)
+    items = client.get("/api/build").json()["items"]
+    slot = next(i["slot"] for i in items if not i["corrupted"] and
+                (g := client.get(f"/api/gear/item?slot={i['slot']}").json())["hasQuality"] and g["sockets"] < g["socketLimit"])
+    info = client.get(f"/api/gear/item?slot={slot}").json()
+    assert info["maxQuality"] == 30 and info["options"] and all("refused" in o for o in info["options"])
+    free = next(o["name"] for o in info["options"] if not o["refused"] and o["limit"] != 1)
+    edit = {"slot": slot, "quality": 30, "sockets": info["sockets"] + 1, "runes": info["runes"] + [free]}
+    p = client.post("/api/gear/preview", json=edit, headers=H).json()
+    assert "dps" in p["change"] and p["item"]["quality"] == 30
+    # the game's rules
+    bad = [({"quality": 31}, "от 0 до 30"), ({"sockets": info["socketLimit"] + 1}, "не больше"),
+           ({"sockets": info["sockets"] - 1}, "не убрать")]
+    if info["runes"] and info["runes"][0] != "None":
+        bad.append(({"runes": ["None"] + info["runes"][1:]}, "не вынуть"))
+    for change, text in bad:
+        r = client.post("/api/gear/preview", json={"slot": slot} | change, headers=H)
+        assert r.status_code == 400 and text in r.json()["detail"], (change, r.json())
+    # a low quality stays low: PoB's "a pasted item counts as 20%" is not applied to the build's own item
+    low = client.post("/api/gear/preview", json={"slot": slot, "quality": 0}, headers=H).json()
+    assert low["item"]["quality"] == 0
+    r = client.post("/api/gear/set", json=edit, headers=H).json()
+    assert (r["quality"], r["sockets"], r["runes"][-1]) == (30, info["sockets"] + 1, free)
+    assert r["plan"]["log"][-1]["action"] == "item" and r["plan"]["log"][-1]["added"] == [free]
+    client.post("/api/tree/reset", headers=H)
+    back = client.get(f"/api/gear/item?slot={slot}").json()
+    assert (back["quality"], back["sockets"], back["runes"]) == (info["quality"], info["sockets"], info["runes"])
