@@ -46,7 +46,10 @@ HIT_EN = {"Physical": "physical hits", "Fire": "fire hits", "Cold": "cold hits",
 
 
 def _nodes_word(n: int) -> str:
-    return "ноду" if n == 1 else "ноды" if n < 5 else "нод"
+    """1 ноду, 2 ноды, 5 нод, 21 ноду, 22 ноды (the accusative, as in "переключить N ...")."""
+    if n % 10 == 1 and n % 100 != 11:
+        return "ноду"
+    return "ноды" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "нод"
 
 
 def attribute_gates(statuses, swaps, deps) -> list[Gate]:
@@ -148,7 +151,8 @@ def gates(stats: dict, hits: list, rec, mana_sustained: bool = False, ref: dict 
                             f"{t} resistance with nothing to spare",
                             f"{over:.0f}% over the cap: a map mod lowering resistances will take it below {RES_CAP}%"))
     chaos = stats.get("ChaosResist", 0)
-    if chaos < RES_CAP:
+    chaos_immune = any(h.damage_type == "Chaos" and h.immune for h in hits)  # Chaos Inoculation: nothing to cap
+    if chaos < RES_CAP and not chaos_immune:
         out.append(Gate("warn" if leveling else "priority", "Хаос-резист ниже капа",
                         f"{chaos:.0f}%, до капа +{RES_CAP - chaos:.0f}%",
                         "Chaos resistance below the cap", f"{chaos:.0f}%, +{RES_CAP - chaos:.0f}% to the cap"))

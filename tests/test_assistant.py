@@ -111,3 +111,19 @@ def test_instructions_keep_the_assistant_on_poe2(titan):
     Assistant(fake, Toolbox(engine, profile), "ctx").ask("?")
     system = fake.sent[0][0]["content"]
     assert "только Path of Exile 2" in system and "Я отвечаю только по Path of Exile 2 и этому билду." in system
+
+
+def test_tools_take_the_build_lock_only_while_they_compute():
+    from poe2lab.assistant.tools import Toolbox
+
+    class Probe:
+        held = 0
+
+        def __enter__(self):
+            Probe.held += 1
+
+        def __exit__(self, *a):
+            return False
+    box = Toolbox(None, None, lock=Probe())
+    box.call("no_such_tool", "{}")
+    assert Probe.held == 1

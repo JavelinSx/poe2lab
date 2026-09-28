@@ -245,6 +245,7 @@ return _poe2lab_json({
   ascendancy = (build.spec.curAscendClassId or 0) > 0 and build.spec.curAscendClassName or "",
   level = build.characterLevel,
   mainSocketGroup = build.mainSocketGroup,
+  mainActiveSkill = (build.skillsTab.socketGroupList[build.mainSocketGroup] or {}).mainActiveSkill or 1,
 })""")
 
     def socket_groups(self) -> list[dict]:

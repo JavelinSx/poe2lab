@@ -69,3 +69,28 @@ def test_build_by_name_and_from_pob_xml(tmp_path, monkeypatch):
 def test_profile_file_is_valid_json():
     raw = json.loads((BUILDS / "titan.profile.json").read_text(encoding="utf-8"))
     assert raw["main_skill"]["group"] == 5
+
+
+def test_uptime_scales_a_whole_range():
+    assert Correction("Adds 26 to 42 Physical Damage", "test", uptime=0.5).line == "Adds 13 to 21 Physical Damage"
+    assert Correction("Adds 3 to 5.5 Fire Damage to Attacks", "test", uptime=0.5).line == "Adds 1.5 to 2.75 Fire Damage to Attacks"
+
+
+def test_chaos_inoculation_has_no_chaos_resistance_to_cap():
+    from poe2lab.analysis.threats import IMMUNE_HIT, HitRow, Recovery
+    rec = Recovery(life=1, leech=0, regen=0, recoup=0, leech_capped_per_hit=False, energy_shield=6000,
+                   es_recharge=800, es_recharge_delay=4)
+    stats = {"FireResist": 75, "ColdResist": 75, "LightningResist": 75, "FireResistOverCap": 20, "ColdResistOverCap": 20,
+             "LightningResistOverCap": 20, "ChaosResist": 0}
+    rows = [HitRow(t, 6000, 5000, 4000) for t in ("Physical", "Fire", "Cold", "Lightning")]
+    immune = rows + [HitRow("Chaos", IMMUNE_HIT, IMMUNE_HIT, IMMUNE_HIT)]
+    mortal = rows + [HitRow("Chaos", 3000, 2500, 2000)]
+    title = "Хаос-резист ниже капа"
+    assert title not in {g.title for g in gates(stats, immune, rec)}
+    assert title in {g.title for g in gates(stats, mortal, rec)}
+
+
+def test_russian_node_counts():
+    from poe2lab.analysis.report import _nodes_word
+    assert [_nodes_word(n) for n in (1, 2, 5, 11, 12, 21, 22, 25)] == [
+        "ноду", "ноды", "нод", "нод", "нод", "ноду", "ноды", "нод"]

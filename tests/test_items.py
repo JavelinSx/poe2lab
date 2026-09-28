@@ -47,3 +47,12 @@ def test_rage_talisman_beats_current_and_breakeven(titan):
 def test_unreadable_item_raises(titan):
     with pytest.raises(PobError):
         titan.what_if(replace_item=("Weapon 1", "Rarity: RARE\nNothing\nNo Such Base"))
+
+
+def test_scale_line_keeps_decimals_and_scales_only_that_line():
+    text = "Rarity: RARE\nX\nRing\n{crafted}+10 to Strength\n+10 to Strength and Dexterity\nLeech 7.21% of Physical Attack Damage as Life"
+    half = scale_line(text, "+10 to Strength", 0.5).split("\n")
+    assert half[3] == "{crafted}+5 to Strength" and half[4] == "+10 to Strength and Dexterity"
+    assert scale_line(text, "Leech 7.21% of Physical Attack Damage as Life", 0.5).endswith("Leech 3.6% of Physical Attack Damage as Life")
+    with pytest.raises(ValueError):
+        scale_line(text, "+10 to Dexterity", 0.5)

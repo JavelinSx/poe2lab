@@ -1,4 +1,5 @@
 """Tools the assistant can call. Every number it reports must come from here, i.e. from the PoB engine."""
+import contextlib
 import json
 from dataclasses import asdict
 
@@ -91,8 +92,10 @@ SPECS = [
 
 
 class Toolbox:
-    def __init__(self, engine, profile: MapProfile, db: ModDB | None = None, target: dict | None = None):
-        """target: {"name", "engine", "profile"} - the build the player follows, when the build profile names one."""
+    def __init__(self, engine, profile: MapProfile, db: ModDB | None = None, target: dict | None = None, lock=None):
+        """target: {"name", "engine", "profile"} - the build the player follows, when the build profile names one.
+        lock: held while a tool computes (the server's build lock), so the model's answer is awaited without it."""
+        self._lock = lock or contextlib.nullcontext()
         self.engine = engine
         self.profile = profile
         self.target = target
@@ -117,7 +120,8 @@ class Toolbox:
     def call(self, name: str, arguments: str | dict) -> str:
         try:
             args = json.loads(arguments) if isinstance(arguments, str) else (arguments or {})
-            result = getattr(self, f"_{name}")(**args)
+            with self._lock:
+                result = getattr(self, f"_{name}")(**args)
         except (AttributeError, TypeError) as err:
             result = {"error": f"bad tool call {name}: {err}"}
         except (PobError, ValueError) as err:

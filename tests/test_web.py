@@ -155,3 +155,14 @@ def test_the_league_is_the_player_s_choice(client, settings_dir, monkeypatch):
     assert json.loads((settings_dir / "poe2lab" / "market.json").read_text(encoding="utf-8"))["league"] == "Standard"
     r = client.put("/api/leagues", json={"league": None}, headers=H).json()
     assert r["chosen"] is None and r["current"] == "Now"  # back to poe.ninja's current league
+
+
+def test_a_profile_the_build_cannot_open_with_is_not_kept(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    before = client.get("/api/build").json()["profileRaw"]
+    bad = dict(before, corrections=[{"mod": "+10 to Strength", "source": "t", "bogus": 1}])
+    r = client.put("/api/profile", json=bad, headers=H)
+    assert r.status_code == 400 and "профиль не сохранён" in r.json()["detail"]
+    assert client.get("/api/build").json()["profileRaw"] == before
+    b = client.get("/api/build").json()
+    assert b["info"]["mainActiveSkill"] >= 1

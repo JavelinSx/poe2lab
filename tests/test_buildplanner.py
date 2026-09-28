@@ -113,7 +113,9 @@ def test_the_guide_s_levels_and_notes_are_kept():
     assert (ice["name"], ice["from"], ice["supports"][0]["from"]) == ("Ice Strike", 14, 22)
     ring = next(i for i in report["items"] if i["slot"] == "Ring 1")
     assert (ring["kind"], ring["from"]) == ("rare", 40)
-    assert report["passives"]["attributesChosen"] == 1 and report["attributes"]["chosen"] == {"Str": 0, "Dex": 0, "Int": 0}
+    assert report["passives"]["attributesChosen"] == 1
+    # the other attribute node has no choice in the file: poe2lab gives it one (and says so)
+    assert sum(report["attributes"]["chosen"].values()) == report["assumed"]["attributeNodes"] == 1
     assert report["plan"]["skills"][0]["from"] == 14 and report["plan"]["notes"] == {"attributes28": "+5 to Intelligence"}
 
 
@@ -185,3 +187,26 @@ def test_the_game_s_planner_folder(tmp_path, monkeypatch):
     profile = json.loads((tmp_path / "builds" / f"{added['name']}.profile.json").read_text(encoding="utf-8"))
     assert profile["planner"]["skills"] and "plan" not in added["report"]
 
+
+def test_what_the_file_lacks_is_assumed_as_played():
+    # a small plan: a campaign character - its gems at the level it can use, no quality yet
+    code, report = buildplanner.to_code(json.dumps(PLAN), PobEngine())
+    assumed = report["assumed"]
+    assert report["level"] < 65 and assumed["gemLevels"] == 1 and assumed["gemsLowered"] == 1 and assumed["gemQuality"] == 0
+    again = PobEngine()
+    again.load_code(code)
+    ice = next(g for g in again.gems() if g["name"] == "Ice Strike")
+    assert again._json("return _poe2lab_json({ l = build.skillsTab.socketGroupList[1].gemList[1].level })")["l"] < 20
+    assert ice
+
+
+def test_states_the_build_causes_are_counted_and_kept(rich):
+    _, engine, report, _ = rich
+    states = report["assumed"]["states"]
+    config = engine.config()
+    for s in states:
+        assert s["from"] and max(abs(s["dps"]), abs(s["ehp"])) >= buildplanner.KEEP_STATE
+    # each counted state is a Configuration setting of the build: it stays in its PoB code
+    keys = {"Power": "usePowerCharges", "Frenzy": "useFrenzyCharges", "Endurance": "useEnduranceCharges",
+            "Blinded": "conditionEnemyBlinded", "CritRecently": "conditionCritRecently"}
+    assert all(config.get(keys[s["kind"]]) for s in states)

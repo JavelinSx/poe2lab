@@ -1259,8 +1259,8 @@ def leagues_view():
             names = ninja.leagues()
         except OSError:
             names = []
-    with session.lock:
-        prices = session.prices() if session.engine is not None else None
+    # prices do not touch the engine: fetched without holding the build (the first fetch takes a while)
+    prices = session.prices() if session.engine is not None else None
     return {"leagues": names, "chosen": ninja.chosen_league(), "current": prices.league if prices else None}
 
 
@@ -1296,7 +1296,6 @@ def trade_search(req: TradeRequest):
     with session.lock:
         session.require()
         e, prof = session.engine, session.profile
-        build = session.path
         item = next((i for i in e.equipped_item_details() if i["slot"] == req.slot), None)
         if item is None:
             raise HTTPException(404, f"в слоте {req.slot} ничего нет")
@@ -1336,8 +1335,8 @@ def trade_search(req: TradeRequest):
 
     with session.lock:
         session.require()
-        if session.path != build:
-            raise HTTPException(409, "пока шёл поиск, открыли другой билд")
+        if session.engine is not e:  # another build, or the same one read again: its numbers are not these
+            raise HTTPException(409, "пока шёл поиск, билд открыли заново — повтори поиск")
         base = e.what_if(config=cfg)
         for entry in searches:
             for listing in entry.pop("listings", []):
@@ -1388,8 +1387,19 @@ def save_profile(raw: dict):
         for c in raw.get("corrections", []):
             if not session.engine.can_parse_mod(c.get("mod", "")):
                 raise HTTPException(400, f"PoB не понимает строку поправки: {c.get('mod')!r}")
-        _profile_path().write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
-        _errors(lambda: session.load(str(session.path)))
+        path = _profile_path()
+        before = path.read_text(encoding="utf-8") if path.exists() else None
+        path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            session.load(str(session.path))
+        except (PobError, OSError, ValueError, TypeError, KeyError) as err:
+            # a profile the build cannot open with is not kept: the previous one comes back
+            if before is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_text(before, encoding="utf-8")
+            _errors(lambda: session.load(str(session.path)))
+            raise HTTPException(400, f"профиль не сохранён: {err}")
         return _json(_summary())
 
 
@@ -1398,23 +1408,29 @@ def chat(req: ChatRequest):
     cfg = LLMConfig.current()
     if cfg is None:
         raise HTTPException(400, "ИИ не настроен: выберите провайдера и введите ключ на вкладке «Ассистент»")
-    with session.lock:
-        session.require()
-        if session.assistant is None:
-            target, target_text, target_names = _assistant_target()
-            session.toolbox = Toolbox(session.engine, session.profile, session.db(), target)
-            names = i18n(req.lang)["names"] if req.lang != "en" else {}
-            glossary = build_glossary(session.engine, names, target_names) if names else None
-            session.assistant = Assistant(make_client(cfg), session.toolbox,
-                                          build_context(session.engine, session.bp, glossary, session.profile.config(),
-                                                        target_text),
-                                          style=load_settings().get("style", "short"))
-        start = len(session.assistant.tool_log)
+    with _chat_lock:  # one conversation at a time
+        with session.lock:
+            session.require()
+            if session.assistant is None:
+                target, target_text, target_names = _assistant_target()
+                # the tools take the build's lock themselves: the model's answer is awaited without holding it
+                session.toolbox = Toolbox(session.engine, session.profile, session.db(), target, lock=session.lock)
+                names = i18n(req.lang)["names"] if req.lang != "en" else {}
+                glossary = build_glossary(session.engine, names, target_names) if names else None
+                session.assistant = Assistant(make_client(cfg), session.toolbox,
+                                              build_context(session.engine, session.bp, glossary,
+                                                            session.profile.config(), target_text),
+                                              style=load_settings().get("style", "short"))
+            assistant, toolbox = session.assistant, session.toolbox
+        start = len(assistant.tool_log)
         try:
-            answer = session.assistant.ask(req.message)
+            answer = assistant.ask(req.message)
         except LLMError as err:
             raise HTTPException(502, str(err))
-        return {"answer": answer, "tools": session.assistant.tool_log[start:], "proposals": session.toolbox.proposals}
+        return {"answer": answer, "tools": assistant.tool_log[start:], "proposals": toolbox.proposals}
+
+
+_chat_lock = threading.Lock()
 
 
 def _assistant_target() -> tuple[dict | None, str | None, list[str]]:

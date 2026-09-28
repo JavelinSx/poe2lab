@@ -294,6 +294,20 @@ function renderAddBuild() {
 $("#add-build").addEventListener("click", renderAddBuild);
 
 // what a build planner file became: level, what could not be matched, attributes still short
+// what the file does not hold and the import assumed, as played: attributes, quality, gem levels, the states the
+// build causes itself (charges, a blinded enemy, crit recently) with what each changed
+function assumedBlock(a) {
+  if (!a) return null;
+  const rows = [
+    a.attributeNodes ? t("prAssAttributes", a.attributeNodes) : null,
+    a.itemQuality ? t("prAssQuality", a.itemQuality) : null,
+    a.gemLevels ? t("prAssGemLevels", a.gemLevels, a.gemsLowered, a.gemQuality) : null,
+    ...(a.states || []).map((s) => t("prAssState", t("prState_" + s.kind), s.from.map(trName).join(", "), pct(s.dps), Math.abs(s.ehp) >= 0.5 ? pct(s.ehp) : "")),
+  ].filter(Boolean);
+  return rows.length ? h("div", { class: "pr-assumed small" }, h("b", {}, t("prAssTitle")),
+    h("ul", { class: "pr-list" }, rows.map((x) => h("li", {}, x))), h("div", { class: "hint" }, t("prAssRest"))) : null;
+}
+
 function plannerReport(r) {
   const short = Object.entries(r.attributes.short || {}).filter(([, v]) => v > 0);
   const p = r.passives || {};
@@ -324,6 +338,7 @@ function plannerReport(r) {
         h("div", { class: "small muted" }, Object.entries(kinds).map(([k, n]) => `${t("prKind_" + k)}: ${n}`).join(" · ")))) : null,
     skills.length ? h("details", {}, h("summary", {}, t("prSkillsList")), h("ul", { class: "pr-list" }, skills.map(skillRow))) : null,
     items.length ? h("details", {}, h("summary", {}, t("prItemsList")), h("ul", { class: "pr-list" }, items.map(itemRow))) : null,
+    assumedBlock(r.assumed),
     (r.unknown || []).length ? h("p", { class: "small warn" }, t("prUnknown", r.unknown.join(", "))) : null,
     r.passives && (skills.some((s) => s.from) || items.some((i) => i.from)) ? h("p", { class: "small" }, t("prPlanKept")) : null,
     r.missing.length ? h("p", { class: "bad small" }, t("plannerMissing", r.missing.join(", "))) : null,
@@ -2251,10 +2266,11 @@ function renderSkillsLeveling(r) {
     icon(name) || h("div", { class: "lv-hole" }), h("div", { class: "lv-sock-name" }, trName(name)), extra);
   const draw = () => {
     const plans = [...r.plans].sort((a, b) => b.main - a.main);
-    // the build's supports in use at this level, then stand-ins: never the same support in two skills
-    const used = new Set(plans.flatMap((p) => (stageAt(p, level) || { build: [] }).build));
+    const isOpen = (p) => p.skillAvailable === null || p.skillAvailable === undefined || p.skillAvailable <= level;
+    // the supports the open skills already use at this level, then stand-ins: never the same support in two skills
+    const used = new Set(plans.filter(isOpen).flatMap((p) => (stageAt(p, level) || { build: [] }).build));
     body.replaceChildren(...plans.map((p) => {
-      const open = p.skillAvailable === null || p.skillAvailable === undefined || p.skillAvailable <= level;
+      const open = isOpen(p);
       const st = stageAt(p, level) || { build: [], later: [], options: [] };
       const sockets = [];
       let more = [];
@@ -2374,7 +2390,7 @@ TABS.profile = async () => {
     raw.mana_sustained = ask.mana && mana.checked;
     raw.notes = notes.value.split("\n").map((s) => s.trim()).filter(Boolean);
     raw.target = targetSel.value || null;
-    raw.main_skill = { group: state.build.info.mainSocketGroup, skill: 1, name: state.build.mainSkill };
+    raw.main_skill = { group: state.build.info.mainSocketGroup, skill: state.build.info.mainActiveSkill || 1, name: state.build.mainSkill };
     save.disabled = true;
     try {
       state.build = await api("/api/profile", { method: "PUT", body: raw });
@@ -2417,7 +2433,7 @@ async function toggleAddPanel(box, g) {
     raw.corrections = raw.corrections || [];
     raw.notes = raw.notes || [];
     raw.corrections.push({ mod: line, source: `${g.where}: ${g.text}`, uptime: 1, confirmed: false });
-    raw.main_skill = { group: state.build.info.mainSocketGroup, skill: 1, name: state.build.mainSkill };
+    raw.main_skill = { group: state.build.info.mainSocketGroup, skill: state.build.info.mainActiveSkill || 1, name: state.build.mainSkill };
     panel.replaceChildren(loading(t("counting")));
     try {
       state.build = await api("/api/profile", { method: "PUT", body: raw });

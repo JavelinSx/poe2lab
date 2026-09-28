@@ -31,3 +31,25 @@ def test_value_per_divine_ignores_free_items():
     book = PriceBook.from_overviews("Test", {"SoulCores": OVERVIEW})
     assert book.per_divine(8.0, book.get("Soul Core of Tacati")) == 100
     assert book.per_divine(8.0, book.get("Greater Essence of Battle")) is None
+
+
+def test_a_reply_that_is_not_data_is_not_cached(tmp_path, monkeypatch):
+    import io
+    import pytest
+    from poe2lab.economy import ninja
+    monkeypatch.setattr(ninja, "CACHE_DIR", tmp_path)
+
+    class Reply(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(ninja.urllib.request, "urlopen", lambda *a, **k: Reply(b"<html>Just a moment...</html>"))
+    with pytest.raises(OSError):
+        ninja._get("leagues")
+    assert not list(tmp_path.iterdir())
+    # a broken cache file is fetched again
+    (tmp_path / "leagues.json").write_text("{broken", encoding="utf-8")
+    monkeypatch.setattr(ninja.urllib.request, "urlopen", lambda *a, **k: Reply(b'[{"id": "Standard"}]'))
+    assert ninja._get("leagues") == [{"id": "Standard"}]

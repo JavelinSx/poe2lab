@@ -133,12 +133,21 @@ def market(league: str) -> dict:
 
 
 def _get(path: str, **params) -> dict | list:
+    """poe.ninja's answer, cached for an hour. What is not JSON (a maintenance or challenge page) is an OSError like
+    no connection - callers fall back the same way - and is never cached."""
     key = CACHE_DIR / (slug(path + "-" + "-".join(f"{k}-{v}" for k, v in sorted(params.items()))) + ".json")
     if key.exists() and time.time() - key.stat().st_mtime < CACHE_SECONDS:
-        return json.loads(key.read_text(encoding="utf-8"))
+        try:
+            return json.loads(key.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass  # a broken cache file: ask again
     url = f"{BASE}/{path}" + ("?" + urllib.parse.urlencode(params) if params else "")
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=30) as r:
-        body = r.read().decode("utf-8")
+        body = r.read().decode("utf-8", "replace")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        raise OSError(f"poe.ninja answered something that is not data ({path})") from None
     key.parent.mkdir(parents=True, exist_ok=True)
     key.write_text(body, encoding="utf-8")
-    return json.loads(body)
+    return data

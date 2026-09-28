@@ -78,12 +78,24 @@ def add_lines(item_text: str, lines: list[str]) -> str:
     return "\n".join(rows[:cut] + list(lines) + rows[cut:])
 
 
+def _scaled(line: str, factor: float) -> str:
+    """Every number of the line times factor: whole numbers stay whole, decimals keep two places (7.21% leech)."""
+    def one(m):
+        v = float(m.group()) * factor
+        return str(round(v)) if "." not in m.group() else f"{v:.2f}".rstrip("0").rstrip(".")
+    return _NUMBER.sub(one, line)
+
+
 def scale_line(item_text: str, line: str, factor: float) -> str:
-    """Scale every number in one mod line of the item (e.g. 'Adds 26 to 42 Physical Damage')."""
-    if line not in item_text:
-        raise ValueError(f"line not found in item: {line!r}")
-    scaled = _NUMBER.sub(lambda m: str(round(float(m.group()) * factor)), line)
-    return item_text.replace(line, scaled)
+    """Scale every number in one mod line of the item (e.g. 'Adds 26 to 42 Physical Damage'): the item's line that
+    is this line (PoB tags like {crafted} aside), not every place its text occurs in."""
+    rows = item_text.split("\n")
+    for i, raw in enumerate(rows):
+        tags = _TAG.match(raw)
+        if raw[tags.end() if tags else 0:].strip() == line:
+            rows[i] = raw.replace(line, _scaled(line, factor), 1)
+            return "\n".join(rows)
+    raise ValueError(f"line not found in item: {line!r}")
 
 
 def breakeven(engine, config: dict, slot: str, item_text: str, line: str, iterations: int = 20) -> tuple[float, str] | None:
@@ -102,4 +114,4 @@ def breakeven(engine, config: dict, slot: str, item_text: str, line: str, iterat
             hi = mid
         else:
             lo = mid
-    return hi, _NUMBER.sub(lambda m: str(round(float(m.group()) * hi)), line)
+    return hi, _scaled(line, hi)

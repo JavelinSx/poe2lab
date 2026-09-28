@@ -8,8 +8,16 @@ by their game ids; PoB's own data resolves all three. What the format does not k
   build's most used attribute;
 - a rare item: the mods listed, its base's implicits at the middle of their range, item level 82; a unique: PoB's own
   copy of it;
-- skill gems level 20 unless the gem's text says otherwise ("Level 21, 20% Quality"), supports as their tier;
+- skill gems: the level the gem's text says ("Level 21, 20% Quality"), else the highest the character's level
+  allows (a stage of the campaign has no level 20 gems), up to 20; supports as their tier;
 - the character level: from the passive points spent, as PoB estimates it.
+
+What the format does not keep at all is assumed the way the build is played, and the report says so: an attribute
+node without a choice goes where the requirements fall short (a node's name is only its place on the tree); weapons
+and armour of the end game get 20% quality; skill gems 20% quality; the states the build causes itself are counted in
+PoB's Configuration - charges it generates (its gems, passives or items say "gain a Power Charge"...), an enemy it
+blinds, a crit recently when it crits often - each kept only when it changes the numbers. Runes and the enemy states
+the build does not cause itself stay out: the damage range of the Damage tab shows what they would change.
 
 What the format has no field for rides in its notes (additional_text), where the game shows it on hover: poe2lab's
 export puts each jewel on its socket and the attribute chosen on each "+5 to any attribute" node, and reads them back.
@@ -25,6 +33,18 @@ from .engine.pob import lua_string
 
 ITEM_LEVEL = 82
 GEM_LEVEL = 20
+GEM_QUALITY = 20  # a skill gem the file gives no quality for: 20% at the end game (none in the campaign)
+END_GAME_LEVEL = 65
+ITEM_QUALITY = 20  # weapons and armour from this level on get 20% quality (the file never says)
+QUALITY_FROM_LEVEL = 35
+_CHARGE_TEXT = re.compile(r"\b(gain|gains|grant|grants|generate|generates)\b[^.;]{0,60}?\b(power|frenzy|endurance) charges?\b",
+                          re.I)
+# charge type -> (its maximum in PoB's output, the Configuration checkbox that counts it)
+CHARGES = {"Power": ("PowerChargesMax", "usePowerCharges"), "Frenzy": ("FrenzyChargesMax", "useFrenzyCharges"),
+           "Endurance": ("EnduranceChargesMax", "useEnduranceCharges")}
+_BLIND_TEXT = re.compile(r"\b(blind enemies|blinds? (enemies|on hit)|inflicts? blind|chance to blind|blind nearby)", re.I)
+CRIT_RECENTLY = 20.0  # the main skill's crit chance (%) from which "you have crit recently" is taken as true
+KEEP_STATE = 0.5  # a state is kept only when counting it moves damage or effective life by this many %
 _MARKUP = re.compile(r"<[^<>{}]*>\{")  # the planner's text markup: <bold>{text}, <rgb(r,g,b)>{text}
 _NUMBERED = re.compile(r"^\s*\d+\.\s*(.+)$")  # "1. +34 to maximum Energy Shield"
 _GEM_TEXT = re.compile(r"Level (\d+)(?:,\s*(\d+)% Quality)?")
@@ -187,9 +207,10 @@ def _gem_xml(gem: dict, level: int, quality: int) -> str:
             f'quality="{quality}" enabled="true" enableGlobal1="true" enableGlobal2="true" count="1"/>')
 
 
-def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) -> tuple[str, list[str]]:
-    """The build as PoB XML without its items (they are put on by PoB itself afterwards), and what could not be
-    resolved. `choices`: the attribute a node's note names (str / dex / int), by the node's id in the format."""
+def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) -> tuple[str, list[str], list]:
+    """The build as PoB XML without its items (they are put on by PoB itself afterwards), what could not be
+    resolved, and the skill gems whose level the file does not give (socket group, gem: 1-based). `choices`: the
+    attribute a node's note names (str / dex / int), by the node's id in the format."""
     missing = []
     cls = resolved.get("class")
     if not cls:
@@ -224,7 +245,7 @@ def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) 
                 f'dexNodes="{",".join(map(str, attrs["dex"]))}" intNodes="{",".join(map(str, attrs["int"]))}"/></Overrides>')
     spec.append("</Spec>")
 
-    groups = []
+    groups, defaulted = [], []
     for s in data.get("skills", []):
         gems = []
         for g in [s] + list(s.get("support_skills", [])):
@@ -235,8 +256,10 @@ def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) 
                 continue
             m = _GEM_TEXT.search(_plain(gtext))
             level = int(m.group(1)) if m else (1 if info["support"] else GEM_LEVEL)
-            quality = int(m.group(2)) if m and m.group(2) else 0
+            quality = int(m.group(2)) if m and m.group(2) else (0 if info["support"] or m else GEM_QUALITY)
             gems.append(_gem_xml(info, level, quality))
+            if not m and not info["support"]:
+                defaulted.append((len(groups) + 1, len(gems)))
         if gems:
             groups.append('<Skill enabled="true" mainActiveSkill="1" label="" slot="">' + "".join(gems) + "</Skill>")
 
@@ -247,7 +270,17 @@ def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) 
            '<Skills activeSkillSet="1"><SkillSet id="1">' + "".join(groups) + "</SkillSet></Skills>"
            '<Items activeItemSet="1"><ItemSet id="1"/></Items>'
            "</PathOfBuilding2>")
-    return xml, missing
+    return xml, missing, defaulted
+
+
+def _quality_line(base: dict | None, entry: dict) -> list[str]:
+    """20% quality for a weapon or armour of the end game (its level range, or the base's level, from 35)."""
+    tags = set((base or {}).get("tags") or [])
+    if not tags & {"weapon", "armour"}:
+        return []
+    iv = interval(entry.get("level_interval"))
+    start = iv[0] if iv else (base or {}).get("level") or 0
+    return [f"Quality: +{ITEM_QUALITY}%"] if start >= QUALITY_FROM_LEVEL else []
 
 
 def item_text(entry: dict, bases: dict, uniques: dict) -> str | None:
@@ -262,7 +295,12 @@ def item_text(entry: dict, bases: dict, uniques: dict) -> str | None:
         name = lines[at - 1] if lines[at - 1] in uniques else ""
     if name:
         raw = uniques.get(name)
-        return f"Rarity: UNIQUE\n{raw}" if raw else None
+        if not raw:
+            return None
+        rows = raw.split("\n")
+        # after its name and base: the quality the file cannot hold
+        rows[2:2] = _quality_line(bases.get(rows[1]) if len(rows) > 1 else None, entry)
+        return "Rarity: UNIQUE\n" + "\n".join(rows)
     rarity, title = "RARE", "Guide item"
     if at is None:
         # a magic item's name holds its base: "Vibrant Thawing Charm of the Medic"
@@ -284,30 +322,73 @@ def item_text(entry: dict, bases: dict, uniques: dict) -> str | None:
             mods.remove(rolled)
         implicit.append(rolled or _middle(template))
     head = [f"Rarity: {rarity}", title] + ([base] if rarity == "RARE" else []) + [
-        f"Item Level: {ITEM_LEVEL}", f"Implicits: {len(implicit)}"]
+        f"Item Level: {ITEM_LEVEL}"] + _quality_line(bases[base], entry) + [f"Implicits: {len(implicit)}"]
     return "\n".join(head + implicit + mods)
+
+
+# The character's level from the passive points spent (PoB's estimate), then each skill gem the file gives no level
+# for at the highest level that character can use (PoB's own rule), never above what the skeleton gave it.
+_LEVELS = r"""
+build.characterLevelAutoMode = true
+pcall(function() build:EstimatePlayerProgress() end)
+local st = build.skillsTab
+local saved = st.defaultGemLevel
+st.defaultGemLevel = "characterLevel"
+local lowered = 0
+local endGame = build.characterLevel >= %(end_game)d  -- the campaign's gems are not quality-rolled yet
+for _, pair in ipairs({ %(gems)s }) do
+  local group = st.socketGroupList[pair[1]]
+  local gem = group and group.gemList[pair[2]]
+  if gem and gem.gemData then
+    local level = st:ProcessGemLevel(gem.gemData)
+    if level < (gem.level or 1) then gem.level = level lowered = lowered + 1 end
+    if not endGame then gem.quality = 0 end
+  end
+end
+st.defaultGemLevel = saved
+for _, group in ipairs(st.socketGroupList) do st:ProcessSocketGroup(group) end
+build.buildFlag = true
+build.calcsTab:BuildOutput()
+return _poe2lab_json({ level = build.characterLevel, lowered = lowered, endGame = endGame })
+"""
 
 
 _BALANCE = r"""
 local spec = build.spec
 local index = { Str = 1, Dex = 2, Int = 3 }
+local byName = { Strength = "Str", Dexterity = "Dex", Intelligence = "Int" }
 local function recalc() build.buildFlag = true build.calcsTab:BuildOutput() return build.calcsTab.mainOutput end
 local function short(o, a) return (o["Req" .. a] or 0) - (o[a] or 0) end
--- each neutral attribute node, one at a time, to the attribute that falls shortest of the requirements now
+-- every attribute node the file gives no choice for, one at a time: to the attribute that falls shortest of the
+-- requirements without this node; when none falls short, the node keeps its default (the attribute its place on
+-- the tree names; a neutral one, the build's most required attribute)
 local out = recalc()
 local chosen = { Str = 0, Dex = 0, Int = 0 }
-for _, id in ipairs({ %(neutral)s }) do
-  local best, gap = "Dex", -1e9
+for _, n in ipairs({ %(nodes)s }) do
+  local id, default = n[1], n[2]
+  local over = spec.hashOverrides and spec.hashOverrides[id]
+  local cur = over and byName[over.dn or ""] or nil
+  local best, gap = nil, 0
   for _, a in ipairs({ "Str", "Dex", "Int" }) do
-    if short(out, a) > gap then best, gap = a, short(out, a) end
+    local s = short(out, a) + (cur == a and 5 or 0)
+    if s > gap then best, gap = a, s end
   end
-  spec:SwitchAttributeNode(id, index[best])
-  spec:BuildAllDependsAndPaths()  -- puts the switched node in place of the allocated one
+  if not best then
+    best = cur or (default ~= "" and default) or nil
+    if not best then
+      local most = -1
+      for _, a in ipairs({ "Str", "Dex", "Int" }) do
+        if (out["Req" .. a] or 0) > most then best, most = a, out["Req" .. a] or 0 end
+      end
+    end
+  end
+  if best ~= cur then
+    spec:SwitchAttributeNode(id, index[best])
+    spec:BuildAllDependsAndPaths()  -- puts the switched node in place of the allocated one
+    out = recalc()
+  end
   chosen[best] = chosen[best] + 1
-  out = recalc()
 end
-build.characterLevelAutoMode = true
-pcall(function() build:EstimatePlayerProgress() end)
 out = recalc()
 return _poe2lab_json({ chosen = chosen, level = build.characterLevel,
   short = { Str = short(out, "Str"), Dex = short(out, "Dex"), Int = short(out, "Int") } })
@@ -336,7 +417,7 @@ def to_code(text: str, engine) -> tuple[str, dict]:
     resolved = _resolve(engine, data)
     notes = {p["id"]: p["additional_text"] for p in data["passives"] if p.get("id") and p.get("additional_text")}
     choices = {sid: c for sid, note in notes.items() if (c := attribute_choice(note))}
-    xml, missing = skeleton(data, resolved, choices)
+    xml, missing, defaulted = skeleton(data, resolved, choices)
     engine.load_xml(xml, data.get("name") or "guide")
     exported = engine.export_item_data()
     bases = {b["name"]: b for b in exported["bases"]}
@@ -361,18 +442,26 @@ def to_code(text: str, engine) -> tuple[str, dict]:
     node_ids = {n["sid"]: n["id"] for n in resolved["nodes"] if n["id"]}
     jewels = []
     for sid, note in notes.items():
-        if sid.startswith("jewel_slot") and sid in node_ids:
+        # only an item as PoB and poe2lab write it (a coloured header, the base on a line of its own); an author's
+        # "a Sapphire with crit here" is a note, not a jewel
+        if sid.startswith("jewel_slot") and sid in node_ids and any(l in bases or l in uniques for l in item_lines(note)):
             jewel = item_text({"additional_text": note}, bases, uniques)
             if jewel:
                 engine.equip_item(f"Jewel {node_ids[sid]}", jewel)
                 jewels.append(item_lines(note)[0])
-    neutral = [n["id"] for n in resolved["nodes"] if n["attribute"] and n["id"] and n["sid"] not in choices
-               and not re.match(r"(strength|dexterity|intelligence)", n["sid"])]
-    balance = engine._json(_BALANCE % {"neutral": ", ".join(str(i) for i in neutral)})
+    by_prefix = {"strength": "Str", "dexterity": "Dex", "intelligence": "Int"}
+    free = [(n["id"], next((v for k, v in by_prefix.items() if n["sid"].startswith(k)), ""))
+            for n in resolved["nodes"] if n["attribute"] and n["id"] and n["sid"] not in choices]
+    free = list(dict.fromkeys(free))  # Mobalytics lists an attribute node twice
+    levels = engine._json(_LEVELS % {"gems": ", ".join(f"{{ {g}, {i} }}" for g, i in defaulted),
+                                     "end_game": END_GAME_LEVEL})
+    balance = engine._json(_BALANCE % {"nodes": ", ".join(f"{{ {i}, {lua_string(d)} }}" for i, d in free)})
+
     # the format does not say which skill is the main one: the one PoB finds dealing the most damage
     strongest = next(iter(engine.skill_damage()), None)
     if strongest and strongest["dps"] > 0:
         engine.set_main_skill(strongest["group"], strongest["skill"])
+    states = _count_states(engine)  # after the main skill: what a state changes is measured on its damage
     skills = []
     for s in data.get("skills", []):
         entry = _gem_entry(s, resolved["gems"])
@@ -396,11 +485,75 @@ def to_code(text: str, engine) -> tuple[str, dict]:
                      if p.get("id") and (iv := interval(p.get("level_interval")))],
         "notes": {sid: _plain(n).strip() for sid, n in notes.items()},
     }
+    quality = sum(1 for e in data.get("inventory_slots", []) if _assumed_quality(e, bases, uniques))
     report = {"name": data.get("name") or "", "author": data.get("author") or "", "link": data.get("link") or "",
               "description": plan["source"]["description"], "missing": missing, "worn": worn,
               "level": balance["level"], "attributes": balance, "passives": passives, "skills": skills,
-              "items": items, "unknown": unknown_fields(data), "plan": plan}
+              "items": items, "unknown": unknown_fields(data), "plan": plan,
+              "assumed": {"attributeNodes": len(free), "itemQuality": quality,
+                          "gemQuality": GEM_QUALITY if levels["endGame"] else 0,
+                          "gemLevels": len(defaulted), "gemsLowered": levels["lowered"], "states": states}}
     return engine.export_code(), report
+
+
+def _assumed_quality(entry: dict, bases: dict, uniques: dict) -> bool:
+    """Whether the import gave this slot's item the end-game quality."""
+    text = item_text(entry, bases, uniques)
+    return bool(text) and f"Quality: +{ITEM_QUALITY}%" in text
+
+
+def _build_lines(engine) -> list[tuple[str, str]]:
+    """(where, line): the enabled gems' descriptions and stats, the allocated passives' and the worn items' lines."""
+    lines = []
+    for g in engine.skill_groups():
+        for gem in g["gems"]:
+            if g["enabled"] and gem.get("enabled", True):
+                lines += [(gem["name"], l) for l in [gem["name"], gem.get("description") or "", *(gem.get("stats") or [])]]
+    for n in engine.tree_graph()["nodes"]:
+        if n["alloc"]:
+            lines += [(n["name"], l) for l in n["stats"]]
+    for it in engine.equipped_item_details():
+        name = it["name"].split(",")[0]
+        lines += [(name, l["line"]) for k in ("implicit", "explicit", "runes", "enchant") for l in it[k]]
+    return lines
+
+
+def _count_states(engine) -> list[dict]:
+    """The states the build causes itself, counted in PoB's Configuration: charges it generates, an enemy it blinds,
+    a crit recently when the main skill crits often. Each with what causes it and what counting it changes; one that
+    changes nothing is turned back off."""
+    lines = _build_lines(engine)
+    wanted = []  # (key, Configuration input, what causes it)
+    charge_sources = {}
+    for where, line in lines:
+        for m in _CHARGE_TEXT.finditer(line):
+            charge_sources.setdefault(m.group(2).capitalize(), [])
+            if where not in charge_sources[m.group(2).capitalize()]:
+                charge_sources[m.group(2).capitalize()].append(where)
+    now = engine.what_if()
+    for kind, (max_key, var) in CHARGES.items():
+        if charge_sources.get(kind) and now.get(max_key, 0) > 0:
+            wanted.append((kind, var, charge_sources[kind]))
+    blind = list(dict.fromkeys(w for w, l in lines if l.startswith("Blind") and l == w or _BLIND_TEXT.search(l)))
+    if blind:
+        wanted.append(("Blinded", "conditionEnemyBlinded", blind))
+    if (now.get("CritChance") or 0) >= CRIT_RECENTLY:
+        wanted.append(("CritRecently", "conditionCritRecently", [engine.main_skill()]))
+    out, config = [], engine.config()
+    for key, var, sources in wanted:
+        if config.get(var):
+            continue  # the file's own settings (a PoB code) already count it
+        before = engine.what_if()
+        engine._lua(f"build.configTab.input[ {lua_string(var)} ] = true build.configTab:BuildModList() "
+                    "build.buildFlag = true build.calcsTab:BuildOutput()")
+        after = engine.what_if()
+        change = {k: (after.get(k, 0) / before[k] - 1) * 100 if before.get(k) else 0.0 for k in ("CombinedDPS", "TotalEHP")}
+        if max(abs(v) for v in change.values()) < KEEP_STATE:
+            engine._lua(f"build.configTab.input[ {lua_string(var)} ] = nil build.configTab:BuildModList() "
+                        "build.buildFlag = true build.calcsTab:BuildOutput()")
+            continue
+        out.append({"kind": key, "from": sources[:3], "dps": change["CombinedDPS"], "ehp": change["TotalEHP"]})
+    return out
 
 
 _EXTRAS = r"""

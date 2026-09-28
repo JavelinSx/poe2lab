@@ -13,6 +13,7 @@ from .pobfiles import PROJECT_BUILDS, resolve_build
 
 CORRECTION_BLOCK = "poe2lab corrections"
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_RANGE = re.compile(r"(\d+(?:\.\d+)?) to (\d+(?:\.\d+)?)")
 
 
 @dataclass
@@ -26,7 +27,12 @@ class Correction:
     def line(self) -> str:
         if self.uptime >= 1:
             return self.mod
-        return _NUMBER.sub(lambda m: f"{float(m.group()) * self.uptime:g}", self.mod, count=1)
+        scale = lambda m: f"{float(m.group()) * self.uptime:g}"  # noqa: E731
+        # "Adds 26 to 42 Physical Damage": both ends of the range; otherwise the mod's first number
+        if _RANGE.search(self.mod):
+            return _RANGE.sub(lambda m: f"{scale(_NUMBER.match(m.group(1)))} to {scale(_NUMBER.match(m.group(2)))}",
+                              self.mod, count=1)
+        return _NUMBER.sub(scale, self.mod, count=1)
 
 
 @dataclass
@@ -85,7 +91,8 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
         # Nobody answered the Rage question for this build yet: assume what its author set in PoB, not the maximum.
         profile.rage = int(engine.config().get("multiplierRage") or 0)
     if corrections and profile.corrections:
-        config = MapProfile(rage=profile.rage).config()  # same enemy as the reports, not the build's saved one
+        # the same enemy as the reports (the character's stage), not the build's saved one
+        config = MapProfile.for_level(engine.info()["level"], rage=profile.rage).config()
         before = engine.what_if(config=config)["CombinedDPS"]
         engine.set_custom_mods(CORRECTION_BLOCK, [c.line for c in profile.corrections])
         after = engine.what_if(config=config)["CombinedDPS"]
