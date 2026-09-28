@@ -890,7 +890,12 @@ TABS.gear = async (view) => {
   async function drawSide() {
     const slot = gs.slot, my = ++seq;
     const p = g.slots.find((x) => x.slot === slot);
-    if (!slot || !items[slot]) { side.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, t("slotEmpty")))); return; }
+    if (!slot) return;
+    if (!items[slot]) {
+      side.replaceChildren(h("div", { class: "card stack" }, h("div", { class: "muted small" }, slotName(slot)), h("p", { class: "muted" }, t("slotEmpty")),
+        h("div", {}, h("button", { class: "primary", onclick: () => itemEditor(slot) }, t("mkOpen")))));
+      return;
+    }
     const edit = h("div", { class: "card" }, loading(t("counting")));
     side.replaceChildren(...[edit, p ? slotCard(p) : null].filter(Boolean));
     try {
@@ -930,6 +935,182 @@ function slotCard(p) {
       scoreBar(a.score, max))),
     p.actions.length ? h("div", { class: "actions" }, p.actions.map((x) => h("div", { class: "action" }, trFree(x)))) : null,
     craftBlock(p.slot), tradeBlock(p.slot));
+}
+
+// ---- an item of one's own choosing for a slot: made on a base as the game makes it, a unique or text copied from the
+// game; tried on against the slot's item (the Compare tab's verdict), then worn as an edit of the plan ----
+const MK_KIND = { Armour: "mkKind_ar", Evasion: "mkKind_ev", "Energy Shield": "mkKind_es", "Armour/Evasion": "mkKind_arev",
+  "Armour/Energy Shield": "mkKind_ares", "Evasion/Energy Shield": "mkKind_eves", "Armour/Evasion/Energy Shield": "mkKind_all" };
+const mkKind = (k) => (MK_KIND[k] ? t(MK_KIND[k]) : trName(k));
+
+async function itemEditor(slot) {
+  let cat;
+  try { cat = await api(`/api/gear/create?slot=${encodeURIComponent(slot)}&${buildQuery()}`); } catch (e) { toast(e.message); return; }
+  if (!cat.bases.length && !cat.uniques.length) { toast(t("mkNothingFits", slotName(slot))); return; }
+  const now = gearMap(state.build.items)[slot] || null;
+  const ed = { tab: cat.bases.length ? "create" : "unique", base: null, fams: null, rarity: "rare", ilvl: cat.itemLevel,
+    quality: 20, iroll: 0.5, slots: { Prefix: [], Suffix: [] }, unique: null, roll: 0.5, text: "", q: "", kind: "all" };
+
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const close = () => { clearTimeout(timer); hideTip(); back.remove(); document.removeEventListener("keydown", onKey, true); };
+  const body = h("div", { class: "stack" }), preview = h("div", { class: "stack" });
+  const put = h("button", { class: "primary", disabled: true, onclick: () => {
+    const s = spec();
+    close();
+    planCall("/api/gear/equip", { slot, ...s }, { tab: "gear", rebuild: true });
+  } }, t("mkWear"));
+
+  const spec = () => {
+    if (ed.tab === "unique") return ed.unique ? { unique: ed.unique.name, base: ed.unique.base, roll: ed.roll } : null;
+    if (ed.tab === "paste") return ed.text.trim() ? { text: ed.text } : null;
+    if (!ed.base) return null;
+    return { base: ed.base.name, rarity: ed.rarity, item_level: ed.ilvl, quality: ed.base.quality ? ed.quality : null,
+      implicit_roll: ed.iroll, mods: [...ed.slots.Prefix, ...ed.slots.Suffix].filter(Boolean).map((m) => ({ id: m.id, roll: m.roll })) };
+  };
+  let seq = 0, timer = null;
+  const refresh = () => { clearTimeout(timer); timer = setTimeout(runPreview, 300); };
+  async function runPreview() {
+    const s = spec(), my = ++seq;
+    put.disabled = true;
+    if (!s) { preview.replaceChildren(h("p", { class: "muted" }, t("mkPick"))); return; }
+    preview.replaceChildren(loading(t("counting")));
+    try {
+      const r = await api("/api/gear/try", { method: "POST", body: { slot, ...s } });
+      if (my !== seq) return;
+      preview.replaceChildren(itemCard(r.item, now, t("mkResult"), "theirs"), verdictBlock(r, t(now ? "mkVsNow" : "mkVsEmpty")));
+      put.disabled = false;
+    } catch (e) { if (my === seq) preview.replaceChildren(h("p", { class: "neg" }, e.message)); }
+  }
+
+  const slider = (value, on) => h("div", { class: "jw-roll", title: t("jwRollHint") }, t("jwRollLow"),
+    h("input", { type: "range", min: 0, max: 100, value: Math.round(value * 100), oninput: (e) => on(Number(e.target.value) / 100) }),
+    t("jwRollHigh"));
+  const famKey = (f) => `${f.set}|${f.group}|${f.tiers[0].id}`;
+  const rangeText = (lines) => lines.map(trMod).join(" / ");
+
+  async function loadMods() {
+    ed.fams = null;
+    draw();
+    try {
+      const r = await api(`/api/gear/mods?slot=${encodeURIComponent(slot)}&base=${encodeURIComponent(ed.base.name)}&item_level=${ed.ilvl}`);
+      ed.fams = r.families;
+      // a pick whose tier the new item level does not roll moves to the best tier it does
+      for (const side of ["Prefix", "Suffix"]) {
+        ed.slots[side] = ed.slots[side].map((m) => {
+          const f = m && ed.fams.find((x) => famKey(x) === m.key);
+          if (!f) return null;
+          const tier = f.tiers.find((x) => x.id === m.id);
+          return tier && tier.open ? m : { ...m, id: (f.tiers.find((x) => x.open) || f.tiers[f.tiers.length - 1]).id };
+        });
+      }
+    } catch (e) { toast(e.message); }
+    draw(); refresh();
+  }
+
+  const basePicker = () => {
+    const kinds = [...new Set(cat.bases.map((b) => b.subType || b.type))];
+    const match = (b) => (ed.kind === "all" || (b.subType || b.type) === ed.kind)
+      && (!ed.q || [b.name, trName(b.name)].join(" ").toLowerCase().includes(ed.q.toLowerCase()));
+    const tile = (b) => hoverTip(h("button", { class: "rune-opt", onclick: () => { ed.base = b; ed.slots = { Prefix: [], Suffix: [] }; loadMods(); } },
+      itemIcon(null, b.name, "normal") || h("span", { class: "rune-dot" }),
+      h("span", { class: "rune-name" }, trName(b.name), b.level ? h("span", { class: "muted small" }, ` · ${t("mkLevel", b.level)}`) : null)),
+    () => h("div", { class: "stack" }, h("b", {}, trName(b.name)), h("div", { class: "muted small" }, mkKind(b.subType || b.type)),
+      b.implicit ? h("ul", { class: "item-lines small" }, b.implicit.split("\n").map((l) => h("li", { class: "implicit" }, trMod(l)))) : null));
+    const grid = h("div", { class: "rune-grid" }, cat.bases.filter(match).map(tile));
+    const q = h("input", { type: "search", placeholder: t("mkSearch"), value: ed.q,
+      oninput: () => { ed.q = q.value; grid.replaceChildren(...cat.bases.filter(match).map(tile)); } });
+    const seg = kinds.length > 1 ? h("select", { onchange: (e) => { ed.kind = e.target.value; draw(); } },
+      h("option", { value: "all" }, t("mkAll")), kinds.map((k) => h("option", { value: k, selected: ed.kind === k }, mkKind(k)))) : null;
+    return [h("b", {}, t("mkPickBase")), h("div", { class: "row" }, seg, q), grid];
+  };
+
+  const modSlot = (side, i) => {
+    const cur = ed.slots[side][i] || null;
+    const used = new Set([...ed.slots.Prefix, ...ed.slots.Suffix].filter((x) => x && x !== cur).map((x) => x.group));
+    const fams = ed.fams.filter((f) => f.type === side && !used.has(f.group));
+    const option = (f) => h("option", { value: famKey(f), selected: !!cur && cur.key === famKey(f) }, rangeText(f.tiers[0].lines));
+    const desecrated = fams.filter((f) => f.set === "Desecrated");
+    const famSel = h("select", { class: cur ? "" : "muted", onchange: () => {
+      const f = fams.find((x) => famKey(x) === famSel.value);
+      ed.slots[side][i] = f ? { key: famKey(f), group: f.group, id: (f.tiers.find((x) => x.open) || f.tiers[f.tiers.length - 1]).id,
+        roll: cur ? cur.roll : 0.5 } : null;
+      draw(); refresh();
+    } }, h("option", { value: "" }, t("jwNoMod")),
+    h("optgroup", { label: t("jwModsNormal") }, fams.filter((f) => f.set !== "Desecrated").map(option)),
+    desecrated.length ? h("optgroup", { label: t("jwModsDesecrated") }, desecrated.map(option)) : null);
+    if (!cur) return h("div", { class: "jw-slot" }, famSel);
+    const fam = ed.fams.find((x) => famKey(x) === cur.key);
+    const tierSel = h("select", { onchange: () => { cur.id = tierSel.value; draw(); refresh(); } },
+      fam.tiers.map((x) => h("option", { value: x.id, selected: x.id === cur.id, disabled: !x.open },
+        `T${x.tier} · ${rangeText(x.lines)} · ${t("mkFromLevel", x.level)}`)));
+    return h("div", { class: "jw-slot" + (fam.set === "Desecrated" ? " desecrated" : "") }, famSel, tierSel,
+      slider(cur.roll, (v) => { cur.roll = v; refresh(); }));
+  };
+
+  const drawCreate = () => {
+    if (!ed.base) return basePicker();
+    const b = ed.base;
+    const head = h("div", { class: "cmp-item-head" }, itemIcon(null, b.name, "normal"),
+      h("div", {}, h("div", { class: "item-name" }, trName(b.name)), h("div", { class: "muted small" }, mkKind(b.subType || b.type))),
+      h("button", { class: "ghost small", style: "margin-left:auto", onclick: () => { ed.base = null; draw(); refresh(); } }, t("mkChangeBase")));
+    const rarity = h("div", { class: "segmented" }, ["magic", "rare"].map((k) => h("button", { class: ed.rarity === k ? "active" : "",
+      onclick: () => {
+        ed.rarity = k;
+        for (const side of ["Prefix", "Suffix"]) ed.slots[side] = ed.slots[side].slice(0, cat.limits[k][side === "Prefix" ? 0 : 1]);
+        draw(); refresh();
+      } }, t("jwRarity_" + k))));
+    const ilvl = h("input", { type: "number", min: 1, max: 100, value: ed.ilvl, style: "width:64px",
+      onchange: () => { ed.ilvl = Math.max(1, Math.min(100, Number(ilvl.value) || cat.itemLevel)); loadMods(); } });
+    const parts = [head, h("div", { class: "row" }, rarity, h("label", { class: "muted small" }, t("mkItemLevel"), " ", ilvl))];
+    if (b.quality) {
+      const val = h("span", { class: "q-val" }, `${ed.quality}%`);
+      parts.push(h("div", { class: "q-row" }, h("b", {}, t("gearQuality")), val,
+        h("input", { type: "range", min: 0, max: cat.maxQuality, value: ed.quality,
+          oninput: (e) => { ed.quality = Number(e.target.value); val.textContent = `${ed.quality}%`; refresh(); } })));
+    }
+    if (b.implicit) {
+      parts.push(h("div", { class: "jw-slot" }, h("div", { class: "jw-side" }, t("mkImplicit")),
+        h("ul", { class: "item-lines small" }, b.implicit.split("\n").map((l) => h("li", { class: "implicit" }, trMod(l)))),
+        /\(/.test(b.implicit) ? slider(ed.iroll, (v) => { ed.iroll = v; refresh(); }) : null));
+    }
+    if (!ed.fams) return [...parts, loading(t("counting"))];
+    const [np, ns] = cat.limits[ed.rarity];
+    return [...parts,
+      h("div", { class: "jw-side" }, t("jwPrefixes")), ...Array.from({ length: np }, (_, i) => modSlot("Prefix", i)),
+      h("div", { class: "jw-side" }, t("jwSuffixes")), ...Array.from({ length: ns }, (_, i) => modSlot("Suffix", i))];
+  };
+
+  const drawUnique = () => {
+    const match = (u) => !ed.q || [u.name, trName(u.name), trName(u.base)].join(" ").toLowerCase().includes(ed.q.toLowerCase());
+    const cards = () => cat.uniques.filter(match).map((u) => hoverTip(h("button", {
+      class: "jw-unique" + (ed.unique === u ? " sel" : ""), onclick: () => { ed.unique = u; draw(); refresh(); } },
+    itemIcon(u.name, u.base, "unique"), h("div", {}, h("div", { class: "jw-uname" }, trItem(u.name)), h("div", { class: "muted small" }, trName(u.base)))),
+    () => h("div", { class: "stack" }, h("b", { class: "jw-uname" }, trItem(u.name)),
+      h("ul", { class: "item-lines small" }, u.lines.map((l) => h("li", {}, trMod(l)))))));
+    const list = h("div", { class: "jw-uniques" }, cards());
+    const q = h("input", { type: "search", placeholder: t("mkSearch"), value: ed.q, oninput: () => { ed.q = q.value; list.replaceChildren(...cards()); } });
+    return [q, list, ed.unique && ed.unique.ranged ? slider(ed.roll, (v) => { ed.roll = v; refresh(); }) : null];
+  };
+
+  const drawPaste = () => {
+    const ta = h("textarea", { rows: 12, placeholder: t("mkPastePh"), spellcheck: "false", oninput: () => { ed.text = ta.value; refresh(); } }, ed.text);
+    return [ta];
+  };
+
+  const tabs = () => h("div", { class: "segmented" }, [["create", t("jwCreate")], ["unique", t("jwUniques")], ["paste", t("jwPaste")]]
+    .filter(([k]) => k !== "create" || cat.bases.length)
+    .map(([k, label]) => h("button", { class: ed.tab === k ? "active" : "", onclick: () => { ed.tab = k; ed.q = ""; draw(); refresh(); } }, label)));
+  const draw = () => body.replaceChildren(tabs(), ...(ed.tab === "create" ? drawCreate() : ed.tab === "unique" ? drawUnique() : drawPaste()).filter(Boolean));
+
+  back.append(h("div", { class: "ask card stack jw-editor", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "jw-head" }, h("h3", {}, t("mkTitle", slotName(slot))),
+      h("button", { class: "ghost small", title: t("cancel"), onclick: close }, "✕")),
+    h("div", { class: "jw-main" }, body, h("div", { class: "jw-out stack" }, preview, h("div", { class: "row" }, put)))));
+  document.body.append(back);
+  document.addEventListener("keydown", onKey, true);
+  draw();
+  runPreview();
 }
 
 // the item's quality, rune sockets and runes, changed as the game allows (the server checks: /api/gear/preview):
@@ -1066,7 +1247,8 @@ function gearEdit(box, info, g) {
   drawControls();
   box.replaceChildren(...[info.plan ? planBar(info.plan) : null,
     h("div", { class: "cmp-item-head" }, itemIcon(info.item.name, info.item.baseName, info.item.rarity),
-      h("div", {}, h("div", { class: "muted small" }, slotName(info.slot)), h("div", { class: "item-name" }, itemTitle(info.item)))),
+      h("div", {}, h("div", { class: "muted small" }, slotName(info.slot)), h("div", { class: "item-name" }, itemTitle(info.item))),
+      h("button", { class: "ghost small", style: "margin-left:auto", title: t("mkOpenHint"), onclick: () => itemEditor(info.slot) }, t("mkOpen"))),
     controls, out].filter(Boolean));
 }
 
@@ -1794,6 +1976,9 @@ function planCard(plan) {
   const logLine = (e) => e.action === "jewel"
     ? h("li", {}, t("jwLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${jwName(e.removed)}`) : null,
       e.removed && e.added ? " " : null, e.added ? h("span", { class: "pos" }, `+ ${jwName(e.added)}`) : null)
+    : e.action === "item" && "worn" in e
+    ? h("li", {}, t("gearLog", slotName(e.target)), " ", e.worn ? h("span", { class: "neg" }, `− ${jwName(e.worn)}`) : null, " ",
+      h("span", { class: "pos" }, `+ ${jwName(e.item)}`))
     : e.action === "item"
     ? h("li", {}, t("gearLog", slotName(e.target)), " ", [e.quality ? t("gearLogQ", ...e.quality) : null,
       e.sockets ? t("gearLogS", ...e.sockets) : null,

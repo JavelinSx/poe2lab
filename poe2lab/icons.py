@@ -22,10 +22,10 @@ ITEM_SIDE = 96  # item thumbnails: the longer side at most this many pixels
 # item art worth a picture: gear, supports, socketables and crafting currency (not maps, quest items)
 ITEM_ART = re.compile(r"^art/2ditems/(armours|weapons|rings|amulets|belts|offhand|quivers|jewels|flasks|charms)/|"
                       r"^art/2ditems/gems/.*support|"  # support gems: skills already have icons of their own
-                      r"^art/2ditems/currency/(runes|essence|soulcores|tormentedspiritsocketables|omens|abyss)/|"
-                      r"^art/2ditems/currency/[^/]+\.dds$")  # socketables, essences, omens, bones, orbs
+                      r"^art/2ditems/currency/(runes|essence|soulcores|tormentedspiritsocketables|omens|abyss|breach)/|"
+                      r"^art/2ditems/currency/[^/]+\.dds$")  # socketables, essences, omens, bones, catalysts, orbs
 # bumped when ITEM_ART takes in more pictures: an unpack made with an older set is redone (see gamedata.stale)
-ART_VERSION = 2
+ART_VERSION = 3
 
 
 def _rgb565(c: int) -> tuple[int, int, int]:

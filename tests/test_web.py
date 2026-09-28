@@ -4,6 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from poe2lab import itemcraft
 from poe2lab.web.server import app, session
 
 H = {"X-Poe2lab": "1"}
@@ -345,3 +346,37 @@ def test_a_catalyst_on_jewellery(client):
     client.post("/api/tree/reset", headers=H)
     back = client.get(f"/api/gear/item?slot={slot}").json()
     assert back["catalyst"] == ring["catalyst"] and [l["line"] for l in back["item"]["explicit"]] == shown
+
+
+def test_an_item_of_one_s_own_for_a_slot(client):
+    """Made on a base the slot takes by the game's rules, a unique, or pasted: tried on, then worn as a plan edit."""
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    client.post("/api/tree/reset", headers=H)
+    was = {i["slot"]: i["name"] for i in client.get("/api/build").json()["items"]}
+    c = client.get("/api/gear/create?slot=Gloves").json()
+    assert c["bases"] and {b["type"] for b in c["bases"]} == {"Gloves"} and c["uniques"] and c["limits"]["rare"] == [3, 3]
+    base = next(b for b in c["bases"] if b["level"] >= 60)
+    fams = client.get(f"/api/gear/mods?slot=Gloves&base={base['name']}&item_level=82").json()["families"]
+    pre = [f for f in fams if f["type"] == "Prefix" and f["set"] == "Item"]
+    suf = [f for f in fams if f["type"] == "Suffix" and f["set"] == "Item"]
+    assert all(f["tiers"][0]["tier"] == 1 and f["tiers"][0]["level"] >= f["tiers"][-1]["level"] for f in fams)
+    mods = [{"id": f["tiers"][0]["id"], "roll": 1} for f in pre[:3] + suf[:3]]
+    body = {"slot": "Gloves", "base": base["name"], "rarity": "rare", "item_level": 82, "quality": 20, "mods": mods}
+    r = client.post("/api/gear/try", json=body, headers=H).json()
+    assert r["item"]["baseName"] == base["name"] and len(r["item"]["explicit"]) >= 6 and "dps_pct" in r and "Quality: 20" in r["text"]
+    # the game's rules
+    high = next(f for f in pre if f["tiers"][0]["level"] > 1)
+    for change, text in [({"mods": mods + [{"id": pre[3]["tiers"][0]["id"]}]}, "префиксов не больше 3"),
+                         ({"rarity": "magic"}, "не больше 1"),
+                         ({"mods": [{"id": high["tiers"][0]["id"]}], "item_level": 1}, "уровня предмета"),
+                         ({"base": "Iron Ring"}, "не встаёт"),
+                         ({"mods": [{"id": "nope"}]}, "не выпадает")]:
+        r = client.post("/api/gear/try", json=body | change, headers=H)
+        assert r.status_code == 400 and text in r.json()["detail"], (change, r.json())
+    u = c["uniques"][0]
+    assert client.post("/api/gear/try", json={"slot": "Gloves", "unique": u["name"], "base": u["base"]}, headers=H).status_code == 200
+    r = client.post("/api/gear/equip", json=body, headers=H).json()
+    assert r["plan"]["log"][-1] == {"action": "item", "target": "Gloves", "item": f"{itemcraft.RARE_TITLE}, {base['name']}",
+                                    "worn": was["Gloves"]}
+    client.post("/api/tree/reset", headers=H)
+    assert {i["slot"]: i["name"] for i in client.get("/api/build").json()["items"]} == was

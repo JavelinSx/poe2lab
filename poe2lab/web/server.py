@@ -35,8 +35,8 @@ from ..economy import trade
 from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
-from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemtext, jewelcraft, journal,
-               library, lootfilter, pobapp, quality)
+from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext, jewelcraft,
+               journal, library, lootfilter, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -875,6 +875,133 @@ def gear_set(req: GearEdit):
         return _json(_gear_info(req.slot) | {"plan": _plan_view()})
 
 
+# ---- an item of one's own choosing for a slot: made on a base, a unique or pasted; tried on, then worn ----
+
+def _item_data() -> dict:
+    return session.cached("item-data", lambda: session.engine.export_item_data())
+
+
+def _slot_choice(slot: str) -> dict:
+    """The bases the slot takes (with what the page shows of each) and the uniques on them."""
+    def compute():
+        names = set(session.engine.slot_bases(slot))
+        bases = sorted((b for b in _item_data()["bases"] if b["name"] in names),
+                       key=lambda b: (b["type"], b["subType"], -b["level"], b["name"]))
+        uniques = sorted(({"name": u["name"], "base": u["base"], "lines": u["lines"], "level": u["level"],
+                           "raw": u["raw"], "ranged": any(jewelcraft.RANGE.search(l) for l in u["lines"])}
+                          for u in session.cached("unique-catalog", session.engine.unique_catalog) if u["base"] in names),
+                         key=lambda u: (u["name"], u["base"]))
+        return {"bases": bases, "uniques": uniques}
+    return session.cached(("slot-choice", slot), compute)
+
+
+@app.get("/api/gear/create")
+def gear_create(slot: str, build: str | None = None):
+    """What an item for the slot can be: the bases it takes, their uniques, the rarities' limits."""
+    with session.lock:
+        session.require(build)
+        c = _slot_choice(slot)
+        return _json({"slot": slot, "bases": c["bases"], "uniques": [{k: v for k, v in u.items() if k != "raw"}
+                                                                      for u in c["uniques"]],
+                      "limits": itemcraft.LIMITS, "itemLevel": itemcraft.DEFAULT_ITEM_LEVEL,
+                      "maxQuality": quality.DEFAULT_MAX})
+
+
+def _base(slot: str, name: str) -> dict:
+    base = next((b for b in _slot_choice(slot)["bases"] if b["name"] == name), None)
+    if base is None:
+        raise HTTPException(400, f"{name} не встаёт в слот {slot}")
+    return base
+
+
+@app.get("/api/gear/mods")
+def gear_mods(slot: str, base: str, item_level: int = itemcraft.DEFAULT_ITEM_LEVEL):
+    """The mod families the base rolls, each with its tiers (T1 first) and whether the item level lets it roll."""
+    with session.lock:
+        session.require()
+        b = _base(slot, base)
+        return _json({"base": b, "families": itemcraft.families(session.db(), b["tags"], item_level)})
+
+
+class ItemMake(BaseModel):
+    """An item for `slot`, one of: `unique` (its name; `base` too when it comes on several) rolled at `roll`, one
+    made on `base` (rarity, item level, mods [{"id": a tier's id, "roll"}], quality, the implicit's roll), or
+    `text` copied from the game, Russian or English, or PoB's."""
+    slot: str
+    text: str = ""
+    unique: str = ""
+    base: str = ""
+    rarity: str = "rare"
+    item_level: int = itemcraft.DEFAULT_ITEM_LEVEL
+    mods: list[dict] = []
+    quality: int | None = None
+    implicit_roll: float = 0.5
+    roll: float = 0.5
+
+
+def _made_item(req: ItemMake) -> tuple[str, bool]:
+    """The item's text and whether its quality is as written (one made here)."""
+    try:
+        if req.unique:
+            u = next((u for u in _slot_choice(req.slot)["uniques"]
+                      if u["name"] == req.unique and req.base in ("", u["base"])), None)
+            if u is None:
+                raise HTTPException(400, f"{req.unique} не встаёт в слот {req.slot}")
+            return jewelcraft.rolled_unique(u, req.roll, session.engine.resolve_ranges), False
+        if req.base:
+            b = _base(req.slot, req.base)
+            fams = itemcraft.families(session.db(), b["tags"], req.item_level)
+            q = None
+            if b["quality"]:
+                q = quality.DEFAULT_MAX if req.quality is None else req.quality
+                if not 0 <= q <= quality.DEFAULT_MAX:
+                    raise HTTPException(400, f"качество — от 0 до {quality.DEFAULT_MAX}%")
+            return itemcraft.make(b, req.rarity, req.item_level, req.mods, fams, q, req.implicit_roll,
+                                  session.engine.resolve_ranges), True
+    except itemcraft.CraftError as err:
+        raise HTTPException(400, str(err))
+    if not req.text.strip():
+        raise HTTPException(400, "нет вещи: создай её, выбери уникальную или вставь текст")
+    return _english_item(req.text), False
+
+
+def _checked_item(req: ItemMake) -> tuple[str, bool]:
+    text, exact = _made_item(req)
+    if not _errors(lambda: session.engine.item_fits(req.slot, text)):
+        item = _errors(lambda: session.engine.parse_item(text))
+        raise HTTPException(400, f"{item['baseName'] or item['name']} не встаёт в слот {req.slot}")
+    return text, exact
+
+
+@app.post("/api/gear/try")
+def gear_try(req: ItemMake):
+    """The item tried on in the slot: its text and lines, and the comparison with the slot's item."""
+    with session.lock:
+        session.require()
+        text, exact = _checked_item(req)
+        e, cfg = session.engine, session.profile.config()
+        result = asdict(_errors(lambda: compare(e, cfg, req.slot, text, keep_quality=exact)))
+        return _json(result | {"text": text, "item": _errors(lambda: e.parse_item(text))})
+
+
+@app.post("/api/gear/equip")
+def gear_equip(req: ItemMake):
+    """The item worn in the slot - an edit of the plan."""
+    with session.lock:
+        session.require()
+        text, exact = _checked_item(req)
+        e = session.engine
+        old = next((i for i in e.equipped_item_details() if i["slot"] == req.slot), None)
+        _plan_start()
+        session.plan["items"].setdefault(req.slot, e.item_text(req.slot) if old else None)
+        e.equip_item(req.slot, text, exact=exact)
+        new = next(i for i in e.equipped_item_details() if i["slot"] == req.slot)
+        session.plan["log"].append({"action": "item", "target": req.slot, "item": new["name"],
+                                    "worn": old["name"] if old else None})
+        _plan_changed()
+        return _json({"plan": _plan_view()})
+
+
 @app.get("/api/plan")
 def plan_view(build: str | None = None):
     """The plan of edits (tree, jewels, gems, gear) against the build, or null."""
@@ -1012,7 +1139,7 @@ def _plan_start():
                         "items": {}}  # slot -> its item's text before the first edit (None: it was empty)
 
 
-GAME_DATA_KEYS = ("db", "jewel-db", "unique-catalog", "jewel-catalog", "gem-catalog")
+GAME_DATA_KEYS = ("db", "jewel-db", "unique-catalog", "jewel-catalog", "gem-catalog", "item-data")
 
 
 def _plan_changed():
@@ -1156,6 +1283,9 @@ def _jewel_checked(req: JewelEdit, socket: dict) -> tuple[str, dict]:
     item = _errors(lambda: session.engine.parse_item(text))
     if item["type"] != "Jewel":
         raise HTTPException(400, f"это не самоцвет: {item['baseName'] or item['name']}")
+    if not session.engine.item_fits(socket["slot"], text):
+        raise HTTPException(400, "в это гнездо такой самоцвет не встаёт (гнездо Лича — только простые не уникальные, "
+                                 "зловещее — не уникальные)")
     limit = jewelcraft.limited_to(text)
     if limit is not None:
         name = item["name"].split(",")[0]

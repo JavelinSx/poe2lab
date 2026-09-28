@@ -636,7 +636,8 @@ for name, b in pairs(data.itemBases) do
   local tags = _poe2lab_array({{}})
   for t, on in pairs(b.tags or {{}}) do if on then tags[#tags + 1] = t end end
   bases[#bases + 1] = {{ name = name, type = b.type or "", subType = b.subType or "", tags = tags,
-    implicit = b.implicit or "", level = (b.req and b.req.level) or 0 }}
+    implicit = b.implicit or "", level = (b.req and b.req.level) or 0, quality = b.quality or 0,
+    socketLimit = b.socketLimit or 0 }}
 end
 return _poe2lab_json({{ mods = mods, bases = bases }})""")
 
@@ -707,6 +708,23 @@ local slot = build.itemsTab.slots[ {lua_string(slot)} ]
 local item = slot and build.itemsTab.items[slot.selItemId]
 if not item then error("no item in slot " .. {lua_string(slot)}, 0) end
 return _poe2lab_item_edit(item.raw, {q}, {n}, {r}, {c}, {cq}):BuildRaw()""")
+
+    def item_fits(self, slot: str, text: str) -> bool:
+        """Whether PoB lets the item into the slot: the slot's item type, one hand or two beside the other weapon,
+        a jewel socket's kind (a Lich's takes plain jewels only, a sinister one no uniques, a charm socket charms)."""
+        return self._json(f"""
+local item = _poe2lab_item({lua_string(text)}, true)
+return _poe2lab_json(build.itemsTab:IsItemValidForSlot(item, {lua_string(slot)}) and true or false)""")
+
+    def slot_bases(self, slot: str) -> list[str]:
+        """The item bases PoB lets into the slot."""
+        return self._json(f"""
+local out = _poe2lab_array({{}})
+for name in pairs(data.itemBases) do
+  local ok, item = pcall(function() return new("Item"):Item("Rarity: NORMAL\\n" .. name) end)
+  if ok and item and item.base and build.itemsTab:IsItemValidForSlot(item, {lua_string(slot)}) then out[#out + 1] = name end
+end
+return _poe2lab_json(out)""")
 
     def clear_slot(self, slot: str):
         """Take off whatever is in a slot (gear or a jewel socket), recalculated."""

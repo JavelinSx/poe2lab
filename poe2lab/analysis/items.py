@@ -34,9 +34,11 @@ def _pct(new: float, old: float) -> float:
     return (new - old) / old * 100 if old else 0.0
 
 
-def compare(engine, config: dict, slot: str, item_text: str) -> Comparison:
+def compare(engine, config: dict, slot: str, item_text: str, keep_quality: bool = False) -> Comparison:
+    """The item in place of the slot's. keep_quality: its quality as written (one set on purpose); otherwise below
+    20% counts as 20%, as PoB takes a pasted item."""
     base = engine.what_if(config=config)
-    new = engine.what_if(config=config, replace_item=(slot, item_text))
+    new = engine.what_if(config=config, replace_item=(slot, item_text), keep_quality=keep_quality)
     return Comparison(
         slot,
         dps_pct=_pct(new["CombinedDPS"], base["CombinedDPS"]),
