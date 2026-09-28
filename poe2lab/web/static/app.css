@@ -613,6 +613,10 @@ details > summary .ico { margin-left: 2px; }
 .tip-name.r-magic { color: #9d9dff; }
 .gear-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
 .gear-top > .card { position: sticky; top: 8px; }
+.mk-btn { width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 16px;
+  font-size: 16px; text-align: left; }
+.mk-btn .mk-ico { font-size: 26px; line-height: 1; }
+.mk-btn .mk-sub { display: block; font-size: 12px; font-weight: 400; opacity: .8; }
 .plan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border-radius: 8px;
   border: 1px solid rgba(214, 165, 79, .35); background: rgba(214, 165, 79, .06); }
 .q-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

@@ -882,7 +882,10 @@ TABS.gear = async (view) => {
           draw();
         } }, n === 1 ? "⚔ I" : "⚔ II"))) : null,
       doll(items, { set: gs.set, selected: gs.slot, onPick: pick, badges, tip: modsTip }),
-      h("div", { class: "muted small cmp-legend" }, t("gearPick"))].filter(Boolean));
+      h("div", { class: "muted small cmp-legend" }, t("gearPick")),
+      gs.slot ? h("button", { class: "primary mk-btn", title: t("mkOpenHint"), onclick: () => itemEditor(gs.slot) },
+        h("span", { class: "mk-ico" }, "✎"),
+        h("span", {}, h("b", {}, t("mkBig")), h("span", { class: "mk-sub" }, t("mkBigSub", slotName(gs.slot))))) : null].filter(Boolean));
     drawSide();
   };
 
@@ -893,7 +896,8 @@ TABS.gear = async (view) => {
     if (!slot) return;
     if (!items[slot]) {
       side.replaceChildren(h("div", { class: "card stack" }, h("div", { class: "muted small" }, slotName(slot)), h("p", { class: "muted" }, t("slotEmpty")),
-        h("div", {}, h("button", { class: "primary", onclick: () => itemEditor(slot) }, t("mkOpen")))));
+        h("button", { class: "primary mk-btn", onclick: () => itemEditor(slot) }, h("span", { class: "mk-ico" }, "✎"),
+          h("span", {}, h("b", {}, t("mkBig")), h("span", { class: "mk-sub" }, t("mkBigSub", slotName(slot)))))));
       return;
     }
     const edit = h("div", { class: "card" }, loading(t("counting")));
@@ -1247,8 +1251,7 @@ function gearEdit(box, info, g) {
   drawControls();
   box.replaceChildren(...[info.plan ? planBar(info.plan) : null,
     h("div", { class: "cmp-item-head" }, itemIcon(info.item.name, info.item.baseName, info.item.rarity),
-      h("div", {}, h("div", { class: "muted small" }, slotName(info.slot)), h("div", { class: "item-name" }, itemTitle(info.item))),
-      h("button", { class: "ghost small", style: "margin-left:auto", title: t("mkOpenHint"), onclick: () => itemEditor(info.slot) }, t("mkOpen"))),
+      h("div", {}, h("div", { class: "muted small" }, slotName(info.slot)), h("div", { class: "item-name" }, itemTitle(info.item)))),
     controls, out].filter(Boolean));
 }
 
