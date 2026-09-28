@@ -296,7 +296,10 @@ return _poe2lab_json(out)""")
         """Damage of every active skill of every enabled socket group if it were the main skill (the build's choice
         is restored). For a main skill PoB cannot compute (0 DPS) this shows where the damage actually is."""
         group = int(self._lua("return build.mainSocketGroup"))
-        active = int(self._lua(f"return build.skillsTab.socketGroupList[{group}].mainActiveSkill or 1"))
+        g = f"build.skillsTab.socketGroupList[{group}]"
+        if not self._json(f"return _poe2lab_json({g} ~= nil)"):
+            return []  # no skills yet: a build just made (poe2lab.newbuild)
+        active = int(self._lua(f"return {g}.mainActiveSkill or 1"))
         out = []
         try:
             for g in self.socket_groups():

@@ -209,10 +209,12 @@ def _gem_xml(gem: dict, level: int, quality: int) -> str:
             f'quality="{quality}" enabled="true" enableGlobal1="true" enableGlobal2="true" count="1"/>')
 
 
-def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) -> tuple[str, list[str], list]:
+def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None,
+             level: int | None = None) -> tuple[str, list[str], list]:
     """The build as PoB XML without its items (they are put on by PoB itself afterwards), what could not be
     resolved, and the skill gems whose level the file does not give (socket group, gem: 1-based). `choices`: the
-    attribute a node's note names (str / dex / int), by the node's id in the format."""
+    attribute a node's note names (str / dex / int), by the node's id in the format. `level`: the character's,
+    fixed; none - PoB estimates it from the passives."""
     missing = []
     cls = resolved.get("class")
     if not cls:
@@ -267,7 +269,8 @@ def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None) 
 
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<PathOfBuilding2>'
            f'<Build className={quoteattr(cls["className"])} ascendClassName={quoteattr(cls["ascendClassName"])} '
-           'level="90" mainSocketGroup="1" characterLevelAutoMode="true" targetVersion="0_1" viewMode="TREE"/>'
+           + (f'level="{int(level)}" characterLevelAutoMode="false"' if level else 'level="90" characterLevelAutoMode="true"')
+           + ' mainSocketGroup="1" targetVersion="0_1" viewMode="TREE"/>'
            f'<Tree activeSpec="1">{"".join(spec)}</Tree>'
            '<Skills activeSkillSet="1"><SkillSet id="1">' + "".join(groups) + "</SkillSet></Skills>"
            '<Items activeItemSet="1"><ItemSet id="1"/></Items>'

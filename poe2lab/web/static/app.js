@@ -311,6 +311,112 @@ function renderAddBuild() {
 
 $("#add-build").addEventListener("click", renderAddBuild);
 
+// ---------- the build constructor: a build from nothing (PLAN.md, "Конструктор билда с нуля") ----------
+const ATTR_COLOR = { str: "#c8463a", dex: "#4fae5a", int: "#5467d8" };
+const nbState = { asc: null, ascName: "", stage: "endgame", level: 92, name: "" };
+
+async function renderNewBuild() {
+  hideBuildChrome();
+  $("#view").replaceChildren(loading(t("nbLoading")));
+  let data;
+  try { data = await api("/api/new/classes"); } catch (e) { $("#view").replaceChildren(h("p", { class: "muted" }, e.message)); return; }
+  const box = h("div", { class: "card stack nb" });
+  const levelOf = () => (nbState.stage === "custom" ? nbState.level : data.stages[nbState.stage]);
+  const attr = (k, v) => h("span", { class: "nb-attr", title: t("nbAttr_" + k) },
+    h("span", { class: "nb-attr-bar", style: `width:${v * 4}px;background:${ATTR_COLOR[k]}` }), t("nbAttrShort_" + k));
+  const draw = () => {
+    const classes = h("div", { class: "nb-classes" }, data.classes.map((c) => h("div", {
+      class: "nb-class" + (c.ascendancies.some((a) => a.id === nbState.asc) ? " sel" : "") },
+    h("div", { class: "nb-cname" }, trName(c.name)),
+    h("div", { class: "nb-attrs" }, attr("str", c.str), attr("dex", c.dex), attr("int", c.int)),
+    h("div", { class: "nb-ascs" }, c.ascendancies.map((a) => h("button", { class: "nb-asc" + (nbState.asc === a.id ? " sel" : ""),
+      onclick: () => { nbState.asc = a.id; nbState.ascName = a.name; draw(); } }, trName(a.name)))))));
+    const custom = h("input", { type: "number", min: 1, max: 100, value: nbState.level, style: "width:64px",
+      oninput: () => { nbState.stage = "custom"; nbState.level = Math.max(1, Math.min(100, Number(custom.value) || 1)); drawName(); drawStages(); } });
+    const stages = h("div", { class: "segmented" });
+    const drawStages = () => stages.replaceChildren(...Object.entries(data.stages).map(([k, lv]) => h("button", {
+      class: nbState.stage === k ? "active" : "", onclick: () => { nbState.stage = k; nbState.level = lv; custom.value = lv; draw(); } },
+    t("nbStage_" + k), h("span", { class: "muted small" }, ` · ${lv}`))));
+    drawStages();
+    const name = h("input", { type: "text", value: nbState.name, oninput: () => { nbState.name = name.value; } });
+    const drawName = () => { name.placeholder = nbState.asc ? `${trName(nbState.ascName)} ${levelOf()}` : t("nbNamePh"); };
+    drawName();
+    const go = h("button", { class: "primary big-btn", disabled: !nbState.asc, onclick: async () => {
+      go.disabled = true;
+      go.textContent = t("nbMaking");
+      try {
+        const b = await api("/api/builds/new", { method: "POST", body: { ascendancy: nbState.asc, stage: nbState.stage,
+          level: nbState.stage === "custom" ? nbState.level : null, name: nbState.name.trim() || name.placeholder } });
+        Object.assign(nbState, { asc: null, ascName: "", name: "" });
+        state.build = b;
+        state.chat = [];
+        state.changes = null;
+        resetCache();
+        renderHeader();
+        loadBuildList();
+        switchTab("skills");
+        toast(t("nbDone", b.name), true);
+      } catch (e) { toast(e.message); go.disabled = false; go.textContent = t("nbGo"); }
+    } }, t("nbGo"));
+    box.replaceChildren(h("h2", {}, t("nbTitle")), h("div", { class: "sub" }, t("nbSub")),
+      h("h3", {}, t("nbStep1")), classes,
+      h("h3", {}, t("nbStep2")), h("div", { class: "row" }, stages, h("label", { class: "muted small" }, t("nbOwnLevel"), " ", custom)),
+      h("h3", {}, t("nbStep3")), name,
+      h("div", { class: "row" }, go, state.build ? h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")) : null));
+  };
+  draw();
+  $("#view").replaceChildren(box);
+}
+$("#new-build").addEventListener("click", renderNewBuild);
+
+// the constructor's steps above the tabs of a build it made: what is done, what comes next
+const CTOR_STEPS = [["class", null], ["skill", "skills"], ["gear", "gear"], ["tree", "tree"], ["mech", "profile"], ["polish", "overview"], ["save", null]];
+function renderCtorBar() {
+  const bar = $("#ctor-bar");
+  const b = state.build;
+  if (!b || !(b.profileRaw || {}).constructor) { bar.classList.add("hidden"); return; }
+  const done = { class: true, skill: !!b.mainSkill, gear: (b.items || []).length >= 8 };
+  const next = CTOR_STEPS.find(([k]) => !done[k]);
+  bar.replaceChildren(h("span", { class: "ctor-title" }, t("ctorTitle")), ...CTOR_STEPS.map(([k, tab], i) => h("button", {
+    class: "ctor-step" + (done[k] ? " done" : "") + (next && next[0] === k ? " next" : "") + (tab && state.tab === tab ? " here" : ""),
+    title: t("ctorHint_" + k),
+    onclick: () => { if (k === "save") saveMenu(); else if (tab) switchTab(tab); } },
+  h("span", { class: "ctor-num" }, done[k] ? "✓" : i + 1), t("ctorStep_" + k))));
+  bar.classList.remove("hidden");
+}
+
+// saving a build: into itself (the plan's edits), the game's planner, a PoB code for pobb.in and PoB
+async function saveMenu() {
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) back.remove(); } });
+  const code = async () => {
+    try {
+      const r = await api(`/api/builds/code?${buildQuery()}`);
+      toast(t((await copyText(r.code)) ? "svCodeCopied" : "npCopyFail"), true);
+    } catch (e) { toast(e.message); }
+  };
+  const row = (label, hint, onclick, cls = "ghost") => h("div", { class: "sv-row" }, h("button", { class: cls, onclick }, label), h("span", { class: "muted small" }, hint));
+  back.append(h("div", { class: "ask card stack" }, h("h3", {}, t("svTitle")),
+    row(t("svCommit"), t("svCommitHint"), async () => { back.remove(); await commitBuild(); }, "primary"),
+    row(t("svCode"), t("svCodeHint"), code),
+    row(t("toPlanner"), t("svPlannerHint"), () => { back.remove(); exportToPlanner(); }),
+    h("div", { class: "row" }, h("a", { class: "np-link", href: "https://pobb.in", target: "_blank", rel: "noopener noreferrer" }, "pobb.in"),
+      h("button", { class: "ghost", onclick: () => back.remove() }, t("cancel")))));
+  document.body.append(back);
+}
+
+async function commitBuild() {
+  const view = $("#view");
+  view.replaceChildren(loading(t("svSaving")));
+  try {
+    state.build = await api("/api/builds/commit", { method: "POST", body: {} });
+    resetCache();
+    renderHeader();
+    toast(t("svSaved", state.build.name), true);
+  } catch (e) { toast(e.message); }
+  switchTab(state.tab);
+}
+
+
 // what a build planner file became: level, what could not be matched, attributes still short
 // what the file does not hold and the import assumed, as played: attributes, quality, gem levels, the states the
 // build causes itself (charges, a blinded enemy, crit recently) with what each changed
@@ -399,6 +505,7 @@ function renderHeader() {
   $("#bh-reload").title = t("reloadHint");
   $("#bh-planner").title = t("toPlannerHint");
   renderChanges();
+  renderCtorBar();
   $("#bh-sub").textContent = `${trName(b.info.class)} / ${b.info.ascendancy ? trName(b.info.ascendancy) : t("noAscendancy")} · ${t("level", b.info.level)}`;
   // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
@@ -585,7 +692,7 @@ function renderChanges() {
 
 // forms that replace the build view (add, update, feedback) hide everything tied to the open build
 function hideBuildChrome() {
-  for (const id of ["#build-header", "#tabs", "#changes", "#build-notice"]) $(id).classList.add("hidden");
+  for (const id of ["#build-header", "#tabs", "#changes", "#build-notice", "#ctor-bar"]) $(id).classList.add("hidden");
 }
 
 document.addEventListener("click", (e) => {
@@ -683,6 +790,7 @@ async function switchTab(tab) {
   writeHash();
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   if (!state.build) return;
+  renderCtorBar();
   const view = $("#view");
   const token = Symbol();
   switchTab.token = token;
@@ -1955,7 +2063,9 @@ async function savePlan() {
 // the plan in one line on the tabs that edit it besides the tree: how many edits, what they change, reset / save
 function planBar(plan) {
   return h("div", { class: "plan-bar" }, h("b", {}, t("planBarTitle", plan.log.length)), deltas(plan.changes, METRIC, 0.3),
-    h("div", { class: "row" }, h("button", { class: "ghost small", onclick: savePlan }, t("planSave")),
+    h("div", { class: "row" }, (state.build.profileRaw || {}).constructor
+      ? h("button", { class: "primary small", onclick: commitBuild }, t("svCommit")) : null,
+    h("button", { class: "ghost small", onclick: savePlan }, t("planSave")),
       h("button", { class: "ghost small", onclick: () => planCall("/api/tree/reset", {}, { tab: state.tab, rebuild: true }) }, t("planReset"))));
 }
 
@@ -1971,6 +2081,8 @@ function planCard(plan) {
   } }, plan && plan.log.length ? t("optimizeMore") : t("optimize"));
   const reset = plan ? h("button", { class: "ghost", onclick: () => treeCall("/api/tree/reset") }, t("planReset")) : null;
   const save = plan && plan.log.length ? h("button", { class: "ghost", onclick: savePlan }, t("planSave")) : null;
+  const commit = plan && plan.log.length && (state.build.profileRaw || {}).constructor
+    ? h("button", { class: "primary", onclick: commitBuild }, t("svCommit")) : null;
   const names = (list) => {
     const counts = {};
     (list || []).forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
@@ -2006,7 +2118,7 @@ function planCard(plan) {
       plan.log.length ? h("details", {}, h("summary", {}, t("planLog", plan.log.length)), h("ul", { class: "plan-log" }, plan.log.map(logLine))) : null,
       h("div", { class: "hint" }, t("planNote")))
       : h("p", { class: "muted" }, t("planEmpty")),
-    h("div", { class: "row", style: "margin-top:10px" }, optimize, save, reset));
+    h("div", { class: "row", style: "margin-top:10px" }, commit, optimize, save, reset));
 }
 
 // ---- jewels in the tree's sockets: each socket's jewel and what it gives; take it out, or put in a unique, one

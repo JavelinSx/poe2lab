@@ -36,8 +36,9 @@ from ..economy import trade
 from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
+from ..engine.pobcode import encode_pob_code
 from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext, jewelcraft,
-               journal, library, lootfilter, pobapp, quality)
+               journal, library, lootfilter, newbuild, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -1501,13 +1502,7 @@ def tree_save(req: TreeSave):
     """The planned tree as a new build in the list (the profile goes with it), so it opens like any other."""
     with session.lock:
         session.require()
-        engine, bp = session.engine, session.bp
-        # the profile's corrections live in PoB's Custom Modifiers; the copied profile re-applies them
-        engine.set_custom_mods(CORRECTION_BLOCK, [])
-        try:
-            code = engine.export_code()
-        finally:
-            engine.set_custom_mods(CORRECTION_BLOCK, [c.line for c in bp.corrections])
+        code = _build_code()  # the copied profile re-applies the corrections
         try:
             name = library.add(req.name or f"{session.path.stem} план", code)
         except library.LibraryError as err:
@@ -1516,6 +1511,75 @@ def tree_save(req: TreeSave):
         if src.exists():
             (PROJECT_BUILDS / f"{name}.profile.json").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         return {"name": name}
+
+
+def _build_code() -> str:
+    """The open build as PoB has it now (the plan's edits in), without the profile's corrections: those live in the
+    profile and are put back when the build opens."""
+    engine, bp = session.engine, session.bp
+    engine.set_custom_mods(CORRECTION_BLOCK, [])
+    try:
+        return engine.export_code()
+    finally:
+        engine.set_custom_mods(CORRECTION_BLOCK, [c.line for c in bp.corrections])
+
+
+@app.post("/api/builds/commit")
+def build_commit():
+    """The plan's edits written into the open build itself (its previous code to builds/.trash): what the build
+    constructor saves after each step. A build saved in PoB is updated in PoB, not here."""
+    with session.lock:
+        session.require()
+        name = session.path.stem
+        try:
+            library.replace(name, _build_code())
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+        _errors(lambda: session.load(name))
+        return _json(_summary())
+
+
+@app.get("/api/builds/code")
+def build_code(build: str | None = None):
+    """The open build's PoB code as it is now (for pobb.in, PoB's Import)."""
+    with session.lock:
+        session.require(build)
+        return {"code": _build_code()}
+
+
+# ---- the build constructor: a build from nothing (PLAN.md, "Конструктор билда с нуля") ----
+
+@app.get("/api/new/classes")
+def new_classes():
+    """The classes with their ascendancies and the stages' levels, for the first step."""
+    if "new-classes" not in _bare:
+        _bare["new-classes"] = newbuild.classes(PobEngine())
+    return {"classes": _bare["new-classes"], "stages": newbuild.STAGES}
+
+
+class NewBuild(BaseModel):
+    ascendancy: str  # the planner's internal id: Monk2 = Invoker
+    stage: str = "endgame"
+    level: int | None = None  # the player's own level instead of the stage's
+    name: str = ""
+
+
+@app.post("/api/builds/new")
+def new_build(req: NewBuild):
+    """An empty build of the ascendancy at the stage's level, added to the list and opened; its profile marks it as
+    the constructor's, so the page shows the constructor's steps."""
+    try:
+        level = newbuild.level_of(req.stage, req.level)
+        xml = newbuild.empty_build(PobEngine(), req.ascendancy, level)
+        name = library.add(req.name, encode_pob_code(xml))
+    except (ValueError, library.LibraryError) as err:
+        raise HTTPException(400, str(err))
+    library.save_profile(name, {"main_skill": {}, "rage": None, "mana_sustained": False, "league": None,
+                                "corrections": [], "notes": [],
+                                "constructor": {"stage": req.stage if req.level is None else "custom", "level": level}})
+    with session.lock:
+        _errors(lambda: session.load(name))
+        return _json(_summary())
 
 
 class FeedbackRequest(BaseModel):
