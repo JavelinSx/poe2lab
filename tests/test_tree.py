@@ -153,3 +153,30 @@ def test_the_ascendancy_plan_spends_the_points_left():
     assert set(plan["ids"]) <= {o["id"] for o in asc["options"]} and all(i in plan["path"] for i in plan["ids"])
     assert plan["value"] >= max(o["value"] for o in asc["options"] if o["points"] <= ASCENDANCY_POINTS) - 1e-6
 
+
+
+def test_weapon_set_nodes():
+    """The titan's 24 nodes in each weapon set: drawn by set, counted of PoB's 24 a set; a click in set I takes the
+    node into set I (a pair of set nodes costs one main point); keystones and sockets stay on the main tree."""
+    from poe2lab.engine import PobError
+    engine, bp = open_build(BUILDS / "titan.txt")
+    graph = engine.tree_graph()
+    nodes = graph["nodes"]
+    assert {m: sum(1 for n in nodes if n["alloc"] and n["mode"] == m) for m in (1, 2)} == {1: 24, 2: 24}
+    assert graph["budget"]["ws1"] == graph["budget"]["ws2"] == graph["budget"]["wsTotal"] == 24
+    assert all(n["mode"] == 0 for n in nodes if n["alloc"] and n["glob"])
+    # a node next to set I's branch costs 1 taken there, but not in set II (set I's branch is a wall to it)
+    near = next(n for n in nodes if not n["alloc"] and not n["glob"] and not n["asc"] and n["wc"] and n["wc"][0] == 1)
+    engine.tree_add(near["id"], 1)
+    taken = {n["id"]: n for n in engine.tree_graph()["nodes"]}[near["id"]]
+    budget = engine.points_budget()
+    assert taken["alloc"] and taken["mode"] == 1
+    assert budget["ws1"] == 25 and budget["used"] == graph["budget"]["used"] + 1  # unpaired: a main point
+    keystone = next(n for n in nodes if n["type"] == "Keystone" and not n["alloc"] and n["cost"])
+    with pytest.raises(PobError, match="main tree only"):
+        engine.tree_add(keystone["id"], 2)
+    socket = next(n for n in nodes if n["type"] == "Socket" and n["alloc"])
+    with pytest.raises(PobError, match="main tree only"):
+        engine.tree_remove(socket["id"], 1)
+    engine.tree_remove(near["id"], 1)
+    assert engine.points_budget() == graph["budget"]

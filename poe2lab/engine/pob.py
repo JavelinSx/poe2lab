@@ -346,7 +346,10 @@ return _poe2lab_json(out)""")
         (PoB's own layout), type, name, stat lines, links, group centre and orbit radius (links along one orbit are
         arcs), whether it is allocated, its size and frame as PoB draws them (sz, fs: the icon's and the frame's width;
         fr: the frame, in `frames` by the allocated state's name) and a taken socket's jewel; plus the class,
-        ascendancy and points used, and where the game's art for all this is in PoB's tree textures."""
+        ascendancy and points used, and where the game's art for all this is in PoB's tree textures.
+        Weapon sets: `mode` is the set a node is taken in (0: the main tree, 1, 2: weapon set I, II); `wc` - what a
+        node costs taken in set I and II, when that differs from `cost`; `glob` - a keystone or a jewel socket (taken
+        on the main tree only), `wnear` - one that cannot be taken now, being next to a weapon set's branch."""
         return self._json("""
 local spec, tree = build.spec, build.spec.tree
 -- no ascendancy chosen yet (PoB calls it "None"): every ascendancy of the class is shown, to choose from
@@ -369,6 +372,47 @@ local function frameOf(ov)  -- a frame's three states by the allocated one's nam
   end
   return ov.alloc
 end
+-- a weapon set's cost of each node: PoB's GetAllocationPath for all nodes at once - from the nodes taken in the
+-- main tree or in that set, through nodes not taken (the other set's branch is a wall)
+local function open(n)
+  for _, nid in ipairs(n.unlockConstraint and n.unlockConstraint.nodes or {}) do
+    if not spec.nodes[nid].alloc then return false end
+  end
+  return true
+end
+local function setCosts(m)
+  local dist, queue, o = {}, {}, 1
+  for _, n in pairs(spec.allocNodes) do
+    if spec:CanPathThroughAllocMode(m, n) then dist[n] = 0; queue[#queue + 1] = n end
+  end
+  while queue[o] do
+    local n = queue[o]
+    o = o + 1
+    if open(n) then
+      for _, other in ipairs(n.linked or {}) do
+        if dist[other] == nil and open(other) and (not other.alloc or spec:CanPathThroughAllocMode(m, other))
+           and n.type ~= "Mastery" and other.type ~= "ClassStart" and other.type ~= "AscendClassStart"
+           and (n.ascendancyName == other.ascendancyName or (dist[n] == 0 and not other.ascendancyName)) then
+          dist[other] = dist[n] + 1
+          queue[#queue + 1] = other
+        end
+      end
+    end
+  end
+  return dist
+end
+local setCost = { setCosts(1), setCosts(2) }
+-- PoB's rule for keystones and jewel sockets: the main tree only, and not while a weapon set's branch touches them
+local function global(node) return node.type == "Keystone" or node.type == "Socket" or node.containJewelSocket end
+local function nearSet(node)
+  for i = 2, #(node.path or {}) do
+    if node.path[i].alloc and (node.path[i].allocMode or 0) > 0 then return true end
+  end
+  for _, other in ipairs(node.linked or {}) do
+    if other.alloc and (other.allocMode or 0) > 0 then return true end
+  end
+  return false
+end
 local nodes = _poe2lab_array({})
 for id, node in pairs(spec.nodes) do
   if node.x and node.type ~= "OnlyImage" and (not node.ascendancyName or shown[node.ascendancyName]) then
@@ -382,6 +426,11 @@ for id, node in pairs(spec.nodes) do
     -- what a click would do: allocate the path to it (cost: points) or take it off with what hangs on it (drop)
     local cost = (not node.alloc and node.path) and #node.path or 0
     local drop = node.alloc and #(node.depends or {}) or 0
+    local wc = false
+    if not node.alloc and not node.ascendancyName then
+      local c1, c2 = setCost[1][node] or 0, setCost[2][node] or 0
+      if c1 ~= cost or c2 ~= cost then wc = { c1, c2 } end
+    end
     -- a taken socket's jewel: its picture from the tree textures (a unique's own, else its base's)
     local jewel = false
     if node.type == "Socket" or node.containJewelSocket then
@@ -396,7 +445,8 @@ for id, node in pairs(spec.nodes) do
     nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "", icon = node.icon or "",
       sz = ts.width or 0, fs = ts.overlay and ts.overlay.width or 0, fr = frameOf(node.overlay), jewel = jewel,
       stats = _poe2lab_array(node.sd or {}), asc = node.ascendancyName or "", alloc = node.alloc and true or false,
-      cost = cost, drop = drop,
+      cost = cost, drop = drop, mode = node.allocMode or 0, wc = wc, glob = global(node) and true or false,
+      wnear = (global(node) and not node.alloc and nearSet(node)) and true or false,
       links = links, arcs = arcs, group = node.g or 0, o = node.o or 0,
       gx = g and g.x * tree.scaleImage or 0, gy = g and g.y * tree.scaleImage or 0,
       r = node.o and tree.orbitRadii[node.o + 1] and tree.orbitRadii[node.o + 1] * tree.scaleImage or 0 }
@@ -432,7 +482,8 @@ return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = as
     def points_budget(self) -> dict:
         """Passive points: used on the main tree (a node taken in both weapon sets counts once) and how many the
         character's level gives (level - 1, the quest points of the acts done by that level, extra points from the
-        build - PoB's own count, EstimatePlayerProgress); ascendancy points used of 8."""
+        build - PoB's own count, EstimatePlayerProgress); ascendancy points used of 8; the weapon sets' nodes
+        (ws1, ws2) of how many each set can have (wsTotal: the quest points, plus what the build's items add)."""
         return self._json("""
 local used, asc, _, _, ws1, ws2 = build.spec:CountAllocNodes()
 local extra = build.calcsTab.mainOutput and build.calcsTab.mainOutput.ExtraPoints or 0
@@ -440,7 +491,9 @@ local level = build.characterLevel or 1
 local quest = 0
 for _, a in ipairs(build.acts or {}) do if (a.level or 0) <= level then quest = a.questPoints or quest end end
 local total = math.min(level - 1 + quest + extra, 99 + (build.maxWeaponSets or 0) + extra)
-return _poe2lab_json({ used = used - math.min(ws1 or 0, ws2 or 0), total = total, asc = asc or 0, ascTotal = 8 })""")
+local wsExtra = build.calcsTab.mainOutput and build.calcsTab.mainOutput.PassivePointsToWeaponSetPoints or 0
+return _poe2lab_json({ used = used - math.min(ws1 or 0, ws2 or 0), total = total, asc = asc or 0, ascTotal = 8,
+  ws1 = ws1 or 0, ws2 = ws2 or 0, wsTotal = (build.maxWeaponSets or 0) + wsExtra })""")
 
     def class_ascendancies(self) -> list[dict]:
         """The ascendancies of the build's class with their notables - to choose from while none is taken."""
@@ -554,17 +607,33 @@ spec:BuildAllDependsAndPaths()
 build.buildFlag = true
 build.calcsTab:BuildOutput()""")
 
-    def tree_add(self, node_id: int) -> list[str]:
-        """Allocate a node along PoB's shortest path from the tree; returns the names of the nodes allocated."""
+    def tree_add(self, node_id: int, weapon_set: int = 0) -> list[str]:
+        """Allocate a node along PoB's shortest path from the tree - on the main tree (weapon_set 0) or for weapon
+        set 1 or 2, as PoB does in that mode (keystones, jewel sockets and the ascendancy stay on the main tree);
+        returns the names of the nodes allocated."""
+        if weapon_set not in (0, 1, 2):
+            raise PobError(f"no weapon set {weapon_set}")
         return self._json(f"""
 local spec = build.spec
 local node = spec.nodes[{int(node_id)}]
 if not node then error("no passive node {int(node_id)}", 0) end
 if node.alloc then return _poe2lab_json(_poe2lab_array({{}})) end
 if not node.path or #node.path == 0 then error("node cannot be reached from the tree", 0) end
+local global = node.type == "Keystone" or node.type == "Socket" or node.containJewelSocket
+if global and {weapon_set} > 0 then error("keystones and jewel sockets are taken on the main tree only", 0) end
+if global then
+  local near = false
+  for i = 2, #node.path do if node.path[i].alloc and (node.path[i].allocMode or 0) > 0 then near = true end end
+  for _, other in ipairs(node.linked or {{}}) do if other.alloc and (other.allocMode or 0) > 0 then near = true end end
+  if near then error("a keystone or a jewel socket next to a weapon set's branch cannot be taken", 0) end
+end
 local before = {{}}
 for id in pairs(spec.allocNodes) do before[id] = true end
-spec:AllocNode(node)
+spec.allocMode = {weapon_set}
+local ok, err = pcall(spec.AllocNode, spec, node)
+spec.allocMode = 0
+if not ok then error(err, 0) end
+if not node.alloc then error("node cannot be reached in this weapon set", 0) end
 spec:BuildAllDependsAndPaths()
 build.buildFlag = true
 build.calcsTab:BuildOutput()
@@ -572,13 +641,17 @@ local added = _poe2lab_array({{}})
 for id, n in pairs(spec.allocNodes) do if not before[id] then added[#added + 1] = n.dn or "" end end
 return _poe2lab_json(added)""")
 
-    def tree_remove(self, node_id: int) -> list[str]:
-        """Deallocate a node and everything only reachable through it; returns the names removed."""
+    def tree_remove(self, node_id: int, weapon_set: int = 0) -> list[str]:
+        """Deallocate a node and everything only reachable through it; returns the names removed. Viewed from a
+        weapon set (1, 2), a keystone or jewel socket of the main tree is not taken off - PoB's rule."""
         return self._json(f"""
 local spec = build.spec
 local node = spec.nodes[{int(node_id)}]
 if not node or not node.alloc then return _poe2lab_json(_poe2lab_array({{}})) end
 if node.type == "ClassStart" or node.type == "AscendClassStart" then error("the class start cannot be removed", 0) end
+if {int(weapon_set)} > 0 and (node.allocMode or 0) == 0 and (node.type == "Keystone" or node.type == "Socket" or node.containJewelSocket) then
+  error("a keystone or a jewel socket of the main tree is taken off on the main tree only", 0)
+end
 local removed = _poe2lab_array({{}})
 for _, n in ipairs(node.depends or {{ node }}) do removed[#removed + 1] = n.dn or "" end
 spec:DeallocNode(node)

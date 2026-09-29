@@ -2142,7 +2142,10 @@ function pointsLine(p) {
   const left = p.total - p.used;
   return h("div", { class: "tv-points" }, h("b", { class: left < 0 ? "neg" : "" }, t("tvPoints", p.used, p.total)),
     h("span", { class: left < 0 ? "neg" : "muted" }, " · " + (left < 0 ? t("tvOver", -left) : t("tvLeft", left))),
-    h("span", { class: p.asc > p.ascTotal ? "neg" : "muted" }, " · " + t("tvAscPoints", p.asc, p.ascTotal)));
+    h("span", { class: p.asc > p.ascTotal ? "neg" : "muted" }, " · " + t("tvAscPoints", p.asc, p.ascTotal)),
+    // the weapon sets' nodes, each of its own limit
+    ...(p.wsTotal ? [1, 2].map((k) => h("span", { class: `tv-wsn ws${k}` + (p["ws" + k] > p.wsTotal ? " over" : ""),
+      title: t("tvWsPointsHint", p.wsTotal) }, " · ", t("tvWsPoints", k, p["ws" + k], p.wsTotal))) : []));
 }
 
 function planCard(plan, points) {
@@ -2177,8 +2180,8 @@ function planCard(plan, points) {
       e.dropped && e.dropped.length ? h("span", { class: "muted" }, " " + t("gmDropped", e.dropped.map(trName).join(", "))) : null)
     : e.action === "swap"
     ? h("li", {}, h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
-    : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
-      : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`);
+    : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`)
+      : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`);
   // the points: what the character's level gives (pointsLine) - "more than the build had" said little for a build
   // being made from nothing
   return h("div", { class: "card plan" },
@@ -2565,7 +2568,8 @@ function takenCard(graph) {
 function openTreeViewer(graph, tree, asc) {
   const css = getComputedStyle(document.documentElement);
   const col = (name, fallback) => (css.getPropertyValue(name) || fallback).trim();
-  const C = { gold: col("--gold", "#d6a54f"), good: col("--good", "#5fc98d"), bad: col("--bad", "#e26a5f"),
+  // taken: gold on the main tree, red and green in weapon set I and II (PoB's colours); hints blue, respec violet
+  const C = { gold: col("--gold", "#d6a54f"), hint: "#4da3ff", respec: "#b57bff", ws: [null, "#e5484d", "#3ecf74"],
     line: "rgba(153,161,174,.28)", node: "#2b303a", nodeEdge: "rgba(153,161,174,.55)", bg: col("--bg", "#0f1115") };
   // the ascendancy: the plan (the best set of notables the points left buy) counts as growth, with its road; the
   // other notables PoB values are "useful" (pale); with no points left, every option worth something is growth
@@ -2638,6 +2642,24 @@ function openTreeViewer(graph, tree, asc) {
   const canvas = h("canvas", { class: "tree-canvas" });
   const tip = h("div", { class: "tree-tip hidden" });
   let showAsc = false, scale = 0.03, ox = 0, oy = 0, hover = null, pinned = null;
+  // which tree a click takes nodes in: 0 the main one, 1 and 2 weapon set I and II (PoB's allocation mode)
+  let wset = 0;
+  const takenColor = (n) => (n.mode ? C.ws[n.mode] : C.gold);
+  // what taking a node costs in the chosen tree (0: it cannot be taken there)
+  const costOf = (n) => (wset && n.wc ? n.wc[wset - 1] : n.cost);
+  // why a node cannot be taken or dropped in the chosen tree (PoB's rule for keystones and jewel sockets)
+  const blocked = (n) => (!n.glob || n.asc ? null : n.alloc ? (wset && !n.mode ? t("tvWsGlobalDrop") : null)
+    : wset ? t("tvWsGlobal") : n.wnear ? t("tvWsNear") : null);
+  const wsSeg = h("div", { class: "segmented small-seg tv-ws", title: t("tvWsHint") }, [0, 1, 2].map((k) =>
+    h("button", { class: (k === 0 ? "active" : "") + (k ? ` ws${k}` : ""), onclick: (e) => {
+      wset = k;
+      wsSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === e.currentTarget));
+      canvas.classList.toggle("ws1", k === 1);
+      canvas.classList.toggle("ws2", k === 2);
+      if (hover) showTip(hover, lastTip[0], lastTip[1]);
+      draw();
+    } }, k ? t("tvWsSet", k) : t("tvWsMain"))));
+  let lastTip = [0, 0];
   const seg = h("div", { class: "segmented small-seg" }, [["main", t("tvMain")], ["asc", t("tvAsc")]].map(([k, label]) =>
     h("button", { class: k === "main" ? "active" : "", onclick: (e) => {
       showAsc = k === "asc";
@@ -2680,12 +2702,8 @@ function openTreeViewer(graph, tree, asc) {
     hintsLegend.classList.toggle("hidden", !on);
   };
   const drawPoints = () => {
-    const b = graph.budget;
-    if (!b) return;
-    const left = b.total - b.used;
-    pointsBox.replaceChildren(h("b", { class: left < 0 ? "neg" : "" }, t("tvPoints", b.used, b.total)),
-      h("span", { class: left < 0 ? "neg" : "muted" }, " · " + (left < 0 ? t("tvOver", -left) : t("tvLeft", left))),
-      h("span", { class: b.asc > b.ascTotal ? "neg" : "muted" }, " · " + t("tvAscPoints", b.asc, b.ascTotal)));
+    const line = pointsLine(graph.budget);
+    if (line) pointsBox.replaceChildren(...line.childNodes);
   };
   drawPoints();
   const close = () => {
@@ -2694,12 +2712,13 @@ function openTreeViewer(graph, tree, asc) {
   };
   // Esc a dialog over the viewer already took (the jewel editor, a question) closes only that dialog
   const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) close(); };
-  hintsLegend.append(dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
-    ...(full.useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : []));
+  hintsLegend.append(dot(C.hint), t("tvGrowth"), dot("rgba(77,163,255,.45)"), t("tvRoad"),
+    ...(full.useful.size ? [dot("rgba(77,163,255,.3)"), t("tvUseful")] : []));
   setHints(hints);
-  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox, regrow,
-    hintsBtn,
-    h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), hintsLegend, dot(C.bad, true), t("tvRespec")),
+  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox,
+    wsSeg, regrow, hintsBtn,
+    h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.ws[1]), t("tvWsSet", 1), dot(C.ws[2]), t("tvWsSet", 2),
+      hintsLegend, dot(C.respec, true), t("tvRespec")),
     h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
   document.body.append(overlay);
   document.addEventListener("keydown", onKey);
@@ -2722,6 +2741,27 @@ function openTreeViewer(graph, tree, asc) {
   // (R: nodes PoB gives no icon size); never below a dot to see and hit
   const iconR = (n) => Math.max(n.type === "Normal" ? 1.2 : 2.2, (n.sz || R[n.type] || 22) * scale);
   const frameR = (n, r = iconR(n)) => (n.sz ? ((n.fs || n.sz) / n.sz) * r : r);
+  // a frame in a weapon set's colour, as PoB draws it (the picture multiplied by the colour), made once
+  const tints = new Map();
+  const tinted = (img, color) => {
+    let byImg = tints.get(img);
+    if (!byImg) { byImg = new Map(); tints.set(img, byImg); }
+    let c = byImg.get(color);
+    if (!c) {
+      c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const x = c.getContext("2d");
+      x.drawImage(img, 0, 0);
+      x.globalCompositeOperation = "multiply";
+      x.fillStyle = color;
+      x.fillRect(0, 0, c.width, c.height);
+      x.globalCompositeOperation = "destination-in";
+      x.drawImage(img, 0, 0);
+      byImg.set(color, c);
+    }
+    return c;
+  };
 
   function draw() {
     const dpr = window.devicePixelRatio || 1;
@@ -2748,9 +2788,10 @@ function openTreeViewer(graph, tree, asc) {
       for (const c of n.arcs || []) {
         const m = byId.get(c.id);
         if (!m || m === n || m.asc !== n.asc || (showAsc ? !n.asc : n.asc)) continue;
-        const both = n.alloc && m.alloc, green = !both && (road.has(n.id) || n.alloc) && (road.has(m.id) || m.alloc) && (road.has(n.id) || road.has(m.id));
-        ctx.strokeStyle = both ? C.gold : green ? C.good : line;
-        ctx.lineWidth = both || green ? Math.max(1.5, 10 * scale) : Math.max(0.6, 5 * scale);
+        const both = n.alloc && m.alloc && (!n.mode || !m.mode || n.mode === m.mode);
+        const hinted = !both && (road.has(n.id) || n.alloc) && (road.has(m.id) || m.alloc) && (road.has(n.id) || road.has(m.id));
+        ctx.strokeStyle = both ? C.ws[n.mode || m.mode] || C.gold : hinted ? C.hint : line;
+        ctx.lineWidth = both || hinted ? Math.max(1.5, 10 * scale) : Math.max(0.6, 5 * scale);
         ctx.beginPath();
         const r = c.orbit ? (graph.orbitRadii || [])[Math.abs(c.orbit)] : 0;
         const dx = m.x - n.x, dy = m.y - n.y, dist = Math.hypot(dx, dy);
@@ -2771,8 +2812,8 @@ function openTreeViewer(graph, tree, asc) {
       const x = sx(n), y = sy(n);
       const r = iconR(n);
       if (x < -r || y < -r || x > w + r || y > hgt + r) continue;  // off screen
-      const status = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.6)"
-        : useful.has(n.id) ? "rgba(95,201,141,.3)" : null;
+      const status = n.alloc ? takenColor(n) : growth.has(n.id) ? C.hint : road.has(n.id) ? "rgba(77,163,255,.6)"
+        : useful.has(n.id) ? "rgba(77,163,255,.3)" : null;
       const img = r >= 5 ? picture(n.img) : null;
       // the frame, at PoB's size for the node's type (sz: the icon's width, fs: the frame's), scaled to the icon
       const frame = r >= 4 ? treeArt(frameWant(n, n.alloc ? "alloc" : n === hover ? "path" : "unalloc")) : null;
@@ -2789,11 +2830,11 @@ function openTreeViewer(graph, tree, asc) {
           ctx.drawImage(img, x - r, y - r, 2 * r, 2 * r);
           ctx.restore();
         }
-        ctx.drawImage(frame, x - fr, y - fr, 2 * fr, 2 * fr);
+        ctx.drawImage(n.alloc && n.mode ? tinted(frame, C.ws[n.mode]) : frame, x - fr, y - fr, 2 * fr, 2 * fr);
         const jp = n.jewel ? jewelPicture(n.jewel) : null;
         if (jp) ctx.drawImage(jp, x - fr * 0.78, y - fr * 0.78, fr * 1.56, fr * 1.56);
         // what the frame does not say: a suggestion, a branch to respec, the node under the pointer
-        const ring = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff"
+        const ring = respec.has(n.id) ? C.respec : n === hover || n === pinned ? "#fff"
           : !n.alloc && (growth.has(n.id) || road.has(n.id) || useful.has(n.id)) ? status : null;
         if (ring) {
           ctx.beginPath();
@@ -2818,7 +2859,7 @@ function openTreeViewer(graph, tree, asc) {
         ctx.beginPath();
         ctx.arc(x, y, r, 0, 2 * Math.PI);
         ctx.lineWidth = n.type === "Keystone" ? 3 : n.type === "Notable" ? 2.5 : 1.5;
-        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : status || edge;
+        ctx.strokeStyle = respec.has(n.id) ? C.respec : n === hover || n === pinned ? "#fff" : status || edge;
         ctx.stroke();
         continue;
       }
@@ -2826,7 +2867,7 @@ function openTreeViewer(graph, tree, asc) {
       ctx.fill();
       if (n.type !== "Normal" || respec.has(n.id) || n === hover || n === pinned) {
         ctx.lineWidth = respec.has(n.id) || n === hover || n === pinned ? 2 : 1;
-        ctx.strokeStyle = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff" : edge;
+        ctx.strokeStyle = respec.has(n.id) ? C.respec : n === hover || n === pinned ? "#fff" : edge;
         ctx.stroke();
       }
     }
@@ -2897,20 +2938,23 @@ function openTreeViewer(graph, tree, asc) {
   }
   function showTip(n, x, y) {
     if (!n) { tip.classList.add("hidden"); return; }
-    const tags = [n.alloc ? t("tvAlloc") : null, planned.has(n.id) ? t("tvPlan") : growth.has(n.id) ? t("tvGrowth") : null,
+    lastTip = [x, y];
+    const tags = [n.alloc ? (n.mode ? t("tvWsSet", n.mode) : t("tvAlloc")) : null, planned.has(n.id) ? t("tvPlan") : growth.has(n.id) ? t("tvGrowth") : null,
       road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null, useful.has(n.id) ? t("tvUseful") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
     const w = worth.get(n.id);
     const start = n.type === "ClassStart" || n.type === "AscendClassStart";
     const socket = n.type === "Socket" && n.alloc;
-    const act = start ? null : socket ? t("tvClickJewel") : n.alloc ? t("tvClickDrop", n.drop) : n.cost ? t("tvClickTake", n.cost) : t("tvUnreachable");
+    const why = blocked(n), cost = costOf(n);
+    const act = start ? null : socket ? t("tvClickJewel") : why || (n.alloc ? t("tvClickDrop", n.drop)
+      : cost ? t("tvClickTake", cost) + (wset && !n.asc ? " " + t("tvWsInto", wset) : "") : t("tvUnreachable"));
     tip.replaceChildren(...[h("div", { class: "row", style: "gap:8px;align-items:center" },
       n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
       n.jewel ? h("div", { class: "tip-name r-" + (n.jewel.rarity || "normal").toLowerCase() }, "◆ ", itemTitle({ name: n.jewel.name, baseName: n.jewel.base })) : null,
       stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null,
-      act ? h("div", { class: "tv-act " + (n.alloc ? "neg" : "pos") }, act) : null].filter(Boolean));
+      act ? h("div", { class: "tv-act " + (why ? "warn" : n.alloc ? "neg" : "pos") }, act) : null].filter(Boolean));
     tip.classList.remove("hidden");
     const bw = overlay.clientWidth;
     tip.style.left = `${Math.min(x + 16, bw - 340)}px`;
@@ -2937,7 +2981,9 @@ function openTreeViewer(graph, tree, asc) {
     if ((drag && drag.moved) || busy) return;
     const rect = canvas.getBoundingClientRect(), at = overlay.getBoundingClientRect();
     const n = nodeAt(e.clientX - rect.left, e.clientY - rect.top);
-    if (!n || n.type === "ClassStart" || n.type === "AscendClassStart" || (!n.alloc && !n.cost)) {
+    const why = n && !(n.type === "Socket" && n.alloc) ? blocked(n) : null;
+    if (why) { toast(why); return; }
+    if (!n || n.type === "ClassStart" || n.type === "AscendClassStart" || (!n.alloc && !costOf(n))) {
       pinned = n && n !== pinned ? n : null;
       showTip(pinned || n, e.clientX - at.left, e.clientY - at.top);
       draw();
@@ -2985,7 +3031,7 @@ function openTreeViewer(graph, tree, asc) {
       return;
     }
     await run(async () => {
-      await api(`/api/tree/${n.alloc ? "remove" : "add"}`, { method: "POST", body: { id: n.id, name: n.name } });
+      await api(`/api/tree/${n.alloc ? "remove" : "add"}`, { method: "POST", body: { id: n.id, name: n.name, set: wset } });
       await refresh();
     });
   });

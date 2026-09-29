@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.items import breakeven, compare
@@ -1162,6 +1162,7 @@ def _plan_view() -> dict | None:
 class TreeEdit(BaseModel):
     id: int
     name: str = ""
+    set: int = Field(0, ge=0, le=2)  # 0: the main tree, 1 and 2: weapon set I and II (PoB's allocation mode)
 
 
 @app.post("/api/tree/add")
@@ -1169,8 +1170,8 @@ def tree_add(req: TreeEdit):
     with session.lock:
         session.require()
         _plan_start()
-        names = _errors(lambda: session.engine.tree_add(req.id))
-        session.plan["log"].append({"action": "add", "target": req.name, "nodes": names})
+        names = _errors(lambda: session.engine.tree_add(req.id, req.set))
+        session.plan["log"].append({"action": "add", "target": req.name, "nodes": names} | ({"set": req.set} if req.set else {}))
         _plan_changed()
         return _json(_plan_view())
 
@@ -1180,8 +1181,8 @@ def tree_remove(req: TreeEdit):
     with session.lock:
         session.require()
         _plan_start()
-        names = _errors(lambda: session.engine.tree_remove(req.id))
-        session.plan["log"].append({"action": "remove", "target": req.name, "nodes": names})
+        names = _errors(lambda: session.engine.tree_remove(req.id, req.set))
+        session.plan["log"].append({"action": "remove", "target": req.name, "nodes": names} | ({"set": req.set} if req.set else {}))
         _plan_changed()
         return _json(_plan_view())
 

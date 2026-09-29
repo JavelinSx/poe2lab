@@ -57,6 +57,12 @@ def test_made_from_the_interface_and_saved_into_itself(tmp_path, monkeypatch):
         # an edit of the plan written into the build itself: the old code to the trash
         node = client.get("/api/tree?mode=balanced&points=6").json()["growth"][0]
         client.post("/api/tree/add", json={"id": node["id"], "name": node["name"]}, headers=H)
+        # a node taken into weapon set II: the plan says which set
+        near = next(n for n in client.get("/api/tree/graph").json()["nodes"]
+                    if not n["alloc"] and n["type"] == "Normal" and not n["asc"] and n["cost"] == 1)
+        plan = client.post("/api/tree/add", json={"id": near["id"], "name": near["name"], "set": 2}, headers=H).json()
+        assert plan["log"][-1]["set"] == 2 and "set" not in plan["log"][0]
+        assert client.post("/api/tree/add", json={"id": near["id"], "set": 3}, headers=H).status_code == 422
         saved = client.post("/api/builds/commit", headers=H).json()
         assert saved["name"] == "С нуля" and client.get("/api/plan").json() is None  # the edit is the build now
         assert any((tmp_path / ".trash").iterdir())
@@ -68,7 +74,8 @@ def test_the_tree_s_points_and_what_a_click_does(engine):
     """The points a level gives, and a node's cost (its path) before a click takes it, what drops with it after."""
     engine.load_xml(newbuild.empty_build(engine, "Monk2", 92), "new")
     budget = engine.points_budget()
-    assert budget == {"used": 0, "total": 115, "asc": 0, "ascTotal": 8}  # 91 by level, 24 from the acts' quests
+    assert budget == {"used": 0, "total": 115, "asc": 0, "ascTotal": 8,  # 91 by level, 24 from the acts' quests
+                      "ws1": 0, "ws2": 0, "wsTotal": 24}  # a weapon set's nodes: up to the quests' 24
     graph = engine.tree_graph()
     assert graph["budget"] == budget
     node = next(n for n in graph["nodes"] if not n["alloc"] and n["type"] == "Notable" and not n["asc"] and 0 < n["cost"] <= 8)
