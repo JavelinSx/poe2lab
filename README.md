@@ -1,12 +1,56 @@
-# poe2lab
+# poe2lab — Path of Exile 2 build analyzer (PoE2 · Path of Building)
 
-Анализ билдов Path of Exile 2 поверх Path of Building (PoB-PoE2, headless): что сломано, какие статы и моды
-стоят больше всего, что убивает на картах, что докрафтить в каждый слот, какие руны вставить и сколько это стоит.
+**English** · [Русский](#русский)
+
+A free, local **Path of Exile 2 (PoE2) build analysis tool** built on top of **Path of Building** (PoB-PoE2, run
+headless). Paste a PoB code or a pobb.in link — or load your own character next to a guide build — and see what is
+broken, what to upgrade, and what to take next on the passive tree. Every number is computed by PoB itself.
+
+- **Build overview** — DPS and EHP, the largest monster hit you survive per damage type, resistances, what is broken
+  and what to fix first.
+- **Gear** — an inventory doll, item comparison, the best upgrade per slot, crafting (an item creator with item
+  level 65–82, quality, catalysts, runes), prices from poe.ninja and the trade site.
+- **Passive tree** — a tree viewer with the game's art: node frames, jewels in sockets, **weapon set passives**
+  (sets I and II), best growth options, respec candidates, auto-allocation, **mechanic packages** (rage, charges,
+  crit, ailments, minions… priced together), a rage and charges uptime model; ascendancy advice.
+- **Your character vs a guide** — load your character into a build and compare numbers, gems, gear and tree with
+  the guide's ("Main / Build" views).
+- **Build constructor** — start from a class and ascendancy, or from a top player on the **poe.ninja ladder**.
+- **Export** — a PoB code for pobb.in and Path of Building, or a file for the game's own **build planner** (.build).
+- **AI assistant** (DeepSeek, Claude, OpenAI, Gemini, OpenRouter, Ollama…) — or a ready prompt for any free chatbot.
+- Loot filter, crafting journal, a glossary for new players; **English and Russian** interface.
+
+**Quick start (Windows):** *Code → Download ZIP*, unpack to a short path (e.g. `C:\poe2lab`), double-click
+**`start.bat`** — it sets up Python, Path of Building and the game's texts, then opens the interface in the browser.
+The full guide ([GUIDE.md](GUIDE.md)) is in Russian; the interface speaks both languages. Screenshots:
+[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
+
+![Overview](docs/img/01-overview.png)
+
+---
+
+## Русский
+
+**poe2lab** — бесплатный анализатор билдов **Path of Exile 2 (PoE2, ПоЕ2)** поверх **Path of Building** (PoB-PoE2,
+headless): что сломано, какие статы и моды стоят больше всего, что убивает на картах, что докрафтить в каждый слот,
+какие руны вставить и сколько это стоит, куда расти по пассивному дереву. Все цифры считает сам PoB.
+
+- **Обзор билда** — урон (DPS) и запас (EHP), какой удар монстра переживаешь, резисты, что починить первым.
+- **Снаряжение** — кукла как в игре, сравнение вещей, лучший апгрейд по слотам, крафт (создание вещей 65–82 уровня,
+  качество, катализаторы, руны), цены с poe.ninja и торговли.
+- **Пассивное дерево** — схема с артом игры: рамки нод, самоцветы в гнёздах, ноды **наборов оружия I и II**, лучший
+  вариант роста, что перераспределить, автораспределение, **механики вместе** (свирепость, заряды, криты,
+  состояния, приспешники…), модель свирепости и зарядов в бою; советы по возвышению.
+- **Свой персонаж против гайда** — загрузи своего персонажа в билд и сравнивай цифры, камни, шмот и дерево с гайдом
+  (вкладки «Мейн / Билд»).
+- **Конструктор билда** — с класса и возвышения или с билда топ-игрока **ладдера poe.ninja**.
+- **Экспорт** — PoB-код для pobb.in и Path of Building, файл для **планировщика билдов** игры (.build).
+- **ИИ-ассистент** (DeepSeek, Claude, OpenAI, Gemini, OpenRouter, Ollama…) — или готовый промпт для любой бесплатной
+  нейросети.
+- Лут-фильтр, журнал крафта, словарь новичка; интерфейс на русском и английском, тексты — из русского клиента игры.
 
 **Как пользоваться, что устанавливается и зачем, описание всех вкладок — в [GUIDE.md](GUIDE.md).**
 Как это выглядит — [скрины всех вкладок](docs/SCREENSHOTS.md).
-
-![Обзор](docs/img/01-overview.png)
 
 ## Установка в один клик (Windows)
 
@@ -99,5 +143,13 @@ OpenAI-совместимый адрес. Кнопка «Загрузить сп
 
 ---
 
+## License · Лицензия
+
+poe2lab's own code is under the [MIT License](LICENSE). Path of Building (the `pob2/` submodule) has its own license
+([pob2/LICENSE.md](pob2/LICENSE.md)).
+
+Код poe2lab — под лицензией [MIT](LICENSE). У Path of Building (подмодуль `pob2/`) своя лицензия.
+
 This product isn't affiliated with or endorsed by Grinding Gear Games in any way. Path of Exile and its art belong
-to Grinding Gear Games; the game data and pictures are read from the installed game or from Path of Building.
+to Grinding Gear Games; the game data and pictures are read from the installed game or from Path of Building, and
+are not covered by this project's license.
