@@ -430,10 +430,15 @@ $("#new-build").addEventListener("click", renderNewBuild);
 
 // the constructor's steps above the tabs of a build it made: what is done, what comes next
 const CTOR_STEPS = [["class", null], ["skill", "skills"], ["gear", "gear"], ["tree", "tree"], ["mech", "profile"], ["polish", "overview"], ["save", null]];
+// the constructor's record of a build it made - the profile's own key only (every object has a `.constructor`)
+const ctorOf = (b) => {
+  const raw = b && b.profileRaw;
+  return raw && Object.prototype.hasOwnProperty.call(raw, "constructor") ? raw.constructor : null;
+};
 function renderCtorBar() {
   const bar = $("#ctor-bar");
   const b = state.build;
-  if (!b || !(b.profileRaw || {}).constructor) { bar.classList.add("hidden"); return; }
+  if (!ctorOf(b)) { bar.classList.add("hidden"); return; }
   const done = { class: true, skill: !!b.mainSkill, gear: (b.items || []).length >= 8 };
   const next = CTOR_STEPS.find(([k]) => !done[k]);
   bar.replaceChildren(h("span", { class: "ctor-title" }, t("ctorTitle")), ...CTOR_STEPS.map(([k, tab], i) => h("button", {
@@ -2197,7 +2202,7 @@ async function savePlan() {
 // the plan in one line on the tabs that edit it besides the tree: how many edits, what they change, reset / save
 function planBar(plan) {
   return h("div", { class: "plan-bar" }, h("b", {}, t("planBarTitle", plan.log.length)), deltas(plan.changes, METRIC, 0.3),
-    h("div", { class: "row" }, (state.build.profileRaw || {}).constructor
+    h("div", { class: "row" }, ctorOf(state.build)
       ? h("button", { class: "primary small", onclick: commitBuild }, t("svCommit")) : null,
     h("button", { class: "ghost small", onclick: savePlan }, t("planSave")),
       h("button", { class: "ghost small", onclick: () => planCall("/api/tree/reset", {}, { tab: state.tab, rebuild: true }) }, t("planReset"))));
@@ -2226,7 +2231,7 @@ function planCard(plan, points) {
   } }, plan && plan.log.length ? t("optimizeMore") : t("optimize"));
   const reset = plan ? h("button", { class: "ghost", onclick: () => treeCall("/api/tree/reset") }, t("planReset")) : null;
   const save = plan && plan.log.length ? h("button", { class: "ghost", onclick: savePlan }, t("planSave")) : null;
-  const commit = plan && plan.log.length && (state.build.profileRaw || {}).constructor
+  const commit = plan && plan.log.length && ctorOf(state.build)
     ? h("button", { class: "primary", onclick: commitBuild }, t("svCommit")) : null;
   const names = (list) => {
     const counts = {};
