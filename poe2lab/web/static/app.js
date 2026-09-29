@@ -3435,8 +3435,32 @@ function mechChips(gem) {
 function renderSkillsBuild(r) {
   for (const [k, m] of Object.entries(r.mechanics || {})) MECH_NAMES[k] = LANG === "en" ? MECH_EN[k] || m.name : m.name;
   TERMS = r.terms || {};
-  const ref = (x) => (x.item ? h("span", { class: "named", title: x.gem }, `${trItem(x.gem.split(",")[0])} (${slotName(x.skill)})`)
-    : h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, ` → ${trName(x.skill)}`) : null));
+  // a gem or unique of a link; the pointer over it shows what it is (the game's description, its lines, what it
+  // creates and uses) - the same data as its card below
+  const gemsByName = new Map(r.groups.flatMap((g) => g.gems.map((gem) => [gem.name, gem])));
+  const itemsByName = new Map((r.items || []).map((it) => [it.name, it]));
+  const gemTip = (name) => {
+    const gem = gemsByName.get(name);
+    if (!gem) return h("b", {}, trName(name));
+    const lines = LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : (gem.lines || []).map(trMod);
+    const desc = gameText(gem.description);
+    return h("div", { class: "stack" },
+      h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(name), h("b", {}, trName(name)),
+        h("span", { class: "muted small" }, gem.support ? t("skTipSupport") : t("skTipActive"))),
+      desc ? h("div", { class: "small" }, desc) : null,
+      lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 8).map((l) => h("li", {}, l))) : null,
+      mechChips(gem));
+  };
+  const itemTip = (name) => {
+    const it = itemsByName.get(name);
+    return h("div", { class: "stack" },
+      h("div", { class: "row", style: "gap:8px;align-items:center" }, itemIcon(name, name.split(",")[1], "unique"), h("b", {}, trItem(name.split(",")[0]))),
+      it ? h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", {}, trMod(l)))) : null,
+      it ? mechChips(it) : null);
+  };
+  const ref = (x) => (x.item ? hoverTip(h("span", { class: "named pk-node" }, `${trItem(x.gem.split(",")[0])} (${slotName(x.skill)})`), () => itemTip(x.gem))
+    : h("span", { class: "named" }, hoverTip(h("span", { class: "pk-node" }, gemName(x.gem)), () => gemTip(x.gem)),
+      x.support ? h("span", { class: "muted" }, " → ", hoverTip(h("span", { class: "pk-node" }, trName(x.skill)), () => gemTip(x.skill))) : null));
   // the game's own explanation of a mechanic when the game data is unpacked, ours otherwise
   const explain = (l) => {
     const official = (l.terms || []).filter((id) => TERMS[id]);
