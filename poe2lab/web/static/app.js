@@ -2042,7 +2042,7 @@ TABS.tree = async (view) => {
     r.growth.length ? h("table", { class: "versus-items" },
       h("thead", {}, h("tr", {}, h("th", {}, t("node")), h("th", { class: "num" }, t("points")), h("th", {}, t("perPoint")), h("th", {}, t("treeGives")), h("th", {}, ""))),
       h("tbody", {}, r.growth.map((g) => h("tr", {},
-        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats), fitChips(g.fit),
+        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats), fitChips(g.fit), resourcesMoved(g.resources),
           g.via.length ? h("div", { class: "hint" }, t("via", [...new Set(g.via.map(trName))].join(", ")),
             g.ownShare !== undefined ? " · " + t("treeOwnShare", Math.round(Math.min(1, Math.max(0, g.ownShare)) * 100)) : "") : null),
         h("td", { class: "num" }, g.points),
@@ -2109,7 +2109,7 @@ function packageCard(p, graph, viewTree) {
     h("div", { class: "pk-head" }, h("b", {}, packageName(pk)), pk.yours ? chip("ok", t("pkYours")) : chip("tag", t("pkOther")),
       h("span", { class: "muted small" }, t("pointsN", pk.points)), scoreBar(pk.perPoint, best)),
     h("div", { class: "pk-nodes" }, pk.notables.map((n, i) => [i ? h("span", { class: "muted" }, " + ") : null, nodeName(n)])),
-    h("div", {}, deltas(pk.changes, METRIC, 0.3)),
+    h("div", {}, deltas(pk.changes, METRIC, 0.3)), resourcesMoved(pk.resources),
     pk.synergy >= 0.1 ? h("div", { class: "small pos" }, t("pkTogetherMore", Math.round(pk.synergy * 100)))
       : pk.synergy <= -0.1 ? h("div", { class: "small warn-text" }, t("pkTogetherLess", Math.round(-pk.synergy * 100))) : null,
     pk.now ? h("div", { class: "small" }, h("span", { class: "muted" }, t("pkNow", packageName(pk)), " "), deltas(pk.now, METRIC, 0.3)) : null,
@@ -2117,13 +2117,45 @@ function packageCard(p, graph, viewTree) {
       h("button", { class: "ghost small", title: t("pkShowHint"), onclick: () => viewTree(pk) }, t("pkShow")),
       h("button", { class: "ghost small", title: t("pkTakeHint"), onclick: () => takePackage(pk) }, t("pkTake"))));
   return h("div", { class: "card" }, h("h3", {}, t("pkTitle")), h("div", { class: "sub" }, t("pkSub")),
+    resourcesLine(p.resources),
     p.buildMechanics.length ? h("div", { class: "small", style: "margin-bottom:8px" }, t("pkBuildHas"), " ",
       p.buildMechanics.map((k) => t("pk_" + k)).join(", ")) : null,
     p.packages.length ? h("div", { class: "pk-list" }, p.packages.map(row)) : h("p", { class: "muted" }, t("pkNone")));
 }
+// Rage and charges as the fight is played out (poe2lab.analysis.resources): the level the tree's prices use
+function resourcesLine(r) {
+  const levels = r && r.levels ? Object.entries(r.levels) : [];
+  if (!levels.length) return null;
+  const one = ([k, v]) => h("span", { class: "res-chip" }, h("b", {}, t("pk_" + k)), " ",
+    t("resLevel", fmt(v.level, 1), fmt(v.max)), v.fullAfter != null ? h("span", { class: "muted" }, " · " + t("resFull", fmt(v.fullAfter, 1))) : null);
+  return h("div", { class: "res-line", title: t(r.scenario === "boss" ? "resHintBoss" : "resHintMap") },
+    h("span", { class: "muted small" }, t("resTitle")), ...levels.map(one), h("span", { class: "muted small" }, "ⓘ"));
+}
+// what a node or a package does to Rage and charges: "Rage 63 → 64"
+const resourcesMoved = (m) => (m ? h("div", { class: "fit-chips" }, Object.entries(m).map(([k, [a, b]]) =>
+  chip(b > a ? "ok" : "warn", t("resMoved", t("pk_" + k), fmt(a, 1), fmt(b, 1))))) : null);
+
 // the notables nearest first: each road starts from the tree as it is after the one before
-const takePackage = (pk) => treeCall("/api/tree/add-many",
-  { ids: [...pk.notables].sort((a, b) => a.points - b.points).map((n) => n.id), name: "package:" + pk.mechanic }, t("pkTaking"));
+// `send(body)`: the request (from the tab or the viewer), its answer back; a trade that does not pay is asked about
+async function packageFlow(pk, send) {
+  const name = packageName(pk);
+  const body = { ids: [...pk.notables].sort((a, b) => a.points - b.points).map((n) => n.id), mechanic: pk.mechanic, mode: state.mode };
+  const done = (r) => {
+    toast(r.removed.length ? t("pkTraded", name, r.removed.length) : t("pkTaken", name), true);
+    return r;
+  };
+  const r = await send(body);
+  if (!r) return null;
+  if (r.kept) return done(r);
+  const why = h("div", { class: "stack" }, h("div", {}, r.fits ? t("pkNotWorth", name) : t("pkNoRoom", name)),
+    r.removed.length ? h("div", { class: "small" }, t("pkWouldDrop", r.removed.length), " ",
+      h("span", { class: "muted" }, [...new Set(r.removed.map(trName))].slice(0, 8).join(", "))) : null,
+    h("div", {}, h("span", { class: "muted small" }, t("pkWouldGive"), " "), deltas(r.changes, METRIC, 0.3)));
+  if (!(await confirmInPage(why, t("pkTakeAnyway")))) return null;
+  const f = await send({ ...body, force: true });
+  return f && f.kept ? done(f) : null;
+}
+const takePackage = (pk) => packageFlow(pk, (body) => planCall("/api/tree/package", body, { busy: t("pkTaking") }));
 
 // ---- tree plan: edits live in the engine only; every tab computes with them until reset ----
 // an edit of the plan from any tab, then the tab again; `rebuild`: the build's gear and gems are read anew (the header,
@@ -2213,7 +2245,8 @@ function planCard(plan, points) {
       e.added ? h("span", { class: "pos" }, `+ ${trName(e.added)}${e.level ? ` (${t("gmLevelQ", e.level, e.quality)})` : ""}`) : null,
       e.dropped && e.dropped.length ? h("span", { class: "muted" }, " " + t("gmDropped", e.dropped.map(trName).join(", "))) : null)
     : e.action === "swap"
-    ? h("li", {}, h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
+    ? h("li", {}, (e.target || "").startsWith("package:") ? [h("b", {}, t("pkLog", t("pk_" + e.target.slice(8)))), h("br")] : null,
+      h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
     : e.action === "add" && (e.target || "").startsWith("package:")
     ? h("li", { class: "pos" }, `+ ${t("pkLog", t("pk_" + e.target.slice(8)))} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
     : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`)
@@ -2754,14 +2787,19 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     if (!pk) { packBox.replaceChildren(); packBox.classList.add("hidden"); return; }
     packBox.classList.remove("hidden");
     packBox.replaceChildren(h("b", {}, t("pkFocus", t("pk_" + pk.mechanic), pk.points)), deltas(pk.changes, METRIC, 0.3),
-      h("button", { class: "primary small", title: t("pkTakeHint"), onclick: () => run(async () => {
-        await api("/api/tree/add-many", { method: "POST", body: {
-          ids: [...pk.notables].sort((a, b) => a.points - b.points).map((n) => n.id), name: "package:" + pk.mechanic } });
+      h("button", { class: "primary small", title: t("pkTakeHint"), onclick: async () => {
+        let taken = null;
+        await packageFlow(pk, async (body) => {
+          let r = null;
+          await run(async () => { r = await api("/api/tree/package", { method: "POST", body }); });
+          if (r && r.kept) taken = r;
+          return r;
+        });
+        if (!taken) return;
         setFocus(null);
         suggest(latest.tree, latest.asc);
         await refreshGraph(null);
-        toast(t("pkTaken", t("pk_" + pk.mechanic)), true);
-      }) }, t("pkTake")),
+      } }, t("pkTake")),
       h("button", { class: "ghost small", title: t("pkAllHint"), onclick: () => { setFocus(null); suggest(latest.tree, latest.asc); setHints(true); draw(); } }, t("pkAll")));
   };
   const hintsBtn = h("button", { class: "ghost small tv-hints", title: t("tvHintsHint"), onclick: () => { setHints(!hints); draw(); } });

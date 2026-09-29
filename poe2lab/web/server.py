@@ -23,6 +23,7 @@ from ..analysis.tree import analyse as analyse_tree
 from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
+from ..analysis.tree import take_package
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -1188,23 +1189,31 @@ def tree_add(req: TreeEdit):
         return _json(_plan_view())
 
 
-class TreeEditMany(BaseModel):
-    ids: list[int] = Field(min_length=1, max_length=12)
-    name: str = ""  # what the plan calls the edit: a mechanic's package
+class TreePackage(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=12)  # the package's notables, nearest first
+    mechanic: str = Field(min_length=1, max_length=40)
+    mode: str = "balanced"
+    force: bool = False  # taken even when the trade does not pay
 
 
-@app.post("/api/tree/add-many")
-def tree_add_many(req: TreeEditMany):
-    """Several notables taken at once (a mechanic's package): one edit of the plan, the roads shared."""
+@app.post("/api/tree/package")
+def tree_package(req: TreePackage):
+    """A mechanic's package taken as one edit of the plan: on a full tree, the weakest branches given up for it -
+    kept only when the build comes out ahead (else nothing changes and the answer says what it would have cost)."""
+    if req.mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {req.mode!r}")
     with session.lock:
         session.require()
         _plan_start()
-        names = []
-        for node in req.ids:
-            names += _errors(lambda: session.engine.tree_add(node))
-        session.plan["log"].append({"action": "add", "target": req.name, "nodes": names})
-        _plan_changed()
-        return _json(_plan_view())
+        points = session.engine.points_budget()
+        limit = max(points["total"], points["used"])  # what the level gives - or the tree as it is, if already over
+        r = _errors(lambda: take_package(session.engine, session.profile, req.mode, req.ids, limit, force=req.force))
+        if r["kept"]:
+            target = "package:" + req.mechanic
+            session.plan["log"].append({"action": "swap", "target": target, "removed": r["removed"], "added": r["added"]}
+                                       if r["removed"] else {"action": "add", "target": target, "nodes": r["added"]})
+            _plan_changed()
+        return _json(r | {"plan": _plan_view()})
 
 
 @app.post("/api/tree/remove")

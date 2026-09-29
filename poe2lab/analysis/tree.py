@@ -13,9 +13,59 @@ from collections import deque
 from .fit import build_topics, fit
 from .gradients import metric_changes
 from .report import defence_weights, score
+from .resources import CHARGES, ResourceModel
 from .threats import MapProfile, survivable_hits
 
 _ATTRIBUTE = re.compile(r"to (Strength|Dexterity|Intelligence|all Attributes)\b")
+
+
+class Pricing:
+    """PoB's configuration a tree change is priced with: the profile's, with Rage and the charges at the level the
+    build keeps them in a fight (poe2lab.analysis.resources) - and, for a change that makes or changes one of them,
+    at the level the change brings: a node that only makes Rage faster is worth what that Rage gives."""
+
+    def __init__(self, engine, profile: MapProfile):
+        self.engine = engine
+        self.plain = profile.config()
+        self.out = engine.what_if(config=self.plain)
+        self.model = ResourceModel.of(engine, profile, self.out)
+        self.now = self.model.levels()
+        self.cfg = self.plain | self.model.config(self.now)
+        answers = engine.config()
+        # what PoB already has without the model (a source it knows and we cannot read): not modelled from nothing
+        self._had = {"rage": (self.out.get("MaximumRage") or 0) > 0,
+                     **{ch: bool(answers.get(f"use{ch.capitalize()}Charges")) for ch in CHARGES}}
+        self._lines: dict[int, list[str]] = {}
+
+    def lines(self, ids) -> list[str]:
+        """The stat lines of these nodes (asked from PoB once, then kept)."""
+        missing = [i for i in ids if i not in self._lines]
+        if missing:
+            self._lines.update({i: [] for i in missing})
+            self._lines.update(self.engine.node_lines(missing))
+        return [line for i in ids for line in self._lines[i]]
+
+    def of(self, add=(), remove=()) -> tuple[dict, dict | None]:
+        """The configuration for nodes taken (`add`) or dropped (`remove`), and the resources they move
+        ({resource: [now, then]}); None when they move none."""
+        lines = self.lines(add) if add else []
+        if not (lines and self.model.touches(lines)) and not any(self.model.node_sources.get(i) for i in remove):
+            return self.cfg, None
+        then = {r: v for r, v in self.model.levels(add_lines=lines, remove=remove).items()
+                if r in self.now or not self._had[r]}
+        cfg = self.plain | self.model.config(then)
+        for res in self.now:
+            if res not in then:  # its last source gone
+                cfg |= {"multiplierRage": 0} if res == "rage" else {f"use{res.capitalize()}Charges": False}
+        level = lambda d, r: round(d[r]["level"], 1) if r in d else 0.0  # noqa: E731
+        moved = {r: [level(self.now, r), level(then, r)] for r in set(self.now) | set(then)}
+        return cfg, {r: v for r, v in moved.items() if abs(v[0] - v[1]) >= 0.1} or None
+
+    def summary(self) -> dict:
+        """The resources as the model sees them now, for the player: level, maximum, when full; the fight."""
+        return {"levels": {r: {k: (round(v, 1) if isinstance(v, float) else v) for k, v in d.items()}
+                           for r, d in self.now.items()},
+                "scenario": self.model.scenario, "rageSet": self.model.user_rage}
 
 
 class _Change:
@@ -34,49 +84,56 @@ def _value(changes: dict, mode: str, weights: dict) -> float:
 ROAD_ONLY_SHARE = 0.1
 
 
-def growth_options(engine, cfg: dict, mode: str, weights: dict, max_points: int, own: bool = True) -> list[dict]:
+def growth_options(engine, pricing: Pricing, mode: str, weights: dict, max_points: int, own: bool = True) -> list[dict]:
     """Reachable notables and keystones priced by their whole path, best value per point first. With `own`, also
     what the notable itself adds (the path without it priced too): `roadOnly` when the travel nodes do all the
-    work - the notable's name would then recommend something the build gets nothing from."""
-    base = engine.what_if(config=cfg)
+    work - the notable's name would then recommend something the build gets nothing from. `resources`: the Rage or
+    charges the path moves (its price counts them)."""
+    base = engine.what_if(config=pricing.cfg)
     out = []
-    for t in engine.tree_reach(max_points):
+    reach = engine.tree_reach(max_points)
+    pricing.lines({n for t in reach for n in t["path"]})  # every path's lines in one call
+    for t in reach:
+        cfg, moved = pricing.of(add=t["path"])
         changes = metric_changes(engine.what_if(config=cfg, add_nodes=t["path"]), base)
         value = _value(changes, mode, weights)
         own_value = value
         if own and len(t["path"]) > 1:
             road = [n for n in t["path"] if n != t["id"]]
-            own_value = value - _value(metric_changes(engine.what_if(config=cfg, add_nodes=road), base), mode, weights)
+            road_cfg = pricing.of(add=road)[0]
+            own_value = value - _value(metric_changes(engine.what_if(config=road_cfg, add_nodes=road), base), mode, weights)
         out.append({"id": t["id"], "name": t["name"], "type": t["type"], "points": len(t["path"]), "path": t["path"],
                     "via": [n for nid, n in zip(t["path"], t["pathNames"]) if nid != t["id"] and n],
                     "stats": t["stats"], "changes": changes, "value": value, "perPoint": value / len(t["path"]),
                     "own": own_value, "ownShare": own_value / value if value > 0 else 0.0,
-                    "roadOnly": own and value > 0 and own_value < ROAD_ONLY_SHARE * value})
+                    "roadOnly": own and value > 0 and own_value < ROAD_ONLY_SHARE * value, "resources": moved})
     return sorted(out, key=lambda g: -g["perPoint"])
 
 
-def branch_options(engine, cfg: dict, mode: str, weights: dict) -> list[dict]:
-    """Allocated branches priced by what removing them would cost, cheapest per point first."""
-    base = engine.what_if(config=cfg)
+def branch_options(engine, pricing: Pricing, mode: str, weights: dict) -> list[dict]:
+    """Allocated branches priced by what removing them would cost (the Rage or charges they make going with them),
+    cheapest per point first."""
+    base = engine.what_if(config=pricing.cfg)
     out = []
     for b in engine.tree_branches():
+        cfg, _ = pricing.of(remove=b["depends"])
         changes = metric_changes(engine.what_if(config=cfg, remove_nodes=b["depends"]), base)
         loss = -_value(changes, mode, weights)  # what the build gives up
         kind = ("attributes" if any(_ATTRIBUTE.search(line) for line in b["stats"])
                 else "unseen" if all(abs(v) < 0.05 for v in changes.values()) else "value")
-        out.append({"id": b["id"], "name": b["name"], "type": b["type"], "points": len(b["depends"]),
+        out.append({"id": b["id"], "name": b["name"], "type": b["type"], "points": len(b["depends"]), "depends": b["depends"],
                     "with": b.get("dependNames", []), "stats": b["stats"], "changes": changes, "loss": loss,
                     "lossPerPoint": loss / len(b["depends"]), "kind": kind})
     return sorted(out, key=lambda b: b["lossPerPoint"])
 
 
 def analyse(engine, profile: MapProfile, mode: str = "balanced", max_points: int = 6, top: int = 15) -> dict:
-    cfg = profile.config()
+    pricing = Pricing(engine, profile)
     weights = defence_weights(survivable_hits(engine, profile))
-    options = growth_options(engine, cfg, mode, weights, max_points)
+    options = growth_options(engine, pricing, mode, weights, max_points)
     # how each node's topics meet the build's (damage, mechanics, defences, skills, weapons): the reason a node
     # worth nothing is either off-build or on-build but outside what PoB models
-    have = build_topics(engine, engine.what_if(config=cfg))
+    have = build_topics(engine, engine.what_if(config=pricing.cfg))
     for g in options:
         g["fit"] = fit(g["stats"], have)
     growth = [g for g in options if not g["roadOnly"]]
@@ -85,7 +142,7 @@ def analyse(engine, profile: MapProfile, mode: str = "balanced", max_points: int
         f = g["fit"]
         g["verdict"] = "offBuild" if f["misses"] else "onBuild" if f["fits"] else "unknown"
     road_only.sort(key=lambda g: ({"onBuild": 0, "unknown": 1, "offBuild": 2}[g["verdict"]], -g["perPoint"]))
-    branches = branch_options(engine, cfg, mode, weights)
+    branches = branch_options(engine, pricing, mode, weights)
     # A branch whose points are worth less than the best growth option per point is a respec candidate - unless
     # PoB sees no effect at all (utility PoB does not model: warcry speed, Rage on hit...) or it holds attributes
     # (their worth is gem requirements, which PoB does not turn into numbers). Those are listed apart, to check.
@@ -95,7 +152,7 @@ def analyse(engine, profile: MapProfile, mode: str = "balanced", max_points: int
             "buildTopics": sorted(have), "respec": low[:top],
             "unseen": [b for b in branches if b["kind"] == "unseen"],
             "attributes": [b for b in branches if b["kind"] == "attributes"],
-            "allocated": len(branches), "bestGrowthPerPoint": best_growth}
+            "allocated": len(branches), "bestGrowthPerPoint": best_growth, "resources": pricing.summary()}
 
 
 def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | None = None, rounds: int = 8,
@@ -107,22 +164,14 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
     total for the goal went up. Branches PoB sees no effect of and attribute nodes are never removed: their worth
     is not in PoB's numbers. Free points (budget above what is allocated) are spent first."""
     rng = random.Random(seed)
-    cfg = profile.config()
     weights = defence_weights(survivable_hits(engine, profile))
-    start = engine.what_if(config=cfg)
+    start = engine.what_if(config=Pricing(engine, profile).cfg)
 
-    def total() -> float:
-        return _value(metric_changes(engine.what_if(config=cfg), start), mode, weights)
+    def total() -> float:  # the tree as it stands, with the Rage and charges it keeps
+        return _value(metric_changes(engine.what_if(config=Pricing(engine, profile).cfg), start), mode, weights)
 
     def spend() -> list[str]:
-        added = []
-        while (free := budget - engine.tree_points()) > 0:
-            options = [g for g in growth_options(engine, cfg, mode, weights, min(max_points, free), own=False)
-                       if g["points"] <= free and g["perPoint"] > 0]
-            if not options:
-                break
-            added += engine.tree_add(options[0]["id"])
-        return added
+        return _spend(engine, profile, mode, weights, lambda: budget - engine.tree_points(), max_points)
 
     steps, tried = [], set()
     added = spend()
@@ -130,7 +179,8 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
     if added:
         steps.append({"removed": [], "added": added, "total": current})
     for _ in range(rounds):
-        weak = [b for b in branch_options(engine, cfg, mode, weights) if b["kind"] == "value" and b["id"] not in tried]
+        weak = [b for b in branch_options(engine, Pricing(engine, profile), mode, weights)
+                if b["kind"] == "value" and b["id"] not in tried]
         if not weak:
             break
         branch = rng.choice(weak[:pick_from])
@@ -144,7 +194,54 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
         else:
             engine.tree_restore("optimize-try")
             tried.add(branch["id"])
-    return {"steps": steps, "total": current, "changes": metric_changes(engine.what_if(config=cfg), start)}
+    return {"steps": steps, "total": current,
+            "changes": metric_changes(engine.what_if(config=Pricing(engine, profile).cfg), start)}
+
+
+def _spend(engine, profile, mode, weights, free, max_points: int = 5, rounds: int = 20) -> list[str]:
+    """Free points (`free()`: how many there are now) spent on the best growth per point, one notable at a time."""
+    added = []
+    for _ in range(rounds):
+        points = free()
+        if points <= 0:
+            break
+        options = [g for g in growth_options(engine, Pricing(engine, profile), mode, weights, min(max_points, points),
+                                             own=False) if g["points"] <= points and g["perPoint"] > 0]
+        if not options:
+            break
+        added += engine.tree_add(options[0]["id"])
+    return added
+
+
+def take_package(engine, profile: MapProfile, mode: str, ids: list[int], limit: int, force: bool = False) -> dict:
+    """A mechanic's package taken on a tree with no points to spare: its notables taken (in the order given), then
+    - while the tree is over `limit` points (what the character's level gives) - the weakest branch given up, the
+    least worth per point that none of the package hangs on (never attributes, never what PoB sees nothing of), and
+    points freed beyond that spent on the best growth. Kept when the build comes out ahead for the goal (or with
+    `force`); otherwise the tree is put back as it was and the result says what the trade would have done."""
+    weights = defence_weights(survivable_hits(engine, profile))
+    start = engine.what_if(config=Pricing(engine, profile).cfg)
+    engine.tree_snapshot("package-try")
+    added = []
+    for node in ids:
+        added += engine.tree_add(node)
+    removed = []
+    keep = set(ids)
+    while engine.points_budget()["used"] > limit:
+        weak = [b for b in branch_options(engine, Pricing(engine, profile), mode, weights)
+                if b["kind"] == "value" and not keep & set(b["depends"])]
+        if not weak:
+            break
+        removed += engine.tree_remove(weak[0]["id"])
+    fits = engine.points_budget()["used"] <= limit
+    if fits and removed:
+        added += _spend(engine, profile, mode, weights, lambda: limit - engine.points_budget()["used"], rounds=3)
+    changes = metric_changes(engine.what_if(config=Pricing(engine, profile).cfg), start)
+    value = _value(changes, mode, weights)
+    kept = force or (fits and value > 0.05)
+    if not kept:
+        engine.tree_restore("package-try")
+    return {"kept": kept, "fits": fits, "added": added, "removed": removed, "changes": changes, "value": value}
 
 
 # ---- mechanic packages: a mechanic's notables taken together ----
@@ -198,18 +295,20 @@ def mechanic_packages(engine, profile: MapProfile, mode: str = "balanced", top: 
     and, for rage and charges, what the mechanic gives the build now (`now`: the build without it). Best value per
     point first; `yours`: a mechanic the build has (another one may still pay more - crit for a build not built on
     it)."""
-    cfg = profile.config()
+    pricing = Pricing(engine, profile)
     weights = defence_weights(survivable_hits(engine, profile))
-    base = engine.what_if(config=cfg)
+    base = engine.what_if(config=pricing.cfg)
     have = build_mechanics(engine, base)
     reach = [t for t in engine.tree_reach(PACKAGE_REACH) if t["type"] in ("Notable", "Keystone")]
+    pricing.lines({n for t in reach for n in t["path"]})
     priced = {}
 
     def price(nodes) -> tuple[float, dict]:
         key = frozenset(nodes)
         if key not in priced:
+            cfg, moved = pricing.of(add=sorted(key))
             changes = metric_changes(engine.what_if(config=cfg, add_nodes=sorted(key)), base)
-            priced[key] = (_value(changes, mode, weights), changes)
+            priced[key] = (_value(changes, mode, weights), changes, moved)
         return priced[key]
 
     out = []
@@ -243,15 +342,16 @@ def mechanic_packages(engine, profile: MapProfile, mode: str = "balanced", top: 
         alone = sum(s[1] for s in chosen)
         now = None
         if key in _MECHANIC_OFF and key in have:
-            now = metric_changes(engine.what_if(config=cfg | _MECHANIC_OFF[key]), base)
+            now = metric_changes(engine.what_if(config=pricing.cfg | _MECHANIC_OFF[key]), base)
         out.append({"mechanic": key, "yours": key in have,
                     "notables": [{"id": s[2]["id"], "name": s[2]["name"], "type": s[2]["type"], "stats": s[2]["stats"],
                                   "points": len(s[2]["path"])} for s in chosen],
                     "path": sorted(nodes), "points": len(nodes), "changes": price(nodes)[1], "value": value,
                     "perPoint": value / len(nodes), "alone": alone, "synergy": value / alone - 1 if alone > 0 else 0.0,
-                    "now": now})
+                    "now": now, "resources": price(nodes)[2]})
     out.sort(key=lambda pk: -pk["perPoint"])
-    return {"mode": mode, "packages": out[:top], "buildMechanics": sorted(have & {k for k, _ in PACKAGE_MECHANICS})}
+    return {"mode": mode, "packages": out[:top], "buildMechanics": sorted(have & {k for k, _ in PACKAGE_MECHANICS}),
+            "resources": pricing.summary()}
 
 
 ASCENDANCY_POINTS = 8  # four trials of ascension, two points each
@@ -309,7 +409,7 @@ def ascendancy(engine, profile: MapProfile, mode: str = "balanced") -> dict:
     """The build's ascendancy: its allocated notables, and each notable not yet taken priced by PoB on the build
     (with the path to it inside the ascendancy), best first. With every point spent, taking one means giving
     another up - the value says whether a swap is worth it."""
-    cfg = profile.config()
+    cfg = Pricing(engine, profile).cfg
     weights = defence_weights(survivable_hits(engine, profile))
     graph = engine.tree_graph()
     base = engine.what_if(config=cfg)

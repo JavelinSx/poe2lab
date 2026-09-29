@@ -332,6 +332,46 @@ return s and s.activeEffect.grantedEffect.name""")
         """All numeric outputs of the last full calculation."""
         return self._json("return _poe2lab_numbers(build.calcsTab.mainOutput)")
 
+    def node_lines(self, ids=None) -> dict[int, list[str]]:
+        """Stat lines of passive nodes by id: the given ones, or every allocated node (the ascendancy's too)."""
+        pick = ("{" + ", ".join(f"[{int(i)}] = true" for i in ids) + "}") if ids is not None else "nil"
+        rows = self._json(f"""
+local pick, out = {pick}, _poe2lab_array({{}})
+local nodes = pick and build.spec.nodes or build.spec.allocNodes
+for id, node in pairs(nodes) do
+  if not pick or pick[id] then
+    out[#out + 1] = {{ id = id, lines = _poe2lab_array(node.sd or {{}}) }}
+  end
+end
+return _poe2lab_json(out)""")
+        return {r["id"]: r["lines"] for r in rows}
+
+    def gem_stat_values(self) -> list[dict]:
+        """The enabled gems of the enabled socket groups with their stats' values at the gem's level (PoB's gem data:
+        constant stats and the level's own) - `main`: in the main skill's group."""
+        return self._json("""
+local out = _poe2lab_array({})
+for gi, g in ipairs(build.skillsTab.socketGroupList) do
+  if g.enabled ~= false then
+    for _, gem in ipairs(g.gemList) do
+      local d = gem.gemData
+      if d and gem.enabled ~= false then
+        local values = {}
+        for _, set in ipairs(d.grantedEffect.statSets or {}) do
+          for _, c in ipairs(set.constantStats or {}) do values[c[1]] = values[c[1]] or c[2] end
+          local lv = set.levels and (set.levels[gem.level or 1] or set.levels[1])
+          for i, stat in ipairs(set.stats or {}) do
+            if lv and type(lv[i]) == "number" then values[stat] = values[stat] or lv[i] end
+          end
+        end
+        out[#out + 1] = { name = d.grantedEffect.name, support = d.grantedEffect.support and true or false,
+                          main = gi == build.mainSocketGroup, stats = values }
+      end
+    end
+  end
+end
+return _poe2lab_json(out)""")
+
     def allocated_nodes(self) -> list[dict]:
         return self._json("""
 local out = _poe2lab_array({})

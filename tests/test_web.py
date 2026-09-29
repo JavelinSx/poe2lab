@@ -398,16 +398,23 @@ def test_a_prompt_for_any_chat_ai(client):
 def test_a_mechanic_package_taken_at_once(client):
     client.post("/api/load", json={"name": "titan"}, headers=H)
     client.post("/api/tree/reset", headers=H)
-    packs = client.get("/api/tree/packages").json()["packages"]
-    assert packs and all(len(p["notables"]) >= 2 for p in packs)
-    pk = packs[0]
-    before = client.get("/api/tree/graph").json()["budget"]["used"]
-    plan = client.post("/api/tree/add-many", json={"ids": [n["id"] for n in pk["notables"]], "name": "package:" + pk["mechanic"]},
-                       headers=H).json()
-    entry = plan["log"][-1]
-    assert entry["target"] == "package:" + pk["mechanic"] and len(entry["nodes"]) <= pk["points"]
+    packs = client.get("/api/tree/packages").json()
+    assert packs["packages"] and all(len(p["notables"]) >= 2 for p in packs["packages"])
+    assert "levels" in packs["resources"]
+    pk = packs["packages"][0]
+    before = client.get("/api/tree/graph").json()["budget"]
+    body = {"ids": [n["id"] for n in pk["notables"]], "mechanic": pk["mechanic"]}
+    r = client.post("/api/tree/package", json=body, headers=H).json()
     graph = client.get("/api/tree/graph").json()
-    assert all(n["alloc"] for n in graph["nodes"] if n["id"] in {x["id"] for x in pk["notables"]})
-    assert graph["budget"]["used"] == before + len(entry["nodes"])
-    assert client.post("/api/tree/add-many", json={"ids": []}, headers=H).status_code == 422
+    taken = {n["id"] for n in graph["nodes"] if n["alloc"]}
+    if r["kept"]:
+        # one edit of the plan, within what the level gives (or no worse than the tree was)
+        entry = r["plan"]["log"][-1]
+        assert entry["target"] == "package:" + pk["mechanic"] and entry["action"] in ("add", "swap")
+        assert {n["id"] for n in pk["notables"]} <= taken
+        assert graph["budget"]["used"] <= max(before["total"], before["used"])
+    else:  # not worth it: nothing changed, the answer says what it would have done
+        assert not r["plan"] or not r["plan"]["log"]
+        assert graph["budget"]["used"] == before["used"] and "dps" in r["changes"]
+    assert client.post("/api/tree/package", json={"ids": [], "mechanic": "crit"}, headers=H).status_code == 422
     client.post("/api/tree/reset", headers=H)
