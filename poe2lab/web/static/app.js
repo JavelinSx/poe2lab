@@ -2104,7 +2104,12 @@ TABS.tree = async (view) => {
 const packageName = (pk) => t("pk_" + pk.mechanic);
 function packageCard(p, graph, viewTree) {
   const best = Math.max(0.01, ...p.packages.map((pk) => pk.perPoint));
-  const nodeName = (n) => h("span", { title: n.name, class: "named" }, icon(n.name, "ico passive"), trName(n.name));
+  // a notable's name; the pointer over it shows what it gives
+  const nodeName = (n) => hoverTip(h("span", { class: "named pk-node" }, icon(n.name, "ico passive"), trName(n.name)),
+    () => h("div", { class: "stack" },
+      h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(n.name, "ico passive"), h("b", {}, trName(n.name))),
+      h("div", { class: "muted small" }, n.type === "Keystone" ? t("keystone") : t("notable"), " · ", t("pkNodeRoad", n.points)),
+      stats(n.stats)));
   const row = (pk) => h("div", { class: "pk-row" + (pk.yours ? " yours" : "") },
     h("div", { class: "pk-head" }, h("b", {}, packageName(pk)), pk.yours ? chip("ok", t("pkYours")) : chip("tag", t("pkOther")),
       h("span", { class: "muted small" }, t("pointsN", pk.points)), scoreBar(pk.perPoint, best)),

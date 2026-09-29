@@ -622,6 +622,7 @@ details > summary .ico { margin-left: 2px; }
 .pk-row.yours { border-left-color: var(--gold); }
 .pk-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pk-nodes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pk-node { cursor: help; border-bottom: 1px dotted var(--muted); }
 .warn-text { color: var(--warn); }
 .tv-pack { display: inline-flex; align-items: center; gap: 8px; padding: 2px 8px; border-radius: 6px;
   border: 1px solid #4da3ff; }
