@@ -635,6 +635,16 @@ details > summary .ico { margin-left: 2px; }
 .nb-asc:hover { border-color: #6a7385; }
 .nb-asc.sel { border-color: var(--gold); background: rgba(214, 165, 79, .15); color: var(--gold); font-weight: 600; }
 .big-btn { font-size: 16px; padding: 10px 22px; }
+.nb-asc { display: flex; flex-direction: column; gap: 4px; }
+.nb-share { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-weight: 400; }
+.nb-share-bar { display: inline-block; height: 4px; border-radius: 2px; background: var(--gold); }
+.nb-best { color: var(--gold); }
+.nb-ladder { display: flex; flex-direction: column; gap: 4px; }
+.nb-lrow { display: grid; grid-template-columns: 36px minmax(140px, 1.3fr) minmax(90px, 1fr) 110px 100px auto auto; gap: 10px;
+  align-items: center; padding: 6px 8px; border-radius: 6px; background: var(--panel-2); }
+.nb-lrow .ico { width: 24px; height: 24px; }
+.nb-llevel { font-weight: 700; color: var(--gold); text-align: right; }
+@media (max-width: 900px) { .nb-lrow { grid-template-columns: 36px 1fr 1fr; } }
 .ctor-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -8px 0 14px; padding: 8px 10px; border-radius: 8px;
   border: 1px solid rgba(214, 165, 79, .35); background: rgba(214, 165, 79, .06); }
 .ctor-title { font-weight: 700; margin-right: 6px; }

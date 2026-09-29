@@ -314,6 +314,7 @@ $("#add-build").addEventListener("click", renderAddBuild);
 // ---------- the build constructor: a build from nothing (PLAN.md, "Конструктор билда с нуля") ----------
 const ATTR_COLOR = { str: "#c8463a", dex: "#4fae5a", int: "#5467d8" };
 const nbState = { asc: null, ascName: "", stage: "endgame", level: 92, name: "" };
+const nbLadder = { shares: null, error: "", tops: {} };  // poe.ninja's ladder: kept while the page is open
 
 async function renderNewBuild() {
   hideBuildChrome();
@@ -321,16 +322,70 @@ async function renderNewBuild() {
   let data;
   try { data = await api("/api/new/classes"); } catch (e) { $("#view").replaceChildren(h("p", { class: "muted" }, e.message)); return; }
   const box = h("div", { class: "card stack nb" });
+  // poe.ninja's ladder: the ascendancies' shares come in the background; a pick shows its top characters
+  if (!nbLadder.shares && !nbLadder.error) {
+    api("/api/ladder/ascendancies").then((l) => { nbLadder.shares = l; draw(); })
+      .catch((e) => { nbLadder.error = e.message; draw(); });
+  }
+  const ladderBox = h("div", { class: "stack" });
+  const drawTop = async () => {
+    const asc = nbState.ascName;
+    if (!asc) { ladderBox.replaceChildren(); return; }
+    if (!nbLadder.tops[asc]) {
+      ladderBox.replaceChildren(loading(t("nbLadderLoading")));
+      try { nbLadder.tops[asc] = await api(`/api/ladder/top?ascendancy=${encodeURIComponent(asc)}`); } catch (e) {
+        ladderBox.replaceChildren(h("p", { class: "muted small" }, t("nbLadderFail", e.message)));
+        return;
+      }
+      if (nbState.ascName !== asc) return;
+    }
+    const top = nbLadder.tops[asc];
+    const take = (c) => async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = t("nbTaking");
+      try {
+        const b = await api("/api/ladder/take", { method: "POST", body: { account: c.account, name: c.name, skill: c.skill } });
+        state.build = b;
+        state.chat = [];
+        state.changes = null;
+        resetCache();
+        renderHeader();
+        loadBuildList();
+        switchTab("overview");
+        toast(t("nbTaken", b.name), true);
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = t("nbTake"); }
+    };
+    ladderBox.replaceChildren(h("h3", {}, t("nbLadderTitle", trName(asc))),
+      h("div", { class: "sub" }, t("nbLadderSub", top.league, fmt(top.total))),
+      top.characters.length ? h("div", { class: "nb-ladder" }, top.characters.map((c) => h("div", { class: "nb-lrow" },
+        h("span", { class: "nb-llevel" }, c.level),
+        h("span", { class: "named" }, icon(c.skill), h("b", {}, trName(c.skill))),
+        h("span", { class: "muted small", title: c.account }, c.name),
+        h("span", { class: "small" }, "DPS ", h("b", {}, c.dps)),
+        h("span", { class: "small" }, "EHP ", h("b", {}, c.ehp)),
+        h("a", { class: "np-link", href: c.url, target: "_blank", rel: "noopener noreferrer", title: t("nbOpenNinjaHint") }, t("nbOpenNinja")),
+        h("button", { class: "ghost small", title: t("nbTakeHint"), onclick: take(c) }, t("nbTake")))))
+        : h("p", { class: "muted small" }, t("nbLadderEmpty")));
+  };
   const levelOf = () => (nbState.stage === "custom" ? nbState.level : data.stages[nbState.stage]);
   const attr = (k, v) => h("span", { class: "nb-attr", title: t("nbAttr_" + k) },
     h("span", { class: "nb-attr-bar", style: `width:${v * 4}px;background:${ATTR_COLOR[k]}` }), t("nbAttrShort_" + k));
   const draw = () => {
-    const classes = h("div", { class: "nb-classes" }, data.classes.map((c) => h("div", {
-      class: "nb-class" + (c.ascendancies.some((a) => a.id === nbState.asc) ? " sel" : "") },
-    h("div", { class: "nb-cname" }, trName(c.name)),
-    h("div", { class: "nb-attrs" }, attr("str", c.str), attr("dex", c.dex), attr("int", c.int)),
-    h("div", { class: "nb-ascs" }, c.ascendancies.map((a) => h("button", { class: "nb-asc" + (nbState.asc === a.id ? " sel" : ""),
-      onclick: () => { nbState.asc = a.id; nbState.ascName = a.name; draw(); } }, trName(a.name)))))));
+    const shares = nbLadder.shares ? nbLadder.shares.shares : null;
+    const share = (a) => (shares && shares[a.name] ? shares[a.name].share : 0);
+    const classes = h("div", { class: "nb-classes" }, data.classes.map((c) => {
+      const best = shares ? c.ascendancies.reduce((m, a) => (share(a) > share(m) ? a : m), c.ascendancies[0]) : null;
+      return h("div", { class: "nb-class" + (c.ascendancies.some((a) => a.id === nbState.asc) ? " sel" : "") },
+        h("div", { class: "nb-cname" }, trName(c.name)),
+        h("div", { class: "nb-attrs" }, attr("str", c.str), attr("dex", c.dex), attr("int", c.int)),
+        h("div", { class: "nb-ascs" }, c.ascendancies.map((a) => h("button", { class: "nb-asc" + (nbState.asc === a.id ? " sel" : ""),
+          onclick: () => { nbState.asc = a.id; nbState.ascName = a.name; draw(); drawTop(); } },
+        h("span", {}, trName(a.name), best === a && share(a) > 0 ? h("span", { class: "nb-best", title: t("nbLadderBest") }, " ★") : null),
+        shares ? h("span", { class: "nb-share", title: t("nbShareHint", fmt((shares[a.name] || {}).count || 0), nbLadder.shares.league) },
+          h("span", { class: "nb-share-bar", style: `width:${Math.max(2, Math.round(share(a) * 100 * 1.4))}px` }),
+          `${fmt(share(a) * 100, 1)}%`) : null))));
+    }));
     const custom = h("input", { type: "number", min: 1, max: 100, value: nbState.level, style: "width:64px",
       oninput: () => { nbState.stage = "custom"; nbState.level = Math.max(1, Math.min(100, Number(custom.value) || 1)); drawName(); drawStages(); } });
     const stages = h("div", { class: "segmented" });
@@ -359,12 +414,16 @@ async function renderNewBuild() {
       } catch (e) { toast(e.message); go.disabled = false; go.textContent = t("nbGo"); }
     } }, t("nbGo"));
     box.replaceChildren(h("h2", {}, t("nbTitle")), h("div", { class: "sub" }, t("nbSub")),
-      h("h3", {}, t("nbStep1")), classes,
+      h("h3", {}, t("nbStep1")),
+      nbLadder.shares ? h("div", { class: "muted small" }, t("nbLadderShares", nbLadder.shares.league, fmt(nbLadder.shares.total)))
+        : nbLadder.error ? h("div", { class: "muted small" }, t("nbLadderFail", nbLadder.error)) : null,
+      classes, ladderBox,
       h("h3", {}, t("nbStep2")), h("div", { class: "row" }, stages, h("label", { class: "muted small" }, t("nbOwnLevel"), " ", custom)),
       h("h3", {}, t("nbStep3")), name,
       h("div", { class: "row" }, go, state.build ? h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")) : null));
   };
   draw();
+  drawTop();
   $("#view").replaceChildren(box);
 }
 $("#new-build").addEventListener("click", renderNewBuild);

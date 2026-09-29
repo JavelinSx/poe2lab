@@ -32,7 +32,7 @@ from ..assistant.agent import STYLES
 from ..assistant import prompt as prompt_builder
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
 from ..data.moddb import ModDB
-from ..economy import trade
+from ..economy import ladder, trade
 from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
@@ -1556,6 +1556,65 @@ def new_classes():
     if "new-classes" not in _bare:
         _bare["new-classes"] = newbuild.classes(PobEngine())
     return {"classes": _bare["new-classes"], "stages": newbuild.STAGES}
+
+
+# ---- the ladder of poe.ninja: which ascendancies players pick, and a top character's build to start from ----
+
+def _ladder(ascendancy: str | None = None) -> dict:
+    try:
+        return ladder.search(ascendancy, ninja.chosen_league())
+    except (OSError, ValueError, StopIteration) as err:
+        raise HTTPException(502, f"poe.ninja не отвечает: {err}")
+
+
+@app.get("/api/ladder/ascendancies")
+def ladder_ascendancies():
+    """How many characters of the league's ladder pick each ascendancy, and their share."""
+    s = _ladder()
+    total = s["total"] or 1
+    return {"league": s["league"], "total": s["total"],
+            "shares": {k: {"count": v, "share": v / total} for k, v in s["ascendancies"].items()}}
+
+
+@app.get("/api/ladder/top")
+def ladder_top(ascendancy: str, limit: int = 12):
+    """The ascendancy's top characters on the ladder (by experience): level, main skill, damage, effective life,
+    and each one's page on poe.ninja."""
+    s = _ladder(ascendancy)
+    return {"league": s["league"], "total": s["total"], "characters": s["characters"][:max(1, min(limit, 50))]}
+
+
+class LadderTake(BaseModel):
+    account: str
+    name: str
+    skill: str = ""
+
+
+@app.post("/api/ladder/take")
+def ladder_take(req: LadderTake):
+    """A ladder character's build (its PoB code from poe.ninja) added to the list and opened, marked as the
+    constructor's: the start of one's own build, to change step by step."""
+    try:
+        code = ladder.character_code(req.account, req.name, ninja.chosen_league())
+    except (OSError, ValueError) as err:
+        raise HTTPException(502, f"poe.ninja не отдал билд: {err}")
+    clean = lambda s: re.sub(r"[^\w\- .()]", "", s).strip()  # noqa: E731  (the library's name rules)
+    base = (clean(req.name) or "ladder")[:40] + (f" ({clean(req.skill)[:16]})" if clean(req.skill) else "")
+    name, n = base, 2
+    while True:
+        try:
+            name = library.add(name, code)
+            break
+        except library.LibraryError as err:
+            if "уже есть" not in str(err) or n > 20:
+                raise HTTPException(400, str(err))
+            name, n = f"{base} {n}", n + 1
+    library.save_profile(name, {"main_skill": {}, "rage": None, "mana_sustained": False, "league": None,
+                                "corrections": [], "notes": [],
+                                "constructor": {"stage": "ladder", "from": {"account": req.account, "name": req.name}}})
+    with session.lock:
+        _errors(lambda: session.load(name))
+        return _json(_summary())
 
 
 class NewBuild(BaseModel):
