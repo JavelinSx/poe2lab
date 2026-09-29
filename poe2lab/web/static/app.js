@@ -2570,6 +2570,13 @@ function openTreeViewer(graph, tree, asc) {
   // the ascendancy: the plan (the best set of notables the points left buy) counts as growth, with its road; the
   // other notables PoB values are "useful" (pale); with no points left, every option worth something is growth
   let planned, growth, road, useful, worth, respec;
+  // the green suggestions can be switched off (remembered in this browser): the sets drawn are then empty
+  let hints = true;
+  try { hints = localStorage.getItem("poe2lab.treeHints") !== "off"; } catch { /* no storage: shown */ }
+  let full = null;
+  const applyHints = () => {
+    ({ planned, growth, road, useful } = hints ? full : { planned: new Set(), growth: new Set(), road: new Set(), useful: new Set() });
+  };
   const suggest = (tree, asc) => {
     const plans = asc ? [asc.plan, ...(asc.choices || []).map((c) => c.plan)].filter(Boolean) : [];
     const ascUseful = asc ? [...(asc.options || []), ...(asc.choices || []).flatMap((c) => c.notables)].filter((o) => o.value > 0.05) : [];
@@ -2581,6 +2588,8 @@ function openTreeViewer(graph, tree, asc) {
     useful = new Set(ascUseful.map((o) => o.id).filter((id) => !growth.has(id)));
     worth = new Map([...(tree.growth || []).map((g) => [g.id, g]), ...ascUseful.map((o) => [o.id, o])]);
     respec = new Set((tree.respec || []).map((b) => b.id));
+    full = { planned, growth, road, useful };
+    applyHints();
   };
   suggest(tree, asc);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
@@ -2650,6 +2659,7 @@ function openTreeViewer(graph, tree, asc) {
       const [tr, as] = await Promise.all([api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`),
         api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`).catch(() => null)]);
       suggest(tr, as);
+      setHints(true);  // asked for the best growth: show it
       regrow.classList.remove("stale");
       draw();
       toast(tr.growth.length ? t("tvRegrown", tr.growth.length) : t("treeNothing"), !!tr.growth.length);
@@ -2658,6 +2668,17 @@ function openTreeViewer(graph, tree, asc) {
     regrow.disabled = false;
     regrow.textContent = t("tvRegrow");
   } }, t("tvRegrow"));
+  const hintsBtn = h("button", { class: "ghost small tv-hints", title: t("tvHintsHint"), onclick: () => { setHints(!hints); draw(); } });
+  const hintsLegend = h("span", { class: "tree-legend-part" });
+  const setHints = (on) => {
+    hints = on;
+    try { localStorage.setItem("poe2lab.treeHints", on ? "on" : "off"); } catch { /* not remembered */ }
+    applyHints();
+    hintsBtn.classList.toggle("on", on);
+    hintsBtn.setAttribute("aria-pressed", String(on));
+    hintsBtn.textContent = on ? t("tvHintsOn") : t("tvHintsOff");
+    hintsLegend.classList.toggle("hidden", !on);
+  };
   const drawPoints = () => {
     const b = graph.budget;
     if (!b) return;
@@ -2673,9 +2694,12 @@ function openTreeViewer(graph, tree, asc) {
   };
   // Esc a dialog over the viewer already took (the jewel editor, a question) closes only that dialog
   const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) close(); };
+  hintsLegend.append(dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
+    ...(full.useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : []));
+  setHints(hints);
   overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox, regrow,
-    h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
-      useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : null, dot(C.bad, true), t("tvRespec")),
+    hintsBtn,
+    h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), hintsLegend, dot(C.bad, true), t("tvRespec")),
     h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
   document.body.append(overlay);
   document.addEventListener("keydown", onKey);
