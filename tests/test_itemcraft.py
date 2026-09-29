@@ -72,4 +72,4 @@ def test_end_game_bases_only():
              b("Iron Ring", "Ring", 0), b("Biostatic Ring", "Ring", 52)]
     assert [x["name"] for x in itemcraft.endgame_bases(bases)] == [
         "Warlord Cuirass", "Expert", "Sceptre", "Iron Ring", "Biostatic Ring"]  # every ring: each has its implicit
-    assert itemcraft.ITEM_LEVELS == (80, 81, 82) and itemcraft.DEFAULT_ITEM_LEVEL == 82
+    assert itemcraft.ITEM_LEVELS == (65, 82) and itemcraft.DEFAULT_ITEM_LEVEL == 82

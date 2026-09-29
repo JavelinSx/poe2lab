@@ -1172,10 +1172,13 @@ async function itemEditor(slot) {
         for (const side of ["Prefix", "Suffix"]) ed.slots[side] = ed.slots[side].slice(0, cat.limits[k][side === "Prefix" ? 0 : 1]);
         draw(); refresh();
       } }, t("jwRarity_" + k))));
-    // an end-game item: 80-82 (every best tier rolls from 82, jewellery's too)
-    const ilvl = h("div", { class: "segmented", title: t("mkItemLevelHint") }, (cat.itemLevels || [cat.itemLevel]).map((lv) =>
-      h("button", { class: ed.ilvl === lv ? "active" : "", onclick: () => { if (ed.ilvl !== lv) { ed.ilvl = lv; loadMods(); } } }, String(lv))));
-    const parts = [head, h("div", { class: "row" }, rarity, h("span", { class: "muted small" }, t("mkItemLevel")), ilvl)];
+    // an end-game item: 65-82 (every best tier rolls from 82, jewellery's too); a tier the level does not roll is shut
+    const [lo, hi] = cat.itemLevels || [65, 82];
+    const ilvlVal = h("span", { class: "q-val" }, String(ed.ilvl));
+    const ilvl = h("input", { type: "range", min: lo, max: hi, value: ed.ilvl, title: t("mkItemLevelHint"),
+      oninput: (e) => { ilvlVal.textContent = e.target.value; },
+      onchange: (e) => { ed.ilvl = Number(e.target.value); loadMods(); } });
+    const parts = [head, rarity, h("div", { class: "q-row", title: t("mkItemLevelHint") }, h("b", {}, t("mkItemLevel")), ilvlVal, ilvl)];
     if (b.quality) {
       const val = h("span", { class: "q-val" }, `${ed.quality}%`);
       parts.push(h("div", { class: "q-row" }, h("b", {}, t("gearQuality")), val,

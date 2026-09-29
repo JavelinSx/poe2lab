@@ -14,9 +14,9 @@ from .data.moddb import ModDB
 
 LIMITS = {"normal": (0, 0), "magic": (1, 1), "rare": (3, 3)}  # rarity -> (prefixes, suffixes)
 DEFAULT_ITEM_LEVEL = 82
-# the item levels an end-game item is made at: every best tier (T1) rolls from 82, on jewellery too (PoB's data:
-# a ring's best life, resistances and attributes want 81-82), so below 80 a made item only loses tiers
-ITEM_LEVELS = (80, 81, 82)
+# the item levels an end-game item is made at, lowest and highest: from 65 (the end game's first maps); every best
+# tier (T1) rolls from 82, on jewellery too (PoB's data: a ring's best life, resistances and attributes want 81-82)
+ITEM_LEVELS = (65, 82)
 ENDGAME_BASE = 65  # an armour's or weapon's base from this level (the expert tier) - or its type's best
 ALL_BASES = ("Ring", "Amulet", "Belt", "Quiver", "Jewel", "Flask", "Charm")  # none above 64: each for its implicit
 RARE_TITLE = "Crafted Item"
