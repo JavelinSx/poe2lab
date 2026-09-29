@@ -837,7 +837,16 @@ let folded = new Set();
 try { folded = new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (_) { /* storage blocked */ }
 const saveFolded = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded].slice(-500))); } catch (_) { /* storage blocked */ } };
 // per page: a build tab, or a page of its own (journal, glossary, feedback)
-const foldKey = (head) => `${state.page || state.tab}|${head.textContent.trim().slice(0, 80)}`;
+const foldKey = (head) => `${state.page || state.tab}|${(head.dataset.foldName || head.textContent).trim().slice(0, 80)}`;
+// a card folded until opened, its heading saying the main thing (a number, the best option) - the tab a list of lines
+function foldedCard(card, name, summary) {
+  const head = card && card.querySelector(":scope > h3, :scope > .slot-head");
+  if (!head) return card;
+  card.dataset.foldDefault = "1";
+  head.dataset.foldName = name;
+  if (summary) head.append(h("span", { class: "fold-sum" }, summary));
+  return card;
+}
 
 function foldable(card) {
   if (card.classList.contains("kpi") || card.children.length < 2) return null;
@@ -2157,7 +2166,13 @@ TABS.tree = async (view) => {
     cached("jewels", () => api(`/api/jewels?${buildQuery()}`)).catch((e) => ({ error: e.message }))]);
   const pointsSel = h("select", { onchange: (e) => { state.treePoints = Number(e.target.value); switchTab("tree"); } },
     [3, 4, 5, 6, 8, 10].map((n) => h("option", { value: n, selected: n === points }, t("upToPoints", n))));
-  const nodeName = (n) => h("span", { title: n.name, class: "named" }, icon(n.name, "ico passive"), trName(n.name));
+  // a node's name; the pointer over it shows its lines, the road to it and how much of the value is its own
+  const nodeName = (n) => hoverTip(h("span", { class: "named pk-node" }, icon(n.name, "ico passive"), trName(n.name)),
+    () => h("div", { class: "stack" }, h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(n.name, "ico passive"), h("b", {}, trName(n.name))),
+      stats(n.stats),
+      n.via && n.via.length ? h("div", { class: "hint" }, t("via", [...new Set(n.via.map(trName))].join(", "))) : null,
+      n.with && n.with.length ? h("div", { class: "hint" }, t("alongWithShort", n.with.length)) : null,
+      n.ownShare !== undefined && n.via && n.via.length ? h("div", { class: "muted small" }, t("treeOwnShare", Math.round(Math.min(1, Math.max(0, n.ownShare)) * 100))) : null));
   const typeChip = (type) => type === "Keystone" ? chip("tag", t("keystone")) : type === "Notable" ? chip("warn", t("notable")) : null;
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
 
@@ -2166,12 +2181,22 @@ TABS.tree = async (view) => {
   const viewTree = (focus) => {
     try { openTreeViewer(graph, r, asc.error ? null : asc, { packages: packs ? packs.packages : [], focus }); } catch (e) { toast(e.message); }
   };
-  const openTree = h("button", { class: "primary", onclick: () => viewTree(null) }, t("psOpenTree"));
-  const packsCard = h("div", { class: "card" }, h("h3", {}, t("pkTitle")), loading(t("pkLoading")));
+  // the tree map itself at the top of the tab; after an edit on it the advice below is from before - recount on demand
+  const stale = h("div", { class: "action hidden tv-stale" }, t("tvEditedNote"), " ",
+    h("button", { class: "primary small", onclick: () => { resetCache(); switchTab("tree"); } }, t("tvRecount")));
+  const mapBox = h("div", { class: "tree-embed-box" });
+  try {
+    openTreeViewer(graph, r, asc.error ? null : asc, { embed: mapBox, onEdit: () => stale.classList.remove("hidden") });
+  } catch (e) { mapBox.append(h("p", { class: "muted" }, e.message)); }
+  const packsHead = h("h3", {}, t("pkTitle"));
+  const packsBody = h("div", {}, loading(t("pkLoading")));
+  const packsCard = foldedCard(h("div", { class: "card" }, packsHead, packsBody), "packages", null);
   cached(`packages:${state.mode}`, () => api(`/api/tree/packages?mode=${state.mode}&${buildQuery()}`)).then((p) => {
     packs = p;
-    packsCard.replaceChildren(...packageCard(p, graph, viewTree).childNodes);
-  }).catch((e) => packsCard.replaceChildren(h("h3", {}, t("pkTitle")), h("p", { class: "muted" }, e.message)));
+    const best = p.packages[0];
+    if (best) packsHead.append(h("span", { class: "fold-sum" }, t("pkSum", p.packages.length, packageName(best), pct(best.changes.dps || 0))));
+    packsBody.replaceChildren(...[...packageCard(p, graph, viewTree).childNodes].slice(1));  // its own heading is packsHead
+  }).catch((e) => packsBody.replaceChildren(h("p", { class: "muted" }, e.message)));
   const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth")),
     h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
     r.buildTopics && r.buildTopics.length ? h("div", { class: "small", style: "margin-bottom:8px" }, t("treeBuildTopics"), " ",
@@ -2179,10 +2204,8 @@ TABS.tree = async (view) => {
     h("label", { class: "field", style: "max-width:220px;margin-bottom:10px" }, h("span", {}, t("reach")), pointsSel),
     r.growth.length ? h("table", { class: "versus-items" },
       h("thead", {}, h("tr", {}, h("th", {}, t("node")), h("th", { class: "num" }, t("points")), h("th", {}, t("perPoint")), h("th", {}, t("treeGives")), h("th", {}, ""))),
-      h("tbody", {}, r.growth.map((g) => h("tr", {},
-        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats), fitChips(g.fit), resourcesMoved(g.resources),
-          g.via.length ? h("div", { class: "hint" }, t("via", [...new Set(g.via.map(trName))].join(", ")),
-            g.ownShare !== undefined ? " · " + t("treeOwnShare", Math.round(Math.min(1, Math.max(0, g.ownShare)) * 100)) : "") : null),
+      h("tbody", {}, r.growth.map((g) => h("tr", { class: "dense" },
+        h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), fitChips(g.fit), resourcesMoved(g.resources)),
         h("td", { class: "num" }, g.points),
         h("td", {}, scoreBar(g.perPoint, maxValue)),
         h("td", {}, deltas(g.changes, METRIC, 0.3)),
@@ -2191,9 +2214,8 @@ TABS.tree = async (view) => {
 
   // notables worth nothing by themselves (only the road pays): on the build's topics but outside PoB's model -
   // worth a look; or asking for what the build lacks - not for it
-  const roadRow = (g) => h("tr", {},
-    h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), stats(g.stats), fitChips(g.fit),
-      g.via.length ? h("div", { class: "hint" }, t("treeRoadGives", [...new Set(g.via.map(trName))].join(", "))) : null),
+  const roadRow = (g) => h("tr", { class: "dense" },
+    h("td", {}, h("div", {}, nodeName(g), " ", typeChip(g.type)), fitChips(g.fit)),
     h("td", { class: "num" }, g.points),
     h("td", {}, editButton("add", g)));
   const onBuild = (r.roadOnly || []).filter((g) => g.verdict !== "offBuild");
@@ -2212,8 +2234,8 @@ TABS.tree = async (view) => {
     return h("div", { class: "hint" }, t("alongWith", Object.entries(counts)
       .map(([n, c]) => (c > 1 ? `${c}× ${trName(n)}` : trName(n))).join(", ")));
   };
-  const branchRow = (b) => h("tr", {},
-    h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats), alongWith(b.with)),
+  const branchRow = (b) => h("tr", { class: "dense" },
+    h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), alongWith(b.with)),
     h("td", { class: "num" }, b.points), h("td", {}, deltas(b.changes, METRIC, 0.3)), h("td", {}, editButton("remove", b)));
   const respec = h("div", { class: "card" }, h("h3", {}, t("treeRespec")), h("div", { class: "sub" }, t("treeRespecSub")),
     r.respec.length ? h("table", { class: "versus-items" },
@@ -2224,15 +2246,21 @@ TABS.tree = async (view) => {
   const listCard = (title, sub, list) => list.length ? h("div", { class: "card" },
     h("details", {}, h("summary", {}, `${title} (${list.length})`), h("div", { class: "sub", style: "margin-top:8px" }, sub),
       h("table", { class: "versus-items" }, h("tbody", {}, list.map((b) => h("tr", {},
-        h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type)), stats(b.stats)), h("td", { class: "num" }, t("pointsN", b.points)),
+        h("td", {}, h("div", {}, nodeName(b), " ", typeChip(b.type))), h("td", { class: "num" }, t("pointsN", b.points)),
         h("td", {}, editButton("remove", b)))))))) : null;
 
+  const best = r.growth[0];
+  const filled = jw.error ? 0 : jw.sockets.filter((s) => s.item).length;
   return h("div", { class: "stack" },
-    h("div", { class: "row" }, openTree, h("span", { class: "muted small" }, t("psOpenTreeHint"))),
-    h("div", { class: "sub" }, t("treeIntro", r.allocated)),
-    asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error)) : ascendancyCard(asc, graph),
-    planCard(r.plan, r.points), jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : jewelCard(jw),
-    packsCard, growth, roadOnly, respec, takenCard(graph),
+    mapBox, stale,
+    planCard(r.plan, r.points),
+    asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error))
+      : foldedCard(ascendancyCard(asc, graph), "ascendancy", asc.ascendancy ? t("tvAscPoints", asc.points, asc.maxPoints) : null),
+    jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : foldedCard(jewelCard(jw), "jewels", t("jwSum", filled, jw.sockets.length)),
+    packsCard,
+    foldedCard(growth, "growth", best ? t("treeGrowthSum", trName(best.name), fmt(best.perPoint, 1)) : null),
+    ...[...roadOnly.children].map((c, i) => foldedCard(c, "road" + i, t("pointsListN", c.querySelectorAll("tbody tr").length))),
+    foldedCard(respec, "respec", r.respec.length ? t("respecSum", r.respec.length) : null), takenCard(graph),
     listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
     listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
 };
@@ -2869,7 +2897,9 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
   // a jewel's picture: the tree's own (bases, some uniques), else the item's from the game's icons
   const jewelPicture = (j) => (j.art && treeArt(want(j.art, PIC))) || picture(ICONS[(j.name || "").split(",")[0].trim()] || ICONS[j.base]);
 
-  const overlay = h("div", { class: "tree-overlay" });
+  // opts.embed: a box on the page the viewer lives in (full screen by its button); opts.onEdit: after an edit on it
+  const embed = opts.embed || null;
+  const overlay = h("div", { class: embed ? "tree-overlay embedded" : "tree-overlay" });
   const canvas = h("canvas", { class: "tree-canvas" });
   const tip = h("div", { class: "tree-tip hidden" });
   let showAsc = false, scale = 0.03, ox = 0, oy = 0, hover = null, pinned = null;
@@ -2963,12 +2993,24 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     if (line) pointsBox.replaceChildren(...line.childNodes);
   };
   drawPoints();
+  const detach = () => { document.removeEventListener("keydown", onKey); window.removeEventListener("resize", onResize); };
   const close = () => {
-    overlay.remove(); document.removeEventListener("keydown", onKey); window.removeEventListener("resize", draw);
+    overlay.remove(); detach();
     if (edited) { resetCache(); switchTab("tree"); }  // the tab's numbers follow the edits
   };
-  // Esc a dialog over the viewer already took (the jewel editor, a question) closes only that dialog
-  const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) close(); };
+  const fullBtn = h("button", { class: "tree-close", title: t("tvFull"), onclick: () => setFull(!overlay.classList.contains("full")) }, "⛶");
+  const setFull = (on) => {
+    overlay.classList.toggle("full", on);
+    fullBtn.textContent = on ? "×" : "⛶";
+    fullBtn.title = on ? t("tvFullExit") : t("tvFull");
+  };
+  // Esc a dialog over the viewer already took (the jewel editor, a question) closes only that dialog; an embedded
+  // viewer only leaves full screen; one whose page is gone stops listening
+  const onKey = (e) => {
+    if (!overlay.isConnected) { detach(); return; }
+    if (e.key === "Escape" && !e.defaultPrevented) { if (embed) setFull(false); else close(); }
+  };
+  const onResize = () => { if (!overlay.isConnected) detach(); else draw(); };
   setFocus(focus);
   hintsLegend.append(dot(C.hint), t("tvGrowth"), dot("rgba(77,163,255,.45)"), t("tvRoad"),
     ...(full.useful.size ? [dot("rgba(77,163,255,.3)"), t("tvUseful")] : []));
@@ -2977,8 +3019,9 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     wsSeg, regrow, hintsBtn, packBox,
     h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.ws[1]), t("tvWsSet", 1), dot(C.ws[2]), t("tvWsSet", 2),
       hintsLegend, dot(C.respec, true), t("tvRespec")),
-    h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
-  document.body.append(overlay);
+    h("span", { class: "muted small" }, t("tvHint")),
+    embed ? fullBtn : h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
+  (embed || document.body).append(overlay);
   document.addEventListener("keydown", onKey);
 
   // a node with no links at all is not reached by a path (sockets and notables granted otherwise): shown taken only
@@ -3246,6 +3289,7 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     byId.clear();
     for (const x of graph.nodes) byId.set(x.id, x);
     edited = true;
+    if (opts.onEdit) opts.onEdit();
     regrow.classList.add("stale");  // the hints were for the tree before this edit
     loadFrames();
     drawPoints();
@@ -3305,8 +3349,14 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     ox = x - (x - ox) * k; oy = y - (y - oy) * k; scale *= k;
     draw();
   }, { passive: false });
-  window.addEventListener("resize", draw);
-  requestAnimationFrame(() => { fit(); draw(); });
+  window.addEventListener("resize", onResize);
+  // drawn once it has a size (an embedded viewer is laid out after the tab is put on the page), again on each change
+  let sized = false;
+  new ResizeObserver(() => {
+    if (!canvas.clientWidth || !canvas.clientHeight) return;
+    if (!sized) { sized = true; fit(); }
+    draw();
+  }).observe(canvas);
 }
 
 const gemName = (name) => h("span", { class: "named", title: name }, icon(name), trName(name));

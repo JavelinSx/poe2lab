@@ -511,6 +511,16 @@ details > summary .ico { margin-left: 2px; }
 .ps-node.taken b { color: var(--gold); }
 .ps-node.keystone { outline: 1px solid rgba(214, 165, 79, .45); }
 .tree-overlay { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; }
+.tree-overlay.embedded { position: relative; inset: auto; z-index: auto; height: 64vh; min-height: 440px; border: 1px solid var(--line);
+  border-radius: 10px; overflow: hidden; }
+.tree-overlay.embedded.full { position: fixed; inset: 0; height: auto; z-index: 50; border-radius: 0; border: 0; }
+.tree-overlay.embedded .tree-bar { gap: 10px; padding: 6px 10px; }
+.fold-sum { margin-left: 10px; font-weight: 400; font-size: 13px; color: var(--muted); }
+tr.dense td { padding-top: 5px; padding-bottom: 5px; }
+tr.dense td:first-child { min-width: 250px; }
+tr.dense td:first-child > div:first-child { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+tr.dense .fit-chips { margin-top: 2px; }
+.tv-stale { display: flex; align-items: center; gap: 8px; }
 .tree-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .tree-close { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; font-size: 20px; line-height: 1; padding: 2px 10px; cursor: pointer; }
 .tree-close:hover { border-color: var(--gold); color: var(--gold); }
