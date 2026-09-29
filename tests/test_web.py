@@ -393,3 +393,21 @@ def test_a_prompt_for_any_chat_ai(client):
     assert "Furious Slam" in text and "build_report" in text and "Надетые предметы" in text
     assert small["chars"] < full["chars"] and small["chars"] == len(text)
     assert client.post("/api/chat/prompt", json={"question": " "}, headers=H).status_code == 400
+
+
+def test_a_mechanic_package_taken_at_once(client):
+    client.post("/api/load", json={"name": "titan"}, headers=H)
+    client.post("/api/tree/reset", headers=H)
+    packs = client.get("/api/tree/packages").json()["packages"]
+    assert packs and all(len(p["notables"]) >= 2 for p in packs)
+    pk = packs[0]
+    before = client.get("/api/tree/graph").json()["budget"]["used"]
+    plan = client.post("/api/tree/add-many", json={"ids": [n["id"] for n in pk["notables"]], "name": "package:" + pk["mechanic"]},
+                       headers=H).json()
+    entry = plan["log"][-1]
+    assert entry["target"] == "package:" + pk["mechanic"] and len(entry["nodes"]) <= pk["points"]
+    graph = client.get("/api/tree/graph").json()
+    assert all(n["alloc"] for n in graph["nodes"] if n["id"] in {x["id"] for x in pk["notables"]})
+    assert graph["budget"]["used"] == before + len(entry["nodes"])
+    assert client.post("/api/tree/add-many", json={"ids": []}, headers=H).status_code == 422
+    client.post("/api/tree/reset", headers=H)

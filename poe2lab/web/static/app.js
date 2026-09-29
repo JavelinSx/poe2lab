@@ -2023,9 +2023,17 @@ TABS.tree = async (view) => {
   const typeChip = (type) => type === "Keystone" ? chip("tag", t("keystone")) : type === "Notable" ? chip("warn", t("notable")) : null;
   const maxValue = Math.max(0.01, ...r.growth.map((g) => g.perPoint));
 
-  const openTree = h("button", { class: "primary", onclick: () => {
-    try { openTreeViewer(graph, r, asc.error ? null : asc); } catch (e) { toast(e.message); }
-  } }, t("psOpenTree"));
+  // each mechanic's best notables taken together: computed apart (a few seconds), the tab does not wait for them
+  let packs = null;
+  const viewTree = (focus) => {
+    try { openTreeViewer(graph, r, asc.error ? null : asc, { packages: packs ? packs.packages : [], focus }); } catch (e) { toast(e.message); }
+  };
+  const openTree = h("button", { class: "primary", onclick: () => viewTree(null) }, t("psOpenTree"));
+  const packsCard = h("div", { class: "card" }, h("h3", {}, t("pkTitle")), loading(t("pkLoading")));
+  cached(`packages:${state.mode}`, () => api(`/api/tree/packages?mode=${state.mode}&${buildQuery()}`)).then((p) => {
+    packs = p;
+    packsCard.replaceChildren(...packageCard(p, graph, viewTree).childNodes);
+  }).catch((e) => packsCard.replaceChildren(h("h3", {}, t("pkTitle")), h("p", { class: "muted" }, e.message)));
   const growth = h("div", { class: "card" }, h("h3", {}, t("treeGrowth")),
     h("div", { class: "sub" }, t("treeGrowthSub", t("mode_" + state.mode))),
     r.buildTopics && r.buildTopics.length ? h("div", { class: "small", style: "margin-bottom:8px" }, t("treeBuildTopics"), " ",
@@ -2086,10 +2094,36 @@ TABS.tree = async (view) => {
     h("div", { class: "sub" }, t("treeIntro", r.allocated)),
     asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error)) : ascendancyCard(asc, graph),
     planCard(r.plan, r.points), jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : jewelCard(jw),
-    growth, roadOnly, respec, takenCard(graph),
+    packsCard, growth, roadOnly, respec, takenCard(graph),
     listCard(t("treeUnseen"), t("treeUnseenSub"), r.unseen),
     listCard(t("treeAttributes"), t("treeAttributesSub"), r.attributes));
 };
+
+// a mechanic's package: its notables, what they give together (and how that differs from one by one), what the
+// mechanic gives the build now; shown on the tree or taken at once
+const packageName = (pk) => t("pk_" + pk.mechanic);
+function packageCard(p, graph, viewTree) {
+  const best = Math.max(0.01, ...p.packages.map((pk) => pk.perPoint));
+  const nodeName = (n) => h("span", { title: n.name, class: "named" }, icon(n.name, "ico passive"), trName(n.name));
+  const row = (pk) => h("div", { class: "pk-row" + (pk.yours ? " yours" : "") },
+    h("div", { class: "pk-head" }, h("b", {}, packageName(pk)), pk.yours ? chip("ok", t("pkYours")) : chip("tag", t("pkOther")),
+      h("span", { class: "muted small" }, t("pointsN", pk.points)), scoreBar(pk.perPoint, best)),
+    h("div", { class: "pk-nodes" }, pk.notables.map((n, i) => [i ? h("span", { class: "muted" }, " + ") : null, nodeName(n)])),
+    h("div", {}, deltas(pk.changes, METRIC, 0.3)),
+    pk.synergy >= 0.1 ? h("div", { class: "small pos" }, t("pkTogetherMore", Math.round(pk.synergy * 100)))
+      : pk.synergy <= -0.1 ? h("div", { class: "small warn-text" }, t("pkTogetherLess", Math.round(-pk.synergy * 100))) : null,
+    pk.now ? h("div", { class: "small" }, h("span", { class: "muted" }, t("pkNow", packageName(pk)), " "), deltas(pk.now, METRIC, 0.3)) : null,
+    h("div", { class: "row" },
+      h("button", { class: "ghost small", title: t("pkShowHint"), onclick: () => viewTree(pk) }, t("pkShow")),
+      h("button", { class: "ghost small", title: t("pkTakeHint"), onclick: () => takePackage(pk) }, t("pkTake"))));
+  return h("div", { class: "card" }, h("h3", {}, t("pkTitle")), h("div", { class: "sub" }, t("pkSub")),
+    p.buildMechanics.length ? h("div", { class: "small", style: "margin-bottom:8px" }, t("pkBuildHas"), " ",
+      p.buildMechanics.map((k) => t("pk_" + k)).join(", ")) : null,
+    p.packages.length ? h("div", { class: "pk-list" }, p.packages.map(row)) : h("p", { class: "muted" }, t("pkNone")));
+}
+// the notables nearest first: each road starts from the tree as it is after the one before
+const takePackage = (pk) => treeCall("/api/tree/add-many",
+  { ids: [...pk.notables].sort((a, b) => a.points - b.points).map((n) => n.id), name: "package:" + pk.mechanic }, t("pkTaking"));
 
 // ---- tree plan: edits live in the engine only; every tab computes with them until reset ----
 // an edit of the plan from any tab, then the tab again; `rebuild`: the build's gear and gems are read anew (the header,
@@ -2180,6 +2214,8 @@ function planCard(plan, points) {
       e.dropped && e.dropped.length ? h("span", { class: "muted" }, " " + t("gmDropped", e.dropped.map(trName).join(", "))) : null)
     : e.action === "swap"
     ? h("li", {}, h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
+    : e.action === "add" && (e.target || "").startsWith("package:")
+    ? h("li", { class: "pos" }, `+ ${t("pkLog", t("pk_" + e.target.slice(8)))} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
     : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`)
       : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`);
   // the points: what the character's level gives (pointsLine) - "more than the build had" said little for a build
@@ -2565,7 +2601,8 @@ function takenCard(graph) {
 // The passive tree drawn from PoB's own layout: allocated nodes in gold, the best growth options and the road to
 // them in green, respec candidates outlined in red; the main tree and the ascendancy apart. Wheel zooms, drag pans,
 // hovering a node shows what it gives.
-function openTreeViewer(graph, tree, asc) {
+// opts.packages: the mechanics' packages, shown with the hints; opts.focus: one package alone, to see and take
+function openTreeViewer(graph, tree, asc, opts = {}) {
   const css = getComputedStyle(document.documentElement);
   const col = (name, fallback) => (css.getPropertyValue(name) || fallback).trim();
   // taken: gold on the main tree, red and green in weapon set I and II (PoB's colours); hints blue, respec violet
@@ -2578,16 +2615,34 @@ function openTreeViewer(graph, tree, asc) {
   let hints = true;
   try { hints = localStorage.getItem("poe2lab.treeHints") !== "off"; } catch { /* no storage: shown */ }
   let full = null;
+  // a package opened to be seen shows whatever the switch says
   const applyHints = () => {
-    ({ planned, growth, road, useful } = hints ? full : { planned: new Set(), growth: new Set(), road: new Set(), useful: new Set() });
+    ({ planned, growth, road, useful } = hints || focus ? full : { planned: new Set(), growth: new Set(), road: new Set(), useful: new Set() });
   };
+  let packs = opts.packages || [], focus = opts.focus || null;
+  let packOf = new Map();  // a package's notable -> its mechanic, for the tip
+  let latest = null;  // the tree analysis the hints are from (a regrow brings a newer one)
   const suggest = (tree, asc) => {
+    latest = { tree, asc };
+    packOf = new Map((focus ? [focus] : packs).flatMap((pk) => pk.notables.map((n) => [n.id, pk.mechanic])));
+    if (focus) {
+      // one package alone: its notables and their road, nothing else suggested
+      planned = new Set();
+      growth = new Set(focus.notables.map((n) => n.id));
+      road = new Set(focus.path);
+      useful = new Set();
+      worth = new Map();
+      respec = new Set((tree.respec || []).map((b) => b.id));
+      full = { planned, growth, road, useful };
+      applyHints();
+      return;
+    }
     const plans = asc ? [asc.plan, ...(asc.choices || []).map((c) => c.plan)].filter(Boolean) : [];
     const ascUseful = asc ? [...(asc.options || []), ...(asc.choices || []).flatMap((c) => c.notables)].filter((o) => o.value > 0.05) : [];
     planned = new Set(plans.flatMap((p) => p.ids));
     const ascGrowth = plans.length ? [...planned] : ascUseful.map((o) => o.id);
-    growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascGrowth]);
-    road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...plans.flatMap((p) => p.path),
+    growth = new Set([...(tree.growth || []).map((g) => g.id), ...ascGrowth, ...packOf.keys()]);
+    road = new Set([...(tree.growth || []).flatMap((g) => g.path || []), ...plans.flatMap((p) => p.path), ...packs.flatMap((pk) => pk.path),
       ...(plans.length ? [] : ascUseful.flatMap((o) => o.path || []))]);
     useful = new Set(ascUseful.map((o) => o.id).filter((id) => !growth.has(id)));
     worth = new Map([...(tree.growth || []).map((g) => [g.id, g]), ...ascUseful.map((o) => [o.id, o])]);
@@ -2678,8 +2733,11 @@ function openTreeViewer(graph, tree, asc) {
     regrow.textContent = t("tvRegrowing");
     try {
       const points = state.treePoints || 6;
-      const [tr, as] = await Promise.all([api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`),
-        api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`).catch(() => null)]);
+      const [tr, as, pk] = await Promise.all([api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`),
+        api(`/api/ascendancy?mode=${state.mode}&${buildQuery()}`).catch(() => null),
+        api(`/api/tree/packages?mode=${state.mode}&${buildQuery()}`).catch(() => null)]);
+      packs = pk ? pk.packages : [];
+      setFocus(null);
       suggest(tr, as);
       setHints(true);  // asked for the best growth: show it
       regrow.classList.remove("stale");
@@ -2690,6 +2748,22 @@ function openTreeViewer(graph, tree, asc) {
     regrow.disabled = false;
     regrow.textContent = t("tvRegrow");
   } }, t("tvRegrow"));
+  const packBox = h("span", { class: "tv-pack" });
+  const setFocus = (pk) => {
+    focus = pk;
+    if (!pk) { packBox.replaceChildren(); packBox.classList.add("hidden"); return; }
+    packBox.classList.remove("hidden");
+    packBox.replaceChildren(h("b", {}, t("pkFocus", t("pk_" + pk.mechanic), pk.points)), deltas(pk.changes, METRIC, 0.3),
+      h("button", { class: "primary small", title: t("pkTakeHint"), onclick: () => run(async () => {
+        await api("/api/tree/add-many", { method: "POST", body: {
+          ids: [...pk.notables].sort((a, b) => a.points - b.points).map((n) => n.id), name: "package:" + pk.mechanic } });
+        setFocus(null);
+        suggest(latest.tree, latest.asc);
+        await refreshGraph(null);
+        toast(t("pkTaken", t("pk_" + pk.mechanic)), true);
+      }) }, t("pkTake")),
+      h("button", { class: "ghost small", title: t("pkAllHint"), onclick: () => { setFocus(null); suggest(latest.tree, latest.asc); setHints(true); draw(); } }, t("pkAll")));
+  };
   const hintsBtn = h("button", { class: "ghost small tv-hints", title: t("tvHintsHint"), onclick: () => { setHints(!hints); draw(); } });
   const hintsLegend = h("span", { class: "tree-legend-part" });
   const setHints = (on) => {
@@ -2712,11 +2786,12 @@ function openTreeViewer(graph, tree, asc) {
   };
   // Esc a dialog over the viewer already took (the jewel editor, a question) closes only that dialog
   const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) close(); };
+  setFocus(focus);
   hintsLegend.append(dot(C.hint), t("tvGrowth"), dot("rgba(77,163,255,.45)"), t("tvRoad"),
     ...(full.useful.size ? [dot("rgba(77,163,255,.3)"), t("tvUseful")] : []));
   setHints(hints);
   overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox,
-    wsSeg, regrow, hintsBtn,
+    wsSeg, regrow, hintsBtn, packBox,
     h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.ws[1]), t("tvWsSet", 1), dot(C.ws[2]), t("tvWsSet", 2),
       hintsLegend, dot(C.respec, true), t("tvRespec")),
     h("span", { class: "muted small" }, t("tvHint")), h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
@@ -2727,8 +2802,9 @@ function openTreeViewer(graph, tree, asc) {
   const visible = () => graph.nodes.filter((n) => (showAsc ? n.asc : !n.asc) && (n.alloc || n.links.length));
   function fit() {
     const all = visible();
-    const focus = showAsc ? all : all.filter((n) => n.alloc || growth.has(n.id) || road.has(n.id));
-    const ns = focus.length ? focus : all;
+    const pk = focus && !showAsc ? new Set(focus.path) : null;
+    const shown = pk ? all.filter((n) => pk.has(n.id)) : showAsc ? all : all.filter((n) => n.alloc || growth.has(n.id) || road.has(n.id));
+    const ns = shown.length ? shown : all;
     const xs = ns.map((n) => n.x), ys = ns.map((n) => n.y);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     const w = canvas.clientWidth || window.innerWidth, hgt = canvas.clientHeight || window.innerHeight;
@@ -2939,7 +3015,9 @@ function openTreeViewer(graph, tree, asc) {
   function showTip(n, x, y) {
     if (!n) { tip.classList.add("hidden"); return; }
     lastTip = [x, y];
-    const tags = [n.alloc ? (n.mode ? t("tvWsSet", n.mode) : t("tvAlloc")) : null, planned.has(n.id) ? t("tvPlan") : growth.has(n.id) ? t("tvGrowth") : null,
+    const tags = [n.alloc ? (n.mode ? t("tvWsSet", n.mode) : t("tvAlloc")) : null,
+      packOf.has(n.id) && !n.alloc ? t("pkTag", t("pk_" + packOf.get(n.id))) : null,
+      planned.has(n.id) ? t("tvPlan") : growth.has(n.id) && !packOf.has(n.id) ? t("tvGrowth") : null,
       road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null, useful.has(n.id) ? t("tvUseful") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
     const w = worth.get(n.id);
@@ -2976,6 +3054,30 @@ function openTreeViewer(graph, tree, asc) {
     if (n !== hover) { hover = n; draw(); }
     if (!pinned) showTip(n, e.clientX - overlay.getBoundingClientRect().left, e.clientY - overlay.getBoundingClientRect().top);
   });
+  // the tree as the server has it now, after an edit (a click, a jewel, a package); `n`: the node whose tip to show
+  async function refreshGraph(n, tipAt) {
+    const fresh = await api(`/api/tree/graph?${buildQuery()}`);
+    graph.nodes = fresh.nodes;
+    graph.budget = fresh.budget;
+    graph.frames = fresh.frames;
+    byId.clear();
+    for (const x of graph.nodes) byId.set(x.id, x);
+    edited = true;
+    regrow.classList.add("stale");  // the hints were for the tree before this edit
+    loadFrames();
+    drawPoints();
+    hover = n ? byId.get(n.id) || null : null;
+    if (hover) showTip(hover, ...tipAt);
+    draw();
+  }
+  // one edit at a time: the tree is busy until the server answers
+  async function run(fn) {
+    busy = true;
+    canvas.classList.add("busy");
+    try { await fn(); } catch (err) { toast(err.message); }
+    busy = false;
+    canvas.classList.remove("busy");
+  }
   // a click as in PoB: a node not taken is taken with the path to it, a taken one goes with what hangs on it
   canvas.addEventListener("click", async (e) => {
     if ((drag && drag.moved) || busy) return;
@@ -2990,29 +3092,7 @@ function openTreeViewer(graph, tree, asc) {
       return;
     }
     const tipAt = [e.clientX - at.left, e.clientY - at.top];
-    // the tree as the server has it now: after a click, a jewel put in or taken out
-    const refresh = async () => {
-      const fresh = await api(`/api/tree/graph?${buildQuery()}`);
-      graph.nodes = fresh.nodes;
-      graph.budget = fresh.budget;
-      graph.frames = fresh.frames;
-      byId.clear();
-      for (const x of graph.nodes) byId.set(x.id, x);
-      edited = true;
-      regrow.classList.add("stale");  // the green suggestions were for the tree before this click
-      loadFrames();
-      drawPoints();
-      hover = byId.get(n.id) || null;
-      showTip(hover, ...tipAt);
-      draw();
-    };
-    const run = async (fn) => {
-      busy = true;
-      canvas.classList.add("busy");
-      try { await fn(); } catch (err) { toast(err.message); }
-      busy = false;
-      canvas.classList.remove("busy");
-    };
+    const refresh = () => refreshGraph(n, tipAt);
     if (n.type === "Socket" && n.alloc) {
       await run(async () => {
         const socket = (await api(`/api/jewels?${buildQuery()}`)).sockets.find((s) => s.node === n.id);

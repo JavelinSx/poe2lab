@@ -21,6 +21,7 @@ from ..analysis.report import score as report_score
 from ..analysis.gradients import metric_changes
 from ..analysis.tree import analyse as analyse_tree
 from ..analysis.tree import ascendancy as tree_ascendancy
+from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
@@ -1081,6 +1082,17 @@ def tree(mode: str = "balanced", points: int = 6, build: str | None = None):
         return _json(result | {"plan": _plan_view(), "points": session.engine.points_budget()})
 
 
+@app.get("/api/tree/packages")
+def tree_packages(mode: str = "balanced", build: str | None = None):
+    """Each mechanic's best notables taken together (rage, charges, crit, ailments...): what they give as one."""
+    if mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    with session.lock:
+        session.require(build)
+        return _json(session.cached(("tree-packages", mode), lambda: mechanic_packages(
+            session.engine, session.profile, mode=mode)))
+
+
 @app.get("/api/tree/graph")
 def tree_graph(build: str | None = None):
     """The passive tree to draw: nodes with positions, links and what is allocated (the plan's edits included)."""
@@ -1172,6 +1184,25 @@ def tree_add(req: TreeEdit):
         _plan_start()
         names = _errors(lambda: session.engine.tree_add(req.id, req.set))
         session.plan["log"].append({"action": "add", "target": req.name, "nodes": names} | ({"set": req.set} if req.set else {}))
+        _plan_changed()
+        return _json(_plan_view())
+
+
+class TreeEditMany(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=12)
+    name: str = ""  # what the plan calls the edit: a mechanic's package
+
+
+@app.post("/api/tree/add-many")
+def tree_add_many(req: TreeEditMany):
+    """Several notables taken at once (a mechanic's package): one edit of the plan, the roads shared."""
+    with session.lock:
+        session.require()
+        _plan_start()
+        names = []
+        for node in req.ids:
+            names += _errors(lambda: session.engine.tree_add(node))
+        session.plan["log"].append({"action": "add", "target": req.name, "nodes": names})
         _plan_changed()
         return _json(_plan_view())
 

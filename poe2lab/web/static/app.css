@@ -614,6 +614,15 @@ details > summary .ico { margin-left: 2px; }
 .gear-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
 .gear-top > .card { position: sticky; top: 8px; }
 .tv-points { font-size: 13px; }
+.pk-list { display: flex; flex-direction: column; gap: 10px; }
+.pk-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--panel-2);
+  border-left: 3px solid var(--line); }
+.pk-row.yours { border-left-color: var(--gold); }
+.pk-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pk-nodes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.warn-text { color: var(--warn); }
+.tv-pack { display: inline-flex; align-items: center; gap: 8px; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid #4da3ff; }
 .tv-hints { opacity: .7; }
 .tv-hints.on { opacity: 1; border-color: #4da3ff; color: #4da3ff; }
 .tv-ws button.ws1 { color: #e5484d; }

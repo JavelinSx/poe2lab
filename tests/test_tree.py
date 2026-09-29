@@ -180,3 +180,25 @@ def test_weapon_set_nodes():
         engine.tree_remove(socket["id"], 1)
     engine.tree_remove(near["id"], 1)
     assert engine.points_budget() == graph["budget"]
+
+
+def test_mechanic_packages():
+    """A mechanic's notables priced together: each package holds two or more of its notables within reach, its path
+    covers theirs, the best per point comes first; synergy compares the whole with the notables one by one."""
+    from poe2lab.analysis.tree import PACKAGE_NOTABLES, PACKAGE_POINTS, mechanic_packages
+    engine, bp = open_build(BUILDS / "titan.txt")
+    r = mechanic_packages(engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))
+    packs = r["packages"]
+    assert packs and "rage" in r["buildMechanics"] and "stun" in r["buildMechanics"]
+    assert [p["perPoint"] for p in packs] == sorted((p["perPoint"] for p in packs), reverse=True)
+    for p in packs:
+        assert 2 <= len(p["notables"]) <= PACKAGE_NOTABLES and p["points"] == len(p["path"]) <= PACKAGE_POINTS
+        assert {n["id"] for n in p["notables"]} <= set(p["path"]) and p["value"] > 0
+        assert p["synergy"] == pytest.approx(p["value"] / p["alone"] - 1)
+        assert p["yours"] == (p["mechanic"] in r["buildMechanics"])
+    # the titan's crit notables multiply: together worth clearly more than one by one
+    crit = next(p for p in packs if p["mechanic"] == "crit")
+    assert crit["synergy"] > 0.1 and crit["changes"]["dps"] > 20
+    # rage is the titan's: what it gives now is the build without it
+    rage = next((p for p in packs if p["mechanic"] == "rage"), None)
+    assert rage is None or rage["now"]["dps"] < -10

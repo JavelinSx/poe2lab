@@ -147,6 +147,113 @@ def optimize(engine, profile: MapProfile, mode: str, budget: int, seed: int | No
     return {"steps": steps, "total": current, "changes": metric_changes(engine.what_if(config=cfg), start)}
 
 
+# ---- mechanic packages: a mechanic's notables taken together ----
+# One notable at a time misses what they do together: scaling that multiplies (crit chance with crit damage, rage
+# with more rage) is worth more together than the sum of its parts, capped chances (bleed, stun) are worth less, and
+# notables near each other share their road. A package is the best set of one mechanic's notables PoB prices as one.
+
+# (mechanic, pattern on a notable's lines, lower-cased)
+PACKAGE_MECHANICS = [
+    ("rage", r"\brage\b"), ("frenzy", r"frenzy charge"), ("power", r"power charge"),
+    ("endurance", r"endurance charge"), ("crit", r"\bcritical"), ("ignite", r"\bignit"), ("shock", r"\bshock"),
+    ("freeze", r"\bfreez|\bchill"), ("bleed", r"\bbleed"), ("poison", r"\bpoison"), ("stun", r"\bstun|\bdaze"),
+    ("armour_break", r"break\w* armour|armour break|fully broken"), ("impale", r"\bimpal"), ("combo", r"\bcombo\b"),
+    ("glory", r"\bglory\b"), ("exposure", r"\bexposure\b"), ("infusion", r"\binfus"), ("minion", r"\bminions?\b"),
+    ("totem", r"\btotems?\b"), ("warcry", r"\bwarcr"), ("shapeshift", r"shapeshift|\bbear\b|\bwyvern\b|\bwolf\b"),
+    ("curse", r"\bcurses?\b"), ("herald", r"\bheralds?\b"), ("block", r"\bblock"),
+]
+_PACKAGE_PATTERNS = [(k, re.compile(pat)) for k, pat in PACKAGE_MECHANICS]
+PACKAGE_REACH = 10  # notables up to this many points away
+PACKAGE_POINTS = 16  # a package costs at most this many points
+PACKAGE_NOTABLES = 4  # at most this many notables in one
+PACKAGE_POOL = 8  # the best notables of a mechanic tried together
+PACKAGE_KEEP = 0.8  # a notable joins while the package keeps this share of its value per point
+CRIT_BUILD = 20  # a build critting this often (%) has crit as its own mechanic
+# a mechanic switched off to see what it gives the build now (PoB's configuration)
+_MECHANIC_OFF = {"rage": {"multiplierRage": 0}, "frenzy": {"useFrenzyCharges": False},
+                 "power": {"usePowerCharges": False}, "endurance": {"useEnduranceCharges": False}}
+
+
+def build_mechanics(engine, output: dict) -> set[str]:
+    """The mechanics the build has: the topics of its skills and gear (fit.build_topics), the charges its gems make
+    or spend, crit when it crits often."""
+    from .skills import mechanics_of
+    have = build_topics(engine, output)
+    for g in engine.skill_groups():
+        if not g.get("enabled", True):
+            continue
+        for gem in g.get("gems", []):
+            if gem.get("enabled", True):
+                m = mechanics_of(gem)
+                have |= {k for k in m["creates"] + m["uses"] if k in ("frenzy", "power", "endurance", "infusion")}
+    if (output.get("CritChance") or 0) >= CRIT_BUILD:
+        have.add("crit")
+    return have
+
+
+def mechanic_packages(engine, profile: MapProfile, mode: str = "balanced", top: int = 8) -> dict:
+    """For each mechanic, the best set of its notables within reach taken together: grown from the notable worth
+    most per point, adding the one that keeps the whole best per point (PoB prices each set as one - shared roads
+    counted once). With the notables' own sum (`alone`) - `synergy` is how much more (or less) they give together -
+    and, for rage and charges, what the mechanic gives the build now (`now`: the build without it). Best value per
+    point first; `yours`: a mechanic the build has (another one may still pay more - crit for a build not built on
+    it)."""
+    cfg = profile.config()
+    weights = defence_weights(survivable_hits(engine, profile))
+    base = engine.what_if(config=cfg)
+    have = build_mechanics(engine, base)
+    reach = [t for t in engine.tree_reach(PACKAGE_REACH) if t["type"] in ("Notable", "Keystone")]
+    priced = {}
+
+    def price(nodes) -> tuple[float, dict]:
+        key = frozenset(nodes)
+        if key not in priced:
+            changes = metric_changes(engine.what_if(config=cfg, add_nodes=sorted(key)), base)
+            priced[key] = (_value(changes, mode, weights), changes)
+        return priced[key]
+
+    out = []
+    for key, pattern in _PACKAGE_PATTERNS:
+        singles = []
+        for t in reach:
+            if pattern.search(" ".join(t["stats"]).lower()):
+                value = price(t["path"])[0]
+                if value > 0:
+                    singles.append((value / len(t["path"]), value, t))
+        if len(singles) < 2:
+            continue
+        pool = sorted(singles, key=lambda x: -x[0])[:PACKAGE_POOL]
+        chosen, nodes = [pool[0]], set(pool[0][2]["path"])
+        value = pool[0][1]
+        while len(chosen) < PACKAGE_NOTABLES:
+            best = None
+            for s in pool:
+                union = nodes | set(s[2]["path"])
+                if s in chosen or len(union) > PACKAGE_POINTS:
+                    continue
+                v = price(union)[0]
+                if best is None or v / len(union) > best[0]:
+                    best = (v / len(union), v, s, union)
+            if best is None or best[0] < PACKAGE_KEEP * value / len(nodes):
+                break
+            chosen.append(best[2])
+            nodes, value = best[3], best[1]
+        if len(chosen) < 2:
+            continue  # one notable is an ordinary growth option
+        alone = sum(s[1] for s in chosen)
+        now = None
+        if key in _MECHANIC_OFF and key in have:
+            now = metric_changes(engine.what_if(config=cfg | _MECHANIC_OFF[key]), base)
+        out.append({"mechanic": key, "yours": key in have,
+                    "notables": [{"id": s[2]["id"], "name": s[2]["name"], "type": s[2]["type"], "stats": s[2]["stats"],
+                                  "points": len(s[2]["path"])} for s in chosen],
+                    "path": sorted(nodes), "points": len(nodes), "changes": price(nodes)[1], "value": value,
+                    "perPoint": value / len(nodes), "alone": alone, "synergy": value / alone - 1 if alone > 0 else 0.0,
+                    "now": now})
+    out.sort(key=lambda pk: -pk["perPoint"])
+    return {"mode": mode, "packages": out[:top], "buildMechanics": sorted(have & {k for k, _ in PACKAGE_MECHANICS})}
+
+
 ASCENDANCY_POINTS = 8  # four trials of ascension, two points each
 PLAN_OPTIONS = 7  # the best notables tried together for the ascendancy plan
 PLAN_NOTABLES = 4  # at most this many in one plan: 8 points buy about four with the small nodes between
