@@ -570,7 +570,6 @@ function renderHeader() {
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
-  $("#bh-reload").title = t("reloadHint");
   $("#bh-planner").title = t("toPlannerHint");
   renderChanges();
   renderCtorBar();
@@ -594,13 +593,26 @@ function renderHeader() {
   picker.replaceChildren(button, list);
 }
 
-// ---------- the player's own character inside a build: every tab works on it, the build is the guide ----------
+// ---------- the character and the build brought up to date: one dialog, a PoB code pasted at once ----------
+// With the player's character in the build the code updates it; without one it is either the player's character
+// (the build becomes the guide) or the build's own newer code. A build saved in PoB is updated in PoB.
 function characterDialog() {
   const b = state.build;
+  let kind = "main";  // what the pasted code is when the build has no character yet: "main" or "build"
   const code = h("textarea", { rows: 7, placeholder: t("chCodePh"), spellcheck: "false" });
   const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
   const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); };
   const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
+  // PoB opened on this build (or brought forward) to copy the code from it
+  const pobNote = h("div", { class: "action hidden" }, t("pobCodeOpened"));
+  const openPob = h("button", { class: "ghost", onclick: async () => {
+    try {
+      const r = await api("/api/pob/open", { method: "POST" });
+      if (r.state === "missing") { toast(t("pobMissing")); return; }
+      pobNote.classList.remove("hidden");
+      code.focus();
+    } catch (e) { toast(e.message); }
+  } }, t("pobOpen"));
   const opened = (nb, msg) => {
     state.build = nb;
     state.chat = [];
@@ -611,16 +623,36 @@ function characterDialog() {
     switchTab(state.tab);
     toast(msg, true);
   };
+  const label = () => (b.main ? t("chGoUpdate") : kind === "main" ? t("chPut") : t("chGoBuild"));
   const put = h("button", { class: "primary", onclick: async () => {
     if (!code.value.trim()) { code.focus(); return; }
     put.disabled = true;
     put.textContent = t("chLoading");
     try {
-      const nb = await api("/api/character", { method: "POST", body: { code: code.value } });
-      close();
-      opened(nb, t("chLoaded", t("level", nb.main.level)));
-    } catch (e) { toast(e.message); put.disabled = false; put.textContent = b.main ? t("chReplace") : t("chPut"); }
-  } }, b.main ? t("chReplace") : t("chPut"));
+      if (!b.main && kind === "main") {  // the first time: the character goes into the build
+        const nb = await api("/api/character", { method: "POST", body: { code: code.value } });
+        close();
+        opened(nb, t("chLoaded", t("level", nb.main.level)));
+      } else {  // a newer code of the character (or of the build): what changed is shown over the tabs
+        await applyReload(code.value);
+        close();
+      }
+    } catch (e) { toast(e.message); put.disabled = false; put.textContent = label(); }
+  } }, label());
+  // no character yet: what the code is - the player's character or the build's own newer version
+  const pobBuild = h("div", { class: "stack hidden" }, h("div", { class: "sub" }, t("chPobBuild")),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { close(); updateViaPob(); } }, t("chPobUpdate"))));
+  const pasteBox = h("div", { class: "stack" }, h("div", { class: "row" }, openPob), pobNote, code);
+  const kindSeg = b.main ? null : h("div", { class: "segmented ch-kind" }, [["main", t("chKindMain")], ["build", t("chKindBuild")]].map(([k, text]) =>
+    h("button", { class: k === kind ? "active" : "", onclick: (e) => {
+      kind = k;
+      kindSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === e.currentTarget));
+      const viaPob = kind === "build" && b.kind === "pob";  // a build saved in PoB changes only in PoB
+      pobBuild.classList.toggle("hidden", !viaPob);
+      pasteBox.classList.toggle("hidden", viaPob);
+      put.classList.toggle("hidden", viaPob);
+      put.textContent = label();
+    } }, text)));
   const drop = b.main ? h("button", { class: "ghost", onclick: async () => {
     if (!(await confirmInPage(t("chDropAsk", b.name), t("chDrop")))) return;
     try {
@@ -631,9 +663,9 @@ function characterDialog() {
   } }, t("chDrop")) : null;
   back.append(h("div", { class: "ask card stack ch-dialog", role: "dialog", "aria-modal": "true" },
     h("h3", {}, b.main ? t("chTitleHas") : t("chTitle")),
-    h("div", { class: "sub" }, t("chSub", b.name)),
+    h("div", { class: "sub" }, b.main ? t("chSubHas", b.name) : t("chSub", b.name)),
     b.main ? h("div", { class: "small" }, "👤 ", t("chNow", `${trName(b.main.ascendancy || b.main.class)} · ${t("level", b.main.level)}`)) : null,
-    code,
+    kindSeg, pasteBox, pobBuild,
     h("div", { class: "row" }, put, drop, h("button", { class: "ghost", onclick: close }, t("cancel")))));
   document.body.append(back);
   document.addEventListener("keydown", onKey, true);
@@ -655,40 +687,14 @@ async function applyReload(code) {
 }
 
 async function reloadFromFile() {
-  const btn = $("#bh-reload");
+  const btn = $("#bh-character");
+  const was = btn.textContent;
   btn.disabled = true;
   btn.textContent = t("reloading");
-  try { await applyReload(""); } catch (e) { toast(e.message); }
+  try { await applyReload(""); } catch (e) { toast(e.message); btn.textContent = was; }
   btn.disabled = false;
-  btn.textContent = t("reload");
 }
 
-function renderReloadCode() {
-  const b = state.build;
-  const code = h("textarea", { rows: 8, placeholder: t("addCode"), spellcheck: "false" });
-  const go = h("button", { class: "primary", onclick: async () => {
-    if (!code.value.trim()) { code.focus(); return; }
-    go.disabled = true;
-    go.textContent = t("reloading");
-    try { await applyReload(code.value); } catch (e) { toast(e.message); go.disabled = false; go.textContent = t("reloadGo"); }
-  } }, t("reloadGo"));
-  const opened = h("div", { class: "action hidden" }, t("pobCodeOpened"));
-  const openPob = h("button", { class: "ghost", onclick: async () => {
-    try {
-      const r = await api("/api/pob/open", { method: "POST" });
-      if (r.state === "missing") { toast(t("pobMissing")); return; }
-      opened.classList.remove("hidden");
-      code.focus();
-    } catch (e) { toast(e.message); }
-  } }, t("pobOpen"));
-  hideBuildChrome();
-  $("#view").replaceChildren(h("div", { class: "card stack add-build" },
-    h("h3", {}, t("reloadTitle", b.name)), h("div", { class: "sub" }, t("reloadSub")), h("div", { class: "row" }, openPob), opened, code,
-    h("div", { class: "row" }, go, h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")))));
-  code.focus();
-}
-
-$("#bh-reload").addEventListener("click", () => (state.build.kind === "pob" ? updateViaPob() : renderReloadCode()));
 $("#bh-planner").addEventListener("click", () => exportToPlanner());
 
 // the open build into the game's build planner folder (the game picks the file up at once)

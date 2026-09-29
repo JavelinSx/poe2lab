@@ -637,6 +637,8 @@ tr.dense .fit-chips { margin-top: 2px; }
 .bh-who { cursor: help; }
 .bh-who.mine { color: var(--text); font-weight: 600; }
 .ch-dialog { max-width: 620px; width: 92vw; }
+.ch-kind { display: flex; flex-wrap: wrap; }
+.ch-kind button { flex: 1 1 220px; white-space: normal; text-align: center; }
 .ch-dialog textarea { width: 100%; font-family: monospace; font-size: 12px; }
 .res-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 10px; cursor: help; }
 .res-chip { padding: 3px 8px; border-radius: 6px; background: var(--panel-2); font-size: 12px; }
