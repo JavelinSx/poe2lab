@@ -344,8 +344,9 @@ return _poe2lab_json(out)""")
     def tree_graph(self) -> dict:
         """The passive tree to draw: every node of the main tree and of the build's own ascendancy with its position
         (PoB's own layout), type, name, stat lines, links, group centre and orbit radius (links along one orbit are
-        arcs) and whether it is allocated; plus the class, ascendancy and points used, and where the game's background
-        art for them is in PoB's tree textures."""
+        arcs), whether it is allocated, its size and frame as PoB draws them (sz, fs: the icon's and the frame's width;
+        fr: the frame, in `frames` by the allocated state's name) and a taken socket's jewel; plus the class,
+        ascendancy and points used, and where the game's art for all this is in PoB's tree textures."""
         return self._json("""
 local spec, tree = build.spec, build.spec.tree
 -- no ascendancy chosen yet (PoB calls it "None"): every ascendancy of the class is shown, to choose from
@@ -353,6 +354,21 @@ local asc = spec.curAscendClassId and spec.curAscendClassId > 0 and spec.curAsce
 local shown = {}
 if asc then shown[asc] = true
 else for i, a in pairs(spec.curClass.classes or {}) do if i > 0 and a.name then shown[a.name] = true end end end
+-- the game's pictures in PoB's tree textures (a file and its layer): the nodes' frames, the jewels in sockets
+local function atlas(name)
+  if not name then return nil end
+  for file, names in pairs(tree.ddsCoords or {}) do
+    if names[name] then return { file = file, layer = names[name] } end
+  end
+end
+local frames = {}
+local function frameOf(ov)  -- a frame's three states by the allocated one's name, each kept once
+  if not ov or not ov.alloc then return "" end
+  if not frames[ov.alloc] then
+    frames[ov.alloc] = { alloc = atlas(ov.alloc) or false, path = atlas(ov.path) or false, unalloc = atlas(ov.unalloc) or false }
+  end
+  return ov.alloc
+end
 local nodes = _poe2lab_array({})
 for id, node in pairs(spec.nodes) do
   if node.x and node.type ~= "OnlyImage" and (not node.ascendancyName or shown[node.ascendancyName]) then
@@ -366,7 +382,19 @@ for id, node in pairs(spec.nodes) do
     -- what a click would do: allocate the path to it (cost: points) or take it off with what hangs on it (drop)
     local cost = (not node.alloc and node.path) and #node.path or 0
     local drop = node.alloc and #(node.depends or {}) or 0
+    -- a taken socket's jewel: its picture from the tree textures (a unique's own, else its base's)
+    local jewel = false
+    if node.type == "Socket" or node.containJewelSocket then
+      local slot = build.itemsTab.sockets[id]
+      local item = slot and node.alloc and build.itemsTab.items[slot.selItemId]
+      if item then
+        jewel = { name = item.name or "", base = item.baseName or "", rarity = item.rarity or "",
+                  art = (item.rarity == "UNIQUE" and atlas(item.title)) or atlas(item.baseName) or false }
+      end
+    end
+    local ts = node.targetSize or {}
     nodes[#nodes + 1] = { id = id, x = node.x, y = node.y, type = node.type, name = node.dn or "", icon = node.icon or "",
+      sz = ts.width or 0, fs = ts.overlay and ts.overlay.width or 0, fr = frameOf(node.overlay), jewel = jewel,
       stats = _poe2lab_array(node.sd or {}), asc = node.ascendancyName or "", alloc = node.alloc and true or false,
       cost = cost, drop = drop,
       links = links, arcs = arcs, group = node.g or 0, o = node.o or 0,
@@ -399,7 +427,7 @@ end
 local radii = _poe2lab_array({})
 for i, r in ipairs(tree.orbitRadii or {}) do radii[i] = r * tree.scaleImage end
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
-  ascendancyPoints = ascUsed, art = art, orbitRadii = radii })""") | {"budget": self.points_budget()}
+  ascendancyPoints = ascUsed, art = art, orbitRadii = radii, frames = frames })""") | {"budget": self.points_budget()}
 
     def points_budget(self) -> dict:
         """Passive points: used on the main tree (a node taken in both weapon sets counts once) and how many the

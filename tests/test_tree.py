@@ -102,6 +102,15 @@ def test_the_tree_to_draw_and_the_ascendancy():
     assert art["version"] and art["tile"]["file"].endswith(".dds.zst") and art["tile"]["layer"] >= 1
     assert art["center"]["image"]["file"] and art["center"]["ring"] and art["center"]["w"] > 0
     assert [a["name"] for a in art["asc"]] == ["Titan"] and art["asc"][0]["image"]["layer"] >= 1
+    # each node's frame as PoB draws it: sizes by type, three states of every frame in the textures
+    size = {n["type"]: n["sz"] for n in nodes}
+    assert size["Normal"] < size["Notable"] < size["Keystone"] and size["Socket"] > 0
+    assert all(n["fr"] in graph["frames"] for n in nodes if n["type"] in ("Normal", "Notable", "Keystone", "Socket"))
+    assert all(f["alloc"]["file"].endswith(".dds.zst") and f["unalloc"] for f in graph["frames"].values())
+    # the titan's jewels sit in its taken sockets, with their pictures; an empty or untaken socket has none
+    jewels = [n for n in nodes if n["jewel"]]
+    assert len(jewels) == 3 and all(n["type"] == "Socket" and n["alloc"] for n in jewels)
+    assert {n["jewel"]["rarity"] for n in jewels} == {"RARE", "UNIQUE"} and all(n["jewel"]["art"] for n in jewels)
     asc = ascendancy(engine, MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained))
     assert asc["points"] == 8 and asc["maxPoints"] == 8 and len(asc["taken"]) >= 3
     assert asc["options"] and all(o["path"] and o["id"] == o["path"][-1] or o["id"] in o["path"] for o in asc["options"])

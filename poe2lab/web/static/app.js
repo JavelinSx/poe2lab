@@ -2211,7 +2211,10 @@ function jewelCard(jw) {
 }
 
 let JW_CATALOG = null;
-async function jewelEditor(socket) {
+// opts.after(path, body): how an edit is made (default: through the Tree tab); opts.drop: taking the socket itself off,
+// opts.dropCount: how many nodes go with it
+async function jewelEditor(socket, opts = {}) {
+  const edit = opts.after || treeCall;
   if (!JW_CATALOG) {
     try { JW_CATALOG = await api("/api/jewels/catalog"); } catch (e) { toast(e.message); return; }
   }
@@ -2229,12 +2232,14 @@ async function jewelEditor(socket) {
   const put = h("button", { class: "primary", disabled: true, onclick: () => {
     const s = spec();
     close();
-    treeCall("/api/jewels/set", { node: socket.node, ...s });
+    edit("/api/jewels/set", { node: socket.node, ...s });
   } }, t("jwPut"));
   const remove = socket.item ? h("button", { class: "ghost", onclick: () => {
     close();
-    treeCall("/api/jewels/remove", { node: socket.node });
+    edit("/api/jewels/remove", { node: socket.node });
   } }, t("jwRemove")) : null;
+  const drop = opts.drop ? h("button", { class: "ghost", title: t("jwDropSocketHint"), onclick: () => { close(); opts.drop(); } },
+    t("jwDropSocket", opts.dropCount || 1)) : null;
 
   // what goes to the server: a unique, a made jewel or a pasted one; null when nothing is chosen yet
   const spec = () => {
@@ -2332,7 +2337,7 @@ async function jewelEditor(socket) {
     h("div", { class: "jw-head" }, h("h3", {}, t("jwEditTitle", trName(socket.near))),
       h("button", { class: "ghost small", title: t("cancel"), onclick: close }, "✕")),
     socket.item ? h("details", {}, h("summary", {}, t("jwNow", itemTitle(socket.item))), itemCard(socket.item, null, "")) : null,
-    h("div", { class: "jw-main" }, body, h("div", { class: "jw-out stack" }, preview, h("div", { class: "row" }, put, remove)))));
+    h("div", { class: "jw-main" }, body, h("div", { class: "jw-out stack" }, preview, h("div", { class: "row" }, put, remove, drop)))));
   document.body.append(back);
   document.addEventListener("keydown", onKey, true);
   draw();
@@ -2603,6 +2608,22 @@ function openTreeViewer(graph, tree, asc) {
     ring: want(art.center && art.center.ring, 1000), active: want(art.center && art.center.active, 1000),
     asc: new Map((art.asc || []).map((a) => [a.name, want(a.image, 750)])) };
   if (art.version) loadTreeArt(art.version, [wanted.tile, wanted.center, ...wanted.asc.values(), wanted.ring, wanted.active], scheduleDraw);
+  // the nodes' frames as the game draws them (taken, on the way, not taken) and the jewels in the sockets
+  const PIC = 128;
+  const frameWant = (n, state) => {
+    const f = n.fr && graph.frames ? graph.frames[n.fr] : null;
+    return f ? want(f[state] || f.unalloc, PIC) : null;
+  };
+  const loadFrames = () => {
+    if (!art.version) return;
+    const wants = [];
+    for (const f of Object.values(graph.frames || {})) for (const st of ["alloc", "path", "unalloc"]) if (f[st]) wants.push(want(f[st], PIC));
+    for (const n of graph.nodes) if (n.jewel && n.jewel.art) wants.push(want(n.jewel.art, PIC));
+    loadTreeArt(art.version, wants, scheduleDraw);
+  };
+  loadFrames();
+  // a jewel's picture: the tree's own (bases, some uniques), else the item's from the game's icons
+  const jewelPicture = (j) => (j.art && treeArt(want(j.art, PIC))) || picture(ICONS[(j.name || "").split(",")[0].trim()] || ICONS[j.base]);
 
   const overlay = h("div", { class: "tree-overlay" });
   const canvas = h("canvas", { class: "tree-canvas" });
@@ -2650,7 +2671,8 @@ function openTreeViewer(graph, tree, asc) {
     overlay.remove(); document.removeEventListener("keydown", onKey); window.removeEventListener("resize", draw);
     if (edited) { resetCache(); switchTab("tree"); }  // the tab's numbers follow the edits
   };
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+  // Esc a dialog over the viewer already took (the jewel editor, a question) closes only that dialog
+  const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) close(); };
   overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox, regrow,
     h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.good), t("tvGrowth"), dot("rgba(95,201,141,.45)"), t("tvRoad"),
       useful.size ? [dot("rgba(95,201,141,.3)"), t("tvUseful")] : null, dot(C.bad, true), t("tvRespec")),
@@ -2672,6 +2694,10 @@ function openTreeViewer(graph, tree, asc) {
     oy = hgt / 2 - ((y0 + y1) / 2) * scale;
   }
   const sx = (n) => n.x * scale + ox, sy = (n) => n.y * scale + oy;
+  // a node's size on screen as PoB draws it: the icon's and the frame's radius are their widths in tree units
+  // (R: nodes PoB gives no icon size); never below a dot to see and hit
+  const iconR = (n) => Math.max(n.type === "Normal" ? 1.2 : 2.2, (n.sz || R[n.type] || 22) * scale);
+  const frameR = (n, r = iconR(n)) => (n.sz ? ((n.fs || n.sz) / n.sz) * r : r);
 
   function draw() {
     const dpr = window.devicePixelRatio || 1;
@@ -2719,11 +2745,41 @@ function openTreeViewer(graph, tree, asc) {
     }
     for (const n of ns) {
       const x = sx(n), y = sy(n);
-      const r = Math.max(n.type === "Normal" ? 1.2 : 2.2, (R[n.type] || 22) * scale);
+      const r = iconR(n);
       if (x < -r || y < -r || x > w + r || y > hgt + r) continue;  // off screen
       const status = n.alloc ? C.gold : growth.has(n.id) ? C.good : road.has(n.id) ? "rgba(95,201,141,.6)"
         : useful.has(n.id) ? "rgba(95,201,141,.3)" : null;
       const img = r >= 5 ? picture(n.img) : null;
+      // the frame, at PoB's size for the node's type (sz: the icon's width, fs: the frame's), scaled to the icon
+      const frame = r >= 4 ? treeArt(frameWant(n, n.alloc ? "alloc" : n === hover ? "path" : "unalloc")) : null;
+      if (frame) {
+        const fr = frameR(n, r);
+        if (img) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, 2 * Math.PI);
+          ctx.clip();
+          ctx.fillStyle = C.node;
+          ctx.fill();
+          if (!status) ctx.filter = "brightness(0.8)";
+          ctx.drawImage(img, x - r, y - r, 2 * r, 2 * r);
+          ctx.restore();
+        }
+        ctx.drawImage(frame, x - fr, y - fr, 2 * fr, 2 * fr);
+        const jp = n.jewel ? jewelPicture(n.jewel) : null;
+        if (jp) ctx.drawImage(jp, x - fr * 0.78, y - fr * 0.78, fr * 1.56, fr * 1.56);
+        // what the frame does not say: a suggestion, a branch to respec, the node under the pointer
+        const ring = respec.has(n.id) ? C.bad : n === hover || n === pinned ? "#fff"
+          : !n.alloc && (growth.has(n.id) || road.has(n.id) || useful.has(n.id)) ? status : null;
+        if (ring) {
+          ctx.beginPath();
+          ctx.arc(x, y, fr + 1.5, 0, 2 * Math.PI);
+          ctx.lineWidth = n === hover || n === pinned || respec.has(n.id) ? 2 : growth.has(n.id) ? 2.5 : 1.5;
+          ctx.strokeStyle = ring;
+          ctx.stroke();
+        }
+        continue;
+      }
       ctx.beginPath();
       ctx.arc(x, y, r, 0, 2 * Math.PI);
       if (img) {
@@ -2810,7 +2866,7 @@ function openTreeViewer(graph, tree, asc) {
   function nodeAt(x, y) {
     let best = null, bd = Infinity;
     for (const n of visible()) {
-      const d = Math.hypot(sx(n) - x, sy(n) - y), r = Math.max(6, (R[n.type] || 22) * scale + 3);
+      const d = Math.hypot(sx(n) - x, sy(n) - y), r = Math.max(6, frameR(n) + 2);
       if (d < r && d < bd) { best = n; bd = d; }
     }
     return best;
@@ -2822,11 +2878,13 @@ function openTreeViewer(graph, tree, asc) {
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);
     const w = worth.get(n.id);
     const start = n.type === "ClassStart" || n.type === "AscendClassStart";
-    const act = start ? null : n.alloc ? t("tvClickDrop", n.drop) : n.cost ? t("tvClickTake", n.cost) : t("tvUnreachable");
+    const socket = n.type === "Socket" && n.alloc;
+    const act = start ? null : socket ? t("tvClickJewel") : n.alloc ? t("tvClickDrop", n.drop) : n.cost ? t("tvClickTake", n.cost) : t("tvUnreachable");
     tip.replaceChildren(...[h("div", { class: "row", style: "gap:8px;align-items:center" },
       n.img ? h("img", { src: `/icons/${n.img}`, class: "tv-tip-ico", alt: "" }) : null, h("b", {}, trName(n.name) || "—")),
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
+      n.jewel ? h("div", { class: "tip-name r-" + (n.jewel.rarity || "normal").toLowerCase() }, "◆ ", itemTitle({ name: n.jewel.name, baseName: n.jewel.base })) : null,
       stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null,
       act ? h("div", { class: "tv-act " + (n.alloc ? "neg" : "pos") }, act) : null].filter(Boolean));
     tip.classList.remove("hidden");
@@ -2861,24 +2919,51 @@ function openTreeViewer(graph, tree, asc) {
       draw();
       return;
     }
-    busy = true;
-    canvas.classList.add("busy");
-    try {
-      await api(`/api/tree/${n.alloc ? "remove" : "add"}`, { method: "POST", body: { id: n.id, name: n.name } });
+    const tipAt = [e.clientX - at.left, e.clientY - at.top];
+    // the tree as the server has it now: after a click, a jewel put in or taken out
+    const refresh = async () => {
       const fresh = await api(`/api/tree/graph?${buildQuery()}`);
       graph.nodes = fresh.nodes;
       graph.budget = fresh.budget;
+      graph.frames = fresh.frames;
       byId.clear();
       for (const x of graph.nodes) byId.set(x.id, x);
       edited = true;
       regrow.classList.add("stale");  // the green suggestions were for the tree before this click
+      loadFrames();
       drawPoints();
       hover = byId.get(n.id) || null;
-      showTip(hover, e.clientX - at.left, e.clientY - at.top);
+      showTip(hover, ...tipAt);
       draw();
-    } catch (err) { toast(err.message); }
-    busy = false;
-    canvas.classList.remove("busy");
+    };
+    const run = async (fn) => {
+      busy = true;
+      canvas.classList.add("busy");
+      try { await fn(); } catch (err) { toast(err.message); }
+      busy = false;
+      canvas.classList.remove("busy");
+    };
+    if (n.type === "Socket" && n.alloc) {
+      await run(async () => {
+        const socket = (await api(`/api/jewels?${buildQuery()}`)).sockets.find((s) => s.node === n.id);
+        if (!socket) return;
+        tip.classList.add("hidden");
+        jewelEditor(socket, {
+          after: (path, body) => run(async () => { await api(path, { method: "POST", body }); await refresh(); }),
+          dropCount: n.drop,
+          drop: async () => {
+            // more than the socket hangs on it: say so first, a click must not take half the tree unawares
+            if (n.drop > 1 && !(await confirmInPage(t("tvDropSocketAsk", n.drop - 1), t("jwDropSocket", n.drop)))) return;
+            run(async () => { await api("/api/tree/remove", { method: "POST", body: { id: n.id, name: n.name } }); await refresh(); });
+          },
+        });
+      });
+      return;
+    }
+    await run(async () => {
+      await api(`/api/tree/${n.alloc ? "remove" : "add"}`, { method: "POST", body: { id: n.id, name: n.name } });
+      await refresh();
+    });
   });
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
