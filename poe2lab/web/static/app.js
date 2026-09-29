@@ -915,14 +915,94 @@ async function switchTab(tab) {
   const token = Symbol();
   switchTab.token = token;
   try {
-    const content = await TABS[tab](view);
-    if (switchTab.token === token && content) view.replaceChildren(content);
+    // a build with the player's character: the tab on the character (Мейн) or the build it follows (Билд)
+    const sided = state.build.main && SIDE_VIEWS[tab];
+    const host = sided ? h("div", {}) : view;
+    if (sided) view.replaceChildren(sideSwitch(tab), host);
+    const content = await (sided && state.side === "build" ? SIDE_VIEWS[tab] : TABS[tab])(host);
+    if (switchTab.token === token && content) host.replaceChildren(content);
   } catch (e) {
     if (switchTab.token === token) view.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("error")), h("p", { class: "muted" }, e.message)));
   }
 }
 
 const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}&${buildQuery()}`));
+
+// ---------- a build with the player's character: its tabs as the build (the guide) has them, against the character ----------
+function sideSwitch(tab) {
+  return h("div", { class: "side-switch" }, h("div", { class: "segmented", title: t("sideHint") },
+    [["main", t("sideMain")], ["build", t("sideBuild")]].map(([k, label]) => h("button", {
+      class: (state.side || "main") === k ? "active" : "", onclick: () => { state.side = k; switchTab(tab); } }, label))),
+  h("span", { class: "muted small" }, (state.side || "main") === "build" ? t("sideBuildNote", who(state.build.guide)) : t("sideMainNote", who(state.build.info))));
+}
+const guideGear = () => cached("refgear:" + RECORDED_REF, () => api(`/api/versus/gear?ref=${RECORDED_REF}&${buildQuery()}`));
+const guideVersus = () => cached("versus:" + RECORDED_REF, () => api(`/api/versus?ref=${RECORDED_REF}&${buildQuery()}`));
+const guideHead = (g) => h("div", { class: "sub" }, t("sideGuideIs", `${trName(g.ascendancy || g.class)} · ${t("level", g.level)}`, trName(g.skill)));
+const SIDE_VIEWS = {
+  // the two characters' numbers side by side
+  overview: async (view) => {
+    view.replaceChildren(loading(t("refLoading")));
+    const [g, v] = await Promise.all([guideGear(), guideVersus()]);
+    return h("div", { class: "card stack" }, h("h3", {}, t("sideOverviewTitle")), guideHead(g), ...versusStats(v, t("sideBuildCol")));
+  },
+  damage: async (view) => {
+    view.replaceChildren(loading(t("refLoading")));
+    const [g, v] = await Promise.all([guideGear(), guideVersus()]);
+    return h("div", { class: "card stack" }, h("h3", {}, t("sideDamageTitle")), guideHead(g),
+      versusStats({ ...v, allGear: null }, t("sideBuildCol"), ["offence", "hits"])[0]);
+  },
+  // the build's gem groups: which gems the character has, lower, or lacks
+  skills: async (view) => {
+    view.replaceChildren(loading(t("refLoading")));
+    const s = await cached("versus-skills", () => api(`/api/versus/skills?ref=${RECORDED_REF}&${buildQuery()}`));
+    const have = new Map();
+    for (const g of s.mine) if (g.enabled) for (const gem of g.gems) if (gem.enabled && (!have.has(gem.name) || have.get(gem.name).level < gem.level)) have.set(gem.name, gem);
+    const theirs = new Set(s.ref.flatMap((g) => g.gems.map((x) => x.name)));
+    let missing = 0, lower = 0;
+    const row = (gem) => {
+      const m = have.get(gem.name);
+      const status = !m ? "missing" : m.level < gem.level ? "lower" : "ok";
+      if (status === "missing") missing++;
+      if (status === "lower") lower++;
+      return h("div", { class: "vs-gem " + status }, gemName(gem.name),
+        h("span", { class: "muted small" }, t("vsGemLevel", gem.level, gem.quality)),
+        status === "missing" ? chip("warn", t("vsGemMissing")) : status === "lower" ? chip("tag", t("vsGemLower", m.level)) : chip("ok", "✓"));
+    };
+    const cards = s.ref.filter((g) => g.gems.length).map((g) => h("div", { class: "card vs-group" + (g.main ? " main" : "") },
+      h("h3", {}, g.actives.map((a) => trName(a.name)).join(" + ") || g.label || t("vsGroup", g.index), g.main ? " " : null, g.main ? chip("ok", t("vsMainGroup")) : null),
+      h("div", { class: "vs-gems" }, g.gems.map(row))));
+    const extra = [...have.keys()].filter((n) => !theirs.has(n));
+    return h("div", { class: "stack" }, h("div", { class: "card" }, h("h3", {}, t("vsSkillsTitle")), h("div", { class: "sub" }, t("vsSkillsSum", missing, lower))),
+      h("div", { class: "grid two" }, cards),
+      extra.length ? h("div", { class: "card" }, h("h3", {}, t("vsSkillsExtra")), h("div", { class: "vs-gems" }, extra.map((n) => h("div", { class: "vs-gem" }, gemName(n))))) : null);
+  },
+  // the build's gear on the dolls next to the character's
+  gear: () => compareView(),
+  // the build's passives the character has not taken, and the character's the build does not have
+  tree: async (view) => {
+    view.replaceChildren(loading(t("refLoading")));
+    const [d, graph] = await Promise.all([cached("versus-tree", () => api(`/api/versus/tree?ref=${RECORDED_REF}&${buildQuery()}`)), treeGraph()]);
+    const big = (list) => list.filter((n) => n.type !== "Normal" || n.ascendancy);
+    const name = (n) => h("span", { class: "named", title: n.name }, icon(n.name, "ico passive"), trName(n.name), n.ascendancy ? h("span", { class: "muted small" }, ` (${trName(n.ascendancy)})`) : null);
+    const show = h("button", { class: "primary", onclick: () => {
+      const missing = big(d.missing);
+      try {
+        openTreeViewer(graph, { growth: [], respec: d.extra.map((n) => ({ id: n.id })) }, null, { focus: {
+          mechanic: "guide", label: t("vsTreeFocus"), take: false, points: d.missing.length,
+          notables: missing.map((n) => ({ id: n.id, name: n.name, points: 1 })), path: d.missing.map((n) => n.id) } });
+      } catch (e) { toast(e.message); }
+    } }, t("vsTreeShow"));
+    return h("div", { class: "stack" },
+      h("div", { class: "card stack" }, h("h3", {}, t("vsTreeTitle")),
+        h("div", {}, t("vsTreeSum", d.missing.length, d.extra.length)),
+        h("div", { class: "muted small" }, t("vsTreePoints", d.refPoints.used, d.points.used)),
+        h("div", { class: "row" }, show, h("span", { class: "muted small" }, t("vsTreeShowHint")))),
+      big(d.missing).length ? h("div", { class: "card" }, h("h3", {}, t("vsTreeMissing", big(d.missing).length)),
+        h("div", { class: "vs-nodes" }, big(d.missing).map(name))) : null,
+      big(d.extra).length ? h("div", { class: "card" }, h("h3", {}, t("vsTreeExtra", big(d.extra).length)),
+        h("div", { class: "vs-nodes" }, big(d.extra).map(name))) : null);
+  },
+};
 // the "unit" is either the Rage stat or a probe mod line
 // a passive node's lines, translated (several PoB lines may be one game text), the original on hover
 const stats = (lines) => h("ul", { class: "item-lines small" }, trLines(lines).map(([src, text]) => h("li", { title: LANG === "en" ? null : src }, text)));
@@ -1768,9 +1848,10 @@ const SWAP_SLOT = { "Weapon 1": "Weapon 1 Swap", "Weapon 2": "Weapon 2 Swap" };
 const VERSUS_SLOTS = ["Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap", "Helmet", "Body Armour", "Gloves", "Boots",
   "Amulet", "Ring 1", "Ring 2", "Belt"];
 
-const refKey = () => `poe2lab.ref.${state.build.name}`;
-function savedRef() { try { return localStorage.getItem(refKey()) || ""; } catch (_) { return ""; } }
-function saveRef(name) { try { localStorage.setItem(refKey(), name); } catch (_) { /* storage blocked */ } }
+// the open build as its file records it: the guide the player's character follows, or the gear before the plan's
+// edits (the server's reference "@build")
+const RECORDED_REF = "@build";
+const recordedLabel = () => (state.build.main ? `${t("chGuide")} ${who(state.build.guide)}` : t("cmpRecorded"));
 
 const gearMap = (items) => Object.fromEntries((items || []).map((i) => [i.slot, i]));
 const hasSwapSet = (items) => !!(items && (items["Weapon 1 Swap"] || items["Weapon 2 Swap"]));
@@ -1867,16 +1948,15 @@ function numbersTable(r) {
     h("td", { class: "num" }, statText(k, a[k])), diffCell(k, a[k], b[k])))));
 }
 
-TABS.compare = async () => {
+// the player's gear against the build's as recorded (RECORDED_REF), or a pasted item against the worn one
+TABS.compare = () => compareView();
+async function compareView() {
   if (!state.cmp || state.cmp.build !== state.build.name) {
-    state.cmp = { build: state.build.name, slot: null, source: "build", ref: null, set: 1, paste: "", pasted: null };
+    state.cmp = { build: state.build.name, slot: null, source: "build", ref: RECORDED_REF, set: 1, paste: "", pasted: null };
   }
   const cmp = state.cmp;
-  const builds = (await api("/api/builds")).filter((b) => b.name !== state.build.name);
-  // the build to compare with: the one picked here, else the build's target (a guide), else the last one used
-  const target = (state.build.profileRaw || {}).target;
-  builds.sort((a, b) => (b.name === target) - (a.name === target));
-  cmp.ref = [cmp.ref, target, savedRef(), builds[0] && builds[0].name].find((n) => n && builds.some((b) => b.name === n)) || null;
+  cmp.ref = RECORDED_REF;
+  const refLabel = recordedLabel();
   const mine = gearMap(state.build.items);
   let ref = null;     // the chosen build: who it is and its gear
   let versus = null;  // its items tried in my build, slot by slot, and the two builds' numbers (computed after)
@@ -1915,10 +1995,8 @@ TABS.compare = async () => {
     const seg = h("div", { class: "segmented" }, [["build", t("cmpSrcBuild")], ["paste", t("cmpSrcPaste")]].map(([k, label]) =>
       h("button", { class: cmp.source === k ? "active" : "", onclick: () => { cmp.source = k; drawRight(); drawDolls(); drawDetail(); } }, label)));
     if (cmp.source === "build") {
-      if (!builds.length) { right.replaceChildren(seg, h("p", { class: "muted" }, t("cmpNoBuilds"))); return; }
-      const sel = h("select", { onchange: () => { cmp.ref = sel.value; saveRef(sel.value); loadRef(); } },
-        builds.map((b) => h("option", { value: b.name, selected: b.name === cmp.ref }, b.name + (b.name === target ? ` — ${t("cmpTargetMark")}` : ""))));
-      right.replaceChildren(seg, sel, refDoll);
+      right.replaceChildren(...[seg, h("div", { class: "cmp-ref-title" }, h("b", {}, refLabel)),
+        state.build.main ? null : h("div", { class: "sub" }, t("cmpRecordedSub")), refDoll].filter(Boolean));
       return;
     }
     const text = h("textarea", { rows: 12, placeholder: t("candidatePh"), spellcheck: "false", oninput: () => { cmp.paste = text.value; } }, cmp.paste);
@@ -1951,9 +2029,9 @@ TABS.compare = async () => {
     const my = mine[slot];
     let other = null, label = "", result = null, waiting = false, note = null, empty = "";
     if (cmp.source === "build") {
-      label = ref ? ref.name : "";
+      label = refLabel;
       other = ref && ref.items[slot];
-      empty = ref ? t("cmpRefEmpty", ref.name) : "";
+      empty = ref ? t("cmpRefEmpty", refLabel) : "";
       const s = versus && versus.slots.find((x) => x.slot === slot);
       if (other && VERSUS_SLOTS.includes(slot)) {
         if (!versus) waiting = true;
@@ -1979,7 +2057,7 @@ TABS.compare = async () => {
 
   const drawStats = () => {
     statsBox.replaceChildren(...(versus && ref ? [h("div", { class: "card" }, h("details", {},
-      h("summary", {}, h("b", {}, t("cmpBuildStats", ref.name))), h("div", { class: "stack", style: "margin-top:10px" }, versusStats(versus, ref.name))))] : []));
+      h("summary", {}, h("b", {}, t("cmpBuildStats", refLabel))), h("div", { class: "stack", style: "margin-top:10px" }, versusStats(versus, refLabel))))] : []));
   };
 
   const loadRef = async () => {
@@ -2009,7 +2087,7 @@ TABS.compare = async () => {
       h("div", { class: "card stack" }, h("div", { class: "cmp-head" }, h("h3", {}, t("cmpMine")), setBox), myBox),
       h("div", { class: "card" }, right)),
     detail, statsBox);
-};
+}
 
 const STAT_FMT = {
   dps: (v) => fmt(v), hitChance: (v) => fmt(v) + "%", critChance: (v) => fmt(v, 1) + "%", speed: (v) => fmt(v, 2),
@@ -2035,8 +2113,7 @@ function diffCell(key, mine, ref, higherBetter = true) {
 }
 
 // the two builds' numbers side by side, and mine with all of their gear at once
-function versusStats(v, refName) {
-  const groups = ["offence", "defence", "resist", "hits", "attributes", "other"];
+function versusStats(v, refName, groups = ["offence", "defence", "resist", "hits", "attributes", "other"]) {
   const rows = [];
   for (const g of groups) {
     const list = v.rows.filter((r) => r.group === g && !(r.mine === 0 && r.ref === 0));
@@ -2852,8 +2929,9 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     focus = pk;
     if (!pk) { packBox.replaceChildren(); packBox.classList.add("hidden"); return; }
     packBox.classList.remove("hidden");
-    packBox.replaceChildren(h("b", {}, t("pkFocus", t("pk_" + pk.mechanic), pk.points)), deltas(pk.changes, METRIC, 0.3),
-      h("button", { class: "primary small", title: t("pkTakeHint"), onclick: async () => {
+    packBox.replaceChildren(...[h("b", {}, pk.label ? `${pk.label}: ${pk.points}` : t("pkFocus", t("pk_" + pk.mechanic), pk.points)),
+      pk.changes ? deltas(pk.changes, METRIC, 0.3) : null,
+      pk.take === false ? null : h("button", { class: "primary small", title: t("pkTakeHint"), onclick: async () => {
         let taken = null;
         await packageFlow(pk, async (body) => {
           let r = null;
@@ -2866,7 +2944,8 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
         suggest(latest.tree, latest.asc);
         await refreshGraph(null);
       } }, t("pkTake")),
-      h("button", { class: "ghost small", title: t("pkAllHint"), onclick: () => { setFocus(null); suggest(latest.tree, latest.asc); setHints(true); draw(); } }, t("pkAll")));
+      h("button", { class: "ghost small", title: t("pkAllHint"), onclick: () => { setFocus(null); suggest(latest.tree, latest.asc); setHints(true); draw(); } }, t("pkAll"))]
+      .filter(Boolean));  // native replaceChildren would write a null out
   };
   const hintsBtn = h("button", { class: "ghost small tv-hints", title: t("tvHintsHint"), onclick: () => { setHints(!hints); draw(); } });
   const hintsLegend = h("span", { class: "tree-legend-part" });
@@ -3120,7 +3199,7 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     if (!n) { tip.classList.add("hidden"); return; }
     lastTip = [x, y];
     const tags = [n.alloc ? (n.mode ? t("tvWsSet", n.mode) : t("tvAlloc")) : null,
-      packOf.has(n.id) && !n.alloc ? t("pkTag", t("pk_" + packOf.get(n.id))) : null,
+      packOf.has(n.id) && !n.alloc ? (packOf.get(n.id) === "guide" ? t("vsTreeTag") : t("pkTag", t("pk_" + packOf.get(n.id)))) : null,
       planned.has(n.id) ? t("tvPlan") : growth.has(n.id) && !packOf.has(n.id) ? t("tvGrowth") : null,
       road.has(n.id) && !growth.has(n.id) ? t("tvRoad") : null, useful.has(n.id) ? t("tvUseful") : null,
       respec.has(n.id) ? t("tvRespec") : null].filter(Boolean);

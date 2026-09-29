@@ -615,6 +615,14 @@ details > summary .ico { margin-left: 2px; }
 .gear-top > .card { position: sticky; top: 8px; }
 .tv-points { font-size: 13px; }
 .pk-list { display: flex; flex-direction: column; gap: 10px; }
+.side-switch { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.vs-gems { display: flex; flex-direction: column; gap: 6px; }
+.vs-gem { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 8px; border-radius: 6px; background: var(--panel-2); }
+.vs-gem.missing { border-left: 3px solid var(--warn); }
+.vs-gem.lower { border-left: 3px solid var(--line); }
+.vs-group.main { border-color: var(--gold); }
+.vs-nodes { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.cmp-ref-title { margin: 8px 0 4px; }
 #bh-sub { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .bh-who { cursor: help; }
 .bh-who.mine { color: var(--text); font-weight: 600; }

@@ -1987,6 +1987,30 @@ def versus_gear(ref: str, build: str | None = None):
                 "class": info["class"], "ascendancy": info["ascendancy"], "skill": engine.main_skill()}
 
 
+@app.get("/api/versus/skills")
+def versus_skills(ref: str = RECORDED, build: str | None = None):
+    """The reference build's gem groups next to the player's: which gems the build has that the character lacks."""
+    with session.lock:
+        session.require(build)
+        _, engine, _ = _reference(ref)
+        return _json({"mine": session.engine.skill_groups(), "ref": engine.skill_groups(), "refSkill": engine.main_skill()})
+
+
+@app.get("/api/versus/tree")
+def versus_tree(ref: str = RECORDED, build: str | None = None):
+    """The reference build's passives against the character's: what the build has that the character has not taken
+    yet (`missing`) and what the character took that the build does not (`extra`), with both trees' points."""
+    starts = ("ClassStart", "AscendClassStart")
+    with session.lock:
+        session.require(build)
+        _, engine, _ = _reference(ref)
+        mine = {n["id"]: n for n in session.engine.allocated_nodes() if n["type"] not in starts}
+        theirs = {n["id"]: n for n in engine.allocated_nodes() if n["type"] not in starts}
+        return _json({"missing": [n for i, n in theirs.items() if i not in mine],
+                      "extra": [n for i, n in mine.items() if i not in theirs],
+                      "points": session.engine.points_budget(), "refPoints": engine.points_budget()})
+
+
 @app.get("/api/versus/item")
 def versus_item(ref: str, slot: str):
     with session.lock:
