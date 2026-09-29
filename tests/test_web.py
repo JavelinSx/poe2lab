@@ -453,6 +453,10 @@ def test_the_player_s_character_inside_a_build(tmp_path, monkeypatch):
         tree = c.get("/api/versus/tree").json()  # a Titan's passives against a Monk's: little in common
         assert tree["missing"] and tree["extra"] and tree["refPoints"]["used"] > 0
         assert not {n["id"] for n in tree["missing"]} & {n["id"] for n in tree["extra"]}
+        # each node with its lines from its own tree (the Titan's ascendancy too); a socket with the jewel in it
+        assert all(n["stats"] for n in tree["missing"] if n["type"] in ("Notable", "Keystone"))
+        assert any(n["ascendancy"] == "Titan" and n["stats"] for n in tree["missing"])
+        assert any(n["jewel"] and n["jewel"]["lines"] for n in tree["missing"] if n["type"] == "Socket")
         # the plan's edits saved go into the character; the guide's file does not change
         node = c.get("/api/tree?mode=balanced&points=6").json()["growth"][0]
         c.post("/api/tree/add", json={"id": node["id"], "name": node["name"]}, headers=H)

@@ -2006,8 +2006,23 @@ def versus_tree(ref: str = RECORDED, build: str | None = None):
         _, engine, _ = _reference(ref)
         mine = {n["id"]: n for n in session.engine.allocated_nodes() if n["type"] not in starts}
         theirs = {n["id"]: n for n in engine.allocated_nodes() if n["type"] not in starts}
-        return _json({"missing": [n for i, n in theirs.items() if i not in mine],
-                      "extra": [n for i, n in mine.items() if i not in theirs],
+        # each node's lines, from the tree it is in (the build's ascendancy may not be the character's)
+        missing = [i for i in theirs if i not in mine]
+        extra = [i for i in mine if i not in theirs]
+        their_lines = engine.node_lines(missing) if missing else {}
+        my_lines = session.engine.node_lines(extra) if extra else {}
+
+        def jewels(e) -> dict:  # a socket's jewel: what the socket is for
+            out = {}
+            for s in e.jewel_sockets():
+                if s["item"]:
+                    it = s["item"]
+                    out[s["node"]] = {"name": it["name"], "base": it.get("baseName", ""), "rarity": it.get("rarity", ""),
+                                      "lines": [x["line"] for k in ("implicit", "explicit") for x in it.get(k, [])]}
+            return out
+        their_jewels, my_jewels = jewels(engine), jewels(session.engine)
+        return _json({"missing": [theirs[i] | {"stats": their_lines.get(i, []), "jewel": their_jewels.get(i)} for i in missing],
+                      "extra": [mine[i] | {"stats": my_lines.get(i, []), "jewel": my_jewels.get(i)} for i in extra],
                       "points": session.engine.points_budget(), "refPoints": engine.points_budget()})
 
 

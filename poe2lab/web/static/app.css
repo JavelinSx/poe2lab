@@ -632,6 +632,7 @@ tr.dense .fit-chips { margin-top: 2px; }
 .vs-gem.lower { border-left: 3px solid var(--line); }
 .vs-group.main { border-color: var(--gold); }
 .vs-nodes { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.vs-tree-sum { gap: 8px 16px; flex-wrap: wrap; align-items: baseline; }
 .cmp-ref-title { margin: 8px 0 4px; }
 #bh-sub { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .bh-who { cursor: help; }

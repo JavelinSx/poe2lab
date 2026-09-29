@@ -998,20 +998,35 @@ const SIDE_VIEWS = {
     view.replaceChildren(loading(t("refLoading")));
     const [d, graph] = await Promise.all([cached("versus-tree", () => api(`/api/versus/tree?ref=${RECORDED_REF}&${buildQuery()}`)), treeGraph()]);
     const big = (list) => list.filter((n) => n.type !== "Normal" || n.ascendancy);
-    const name = (n) => h("span", { class: "named", title: n.name }, icon(n.name, "ico passive"), trName(n.name), n.ascendancy ? h("span", { class: "muted small" }, ` (${trName(n.ascendancy)})`) : null);
-    const show = h("button", { class: "primary", onclick: () => {
-      const missing = big(d.missing);
-      try {
-        openTreeViewer(graph, { growth: [], respec: d.extra.map((n) => ({ id: n.id })) }, null, { focus: {
-          mechanic: "guide", label: t("vsTreeFocus"), take: false, points: d.missing.length,
-          notables: missing.map((n) => ({ id: n.id, name: n.name, points: 1 })), path: d.missing.map((n) => n.id) } });
-      } catch (e) { toast(e.message); }
-    } }, t("vsTreeShow"));
+    // a node's name; the pointer over it shows its kind and lines
+    const kind = (n) => (n.type === "Keystone" ? t("keystone") : n.type === "Notable" ? t("notable") : n.type === "Socket" ? t("vsNodeSocket") : t("vsNodeSmall"));
+    const name = (n) => hoverTip(h("span", { class: "named pk-node" }, icon(n.name, "ico passive"), trName(n.name),
+      n.ascendancy ? h("span", { class: "muted small" }, ` (${trName(n.ascendancy)})`) : null),
+    () => h("div", { class: "stack" },
+      h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(n.name, "ico passive"), h("b", {}, trName(n.name))),
+      h("div", { class: "muted small" }, kind(n), n.ascendancy ? ` · ${trName(n.ascendancy)}` : ""),
+      (n.stats || []).length ? stats(n.stats) : null,
+      // a socket: the jewel that sits in it
+      n.jewel ? h("div", { class: "stack", style: "gap:4px" },
+        h("div", { class: "row", style: "gap:6px;align-items:center" }, itemIcon(n.jewel.name, n.jewel.base, (n.jewel.rarity || "").toLowerCase()),
+          h("b", { class: "r-" + (n.jewel.rarity || "normal").toLowerCase() }, itemTitle({ name: n.jewel.name, baseName: n.jewel.base }))),
+        h("ul", { class: "item-lines small" }, n.jewel.lines.map((l) => h("li", {}, trMod(l))))) : null));
+    // the tree itself, right away: the build's nodes the character lacks in blue, the character's extra ones ringed;
+    // after an edit on it the lists below are from before - recount on demand
+    const stale = h("div", { class: "action hidden tv-stale" }, t("tvEditedNote"), " ",
+      h("button", { class: "primary small", onclick: () => { resetCache(); switchTab("tree"); } }, t("tvRecount")));
+    const mapBox = h("div", { class: "tree-embed-box" });
+    try {
+      openTreeViewer(graph, { growth: [], respec: d.extra.map((n) => ({ id: n.id })) }, null, {
+        embed: mapBox, onEdit: () => stale.classList.remove("hidden"),
+        focus: { mechanic: "guide", label: t("vsTreeFocus"), take: false, points: d.missing.length,
+          notables: big(d.missing).map((n) => ({ id: n.id, name: n.name, points: 1 })), path: d.missing.map((n) => n.id) } });
+    } catch (e) { mapBox.append(h("p", { class: "muted" }, e.message)); }
     return h("div", { class: "stack" },
-      h("div", { class: "card stack" }, h("h3", {}, t("vsTreeTitle")),
-        h("div", {}, t("vsTreeSum", d.missing.length, d.extra.length)),
-        h("div", { class: "muted small" }, t("vsTreePoints", d.refPoints.used, d.points.used)),
-        h("div", { class: "row" }, show, h("span", { class: "muted small" }, t("vsTreeShowHint")))),
+      h("div", { class: "row vs-tree-sum" }, h("b", {}, t("vsTreeSum", d.missing.length, d.extra.length)),
+        h("span", { class: "muted small" }, t("vsTreePoints", d.refPoints.used, d.points.used)),
+        h("span", { class: "muted small" }, t("vsTreeShowHint"))),
+      mapBox, stale,
       big(d.missing).length ? h("div", { class: "card" }, h("h3", {}, t("vsTreeMissing", big(d.missing).length)),
         h("div", { class: "vs-nodes" }, big(d.missing).map(name))) : null,
       big(d.extra).length ? h("div", { class: "card" }, h("h3", {}, t("vsTreeExtra", big(d.extra).length)),
