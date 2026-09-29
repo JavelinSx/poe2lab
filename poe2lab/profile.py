@@ -39,6 +39,7 @@ class Correction:
 class BuildProfile:
     group: int | None = None
     skill: int = 1
+    skill_name: str | None = None  # the main skill's name (a character's gem groups are not the guide's)
     rage: int | None = None  # None = maximum
     mana_sustained: bool = False  # confirmed in game: the main skill can be spammed
     league: str | None = None
@@ -60,7 +61,7 @@ class BuildProfile:
         raw = json.loads(path.read_text(encoding="utf-8"))
         main = raw.get("main_skill", {})
         return cls(
-            group=main.get("group"), skill=main.get("skill", 1), rage=raw.get("rage"),
+            group=main.get("group"), skill=main.get("skill", 1), skill_name=main.get("name"), rage=raw.get("rage"),
             mana_sustained=raw.get("mana_sustained", False), league=raw.get("league"), target=raw.get("target"),
             planner=raw.get("planner"),
             corrections=[Correction(**c) for c in raw.get("corrections", [])],
@@ -69,12 +70,13 @@ class BuildProfile:
 
 
 def open_build(build: Path, group: int | None = None, skill: int | None = None,
-               corrections: bool = True) -> tuple[PobEngine, BuildProfile]:
+               corrections: bool = True, profile_of: Path | None = None) -> tuple[PobEngine, BuildProfile]:
     """Load a build (PoB code .txt, PoB-saved .xml, or the name of a build saved in PoB) with its profile:
-    main skill (arguments override the profile) and corrections applied."""
+    main skill (arguments override the profile) and corrections applied. `profile_of`: the build whose profile to
+    use - the player's own character of a build opens with the build's profile, its main skill found by name."""
     build = resolve_build(build)
     text = build.read_text(encoding="utf-8")
-    profile = BuildProfile.for_build(build)
+    profile = BuildProfile.for_build(profile_of or build)
     engine = PobEngine()
     if build.suffix.lower() == ".xml":
         engine.load_xml(text, build.stem)
@@ -82,6 +84,12 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
         engine.load_code(text)
     if group:
         engine.set_main_skill(group, skill or (profile.skill if group == profile.group else 1))
+    elif profile_of is not None:
+        # the character's own gem groups: the build's main skill where the character has it, else its own
+        spots = [(g["index"], i + 1) for g in engine.socket_groups() for i, s in enumerate(g["skills"])
+                 if profile.skill_name and s == profile.skill_name]
+        if spots:
+            engine.set_main_skill(*spots[0])
     elif profile.group:
         try:
             engine.set_main_skill(profile.group, profile.skill)

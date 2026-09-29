@@ -65,6 +65,7 @@ class Session:
         self.toolbox: Toolbox | None = None
         self._prices: PriceBook | None | bool = False
         self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
+        self.main: Path | None = None  # the player's own character of the build (builds/<name>.main.txt), if any
         self.plan: dict | None = None  # passive tree edits on top of the build (see /api/tree/*)
         self.level: int | None = None  # character level: sets the enemy (see MapProfile.for_level)
         self.picked_filter: Path | None = None  # the player's filter chosen in the file dialog
@@ -82,9 +83,16 @@ class Session:
         return MapProfile.for_level(self.level, rage=self.bp.rage, mana_sustained=self.bp.mana_sustained)
 
     def load(self, name: str, group: int | None = None, skill: int | None = None):
+        """Open a build: the player's own character when the build has one (with the build's profile) - what every
+        analysis and edit works on - else the build itself. The build as recorded is `recorded()`."""
         self.path = resolve_build(name)
-        self.mtime = self.path.stat().st_mtime
-        self.engine, self.bp = open_build(self.path, group, skill)
+        main = library.main_path(self.path.stem)
+        self.main = main if main.exists() else None
+        self.mtime = (self.main or self.path).stat().st_mtime
+        self.engine, self.bp = open_build(self.main or self.path, group, skill,
+                                          profile_of=self.path if self.main else None)
+        if self.ref is not None and self.ref[0] == RECORDED:
+            self.ref = None
         self.level = self.engine.info()["level"]
         self.plan = None
         self.cache.clear()
@@ -92,7 +100,7 @@ class Session:
 
     def file_changed(self) -> bool:
         try:
-            return self.path is not None and self.path.stat().st_mtime > self.mtime
+            return self.path is not None and (self.main or self.path).stat().st_mtime > self.mtime
         except OSError:
             return False
 
@@ -118,6 +126,7 @@ class Session:
         return self._prices
 
 
+RECORDED = "@build"  # the reference name of the open build as its file records it (the guide, the gear before edits)
 session = Session()
 app = FastAPI(title="poe2lab")
 app.add_middleware(GZipMiddleware, minimum_size=4096)  # the RU dictionary is several MB
@@ -572,10 +581,10 @@ def remove_build(name: str):
             result = library.remove(name)
         except library.LibraryError as err:
             raise HTTPException(404, str(err))
-        if session.ref is not None and session.ref[0] == name:
+        if session.ref is not None and session.ref[0] in (name, RECORDED):
             session.ref = None
         if session.path is not None and session.path.stem == name:  # the open build is gone: close it
-            session.path = session.engine = session.bp = None
+            session.path = session.engine = session.bp = session.main = None
             session.cache.clear()
             session.assistant = session.toolbox = None
         return {"result": result}
@@ -611,13 +620,48 @@ def _summary():
             "gemColors": {g["name"]: {"color": g["color"], "support": g["support"]} for g in e.gems()},
             "profile": describe_profile(session.bp, rage=q["rage"]), "profileRaw": _profile_raw(),
             "hasProfile": _profile_path().exists(), "questions": q, "items": e.equipped_item_details(),
-            "kind": "pob" if session.path.suffix.lower() == ".xml" else "code"}
+            "kind": "pob" if session.path.suffix.lower() == ".xml" else "code",
+            # the player's own character (what all this is about) and the build it follows, when there is one
+            "main": library.describe_file(session.main) if session.main else None,
+            "guide": library.describe_file(session.path) if session.main else None}
 
 
 @app.post("/api/load")
 def load(req: LoadRequest):
     with session.lock:
         _errors(lambda: session.load(req.name, req.group, req.skill))
+        return _json(_summary())
+
+
+class MainRequest(BaseModel):
+    code: str  # the player's character: a PoB code or a pobb.in link
+
+
+@app.post("/api/character")
+def set_main(req: MainRequest):
+    """The player's own character put into the open build: from now on every tab works on it, the build is the
+    guide to compare with. A character already there is replaced (the old one to builds/.trash)."""
+    with session.lock:
+        session.require()
+        name = session.path.stem
+        try:
+            library.set_main(name, req.code)
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+        _errors(lambda: session.load(name))
+        return _json(_summary())
+
+
+@app.delete("/api/character")
+def clear_main():
+    with session.lock:
+        session.require()
+        name = session.path.stem
+        try:
+            library.clear_main(name)
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+        _errors(lambda: session.load(name))
         return _json(_summary())
 
 
@@ -646,8 +690,8 @@ def reload_build(req: ReloadRequest):
         skill_name, had_plan = e.main_skill(), session.plan is not None
         group = e.info()["mainSocketGroup"]
         if req.code.strip():
-            try:
-                library.replace(name, req.code)
+            try:  # the character is what changes in the game; the build it follows stays as recorded
+                library.set_main(name, req.code) if session.main else library.replace(name, req.code)
             except library.LibraryError as err:
                 raise HTTPException(400, str(err))
         _errors(lambda: session.load(name))
@@ -1061,12 +1105,15 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
 
 
 def _reference(name: str):
-    """The reference build (a guide to compare against), kept loaded in its own engine while it is in use."""
+    """The reference build, kept loaded in its own engine while it is in use: `@build` - the open build as its
+    file records it (the guide the player's character follows, the gear before the plan's edits) - or another
+    build of the list."""
     if name == session.path.stem:
         raise HTTPException(400, "эталон — это другой билд, не открытый")
     if session.ref is None or session.ref[0] != name:
         session.ref = None  # free the previous reference first
-        engine, bp = _errors(lambda: open_build(resolve_build(name)))
+        path = session.path if name == RECORDED else resolve_build(name)
+        engine, bp = _errors(lambda: open_build(path))
         session.ref = (name, engine, bp)
     return session.ref
 
@@ -1573,8 +1620,8 @@ def build_commit():
     with session.lock:
         session.require()
         name = session.path.stem
-        try:
-            library.replace(name, _build_code())
+        try:  # the player's character takes the edits when there is one; the build it follows stays
+            library.set_main(name, _build_code()) if session.main else library.replace(name, _build_code())
         except library.LibraryError as err:
             raise HTTPException(400, str(err))
         _errors(lambda: session.load(name))

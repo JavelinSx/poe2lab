@@ -615,6 +615,11 @@ details > summary .ico { margin-left: 2px; }
 .gear-top > .card { position: sticky; top: 8px; }
 .tv-points { font-size: 13px; }
 .pk-list { display: flex; flex-direction: column; gap: 10px; }
+#bh-sub { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.bh-who { cursor: help; }
+.bh-who.mine { color: var(--text); font-weight: 600; }
+.ch-dialog { max-width: 620px; width: 92vw; }
+.ch-dialog textarea { width: 100%; font-family: monospace; font-size: 12px; }
 .res-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 10px; cursor: help; }
 .res-chip { padding: 3px 8px; border-radius: 6px; background: var(--panel-2); font-size: 12px; }
 .pk-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--panel-2);

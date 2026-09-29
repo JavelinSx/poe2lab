@@ -225,7 +225,8 @@ async function loadBuildList() {
       },
       h("div", { class: "bi-text" },
         h("div", { class: "bi-name" }, b.name),
-        h("div", { class: "bi-kind" }, (b.kind === "pob" ? t("savedInPob") : t("pobCode")) + (b.hasProfile ? " · " + t("withProfile") : ""))),
+        h("div", { class: "bi-kind" }, (b.kind === "pob" ? t("savedInPob") : t("pobCode")) + (b.hasProfile ? " · " + t("withProfile") : "")
+          + (b.hasMain ? " · " + t("chInList") : ""))),
       h("button", { class: "bi-act star" + (b.favorite ? " on" : ""), title: b.favorite ? t("favOff") : t("favOn"),
         onclick: (e) => { e.stopPropagation(); toggleFavorite(b); } }, b.favorite ? "★" : "☆"),
       h("button", { class: "bi-act del", title: t("removeBuild"),
@@ -559,6 +560,9 @@ async function openBuild(name, group, skill) {
   }
 }
 
+// class / ascendancy · level, as the header says it
+const who = (x) => `${trName(x.class)} / ${x.ascendancy ? trName(x.ascendancy) : t("noAscendancy")} · ${t("level", x.level)}`;
+
 function renderHeader() {
   const b = state.build;
   GEM_INFO = { ...(b.gemColors || {}) };
@@ -570,7 +574,12 @@ function renderHeader() {
   $("#bh-planner").title = t("toPlannerHint");
   renderChanges();
   renderCtorBar();
-  $("#bh-sub").textContent = `${trName(b.info.class)} / ${b.info.ascendancy ? trName(b.info.ascendancy) : t("noAscendancy")} · ${t("level", b.info.level)}`;
+  $("#bh-sub").replaceChildren(...(b.main
+    ? [h("span", { class: "bh-who mine", title: t("chMineHint") }, "👤 ", t("chMine"), " ", who(b.info)),
+      h("span", { class: "bh-who", title: t("chGuideHint") }, "📘 ", t("chGuide"), " ", who(b.guide))]
+    : [who(b.info)]));
+  $("#bh-character").textContent = b.main ? t("chButtonHas") : t("chButton");
+  $("#bh-character").title = t("chButtonHint");
   // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
   const entries = b.groups.flatMap((g) => g.skills.map((s, i) => ({ group: g.index, skill: i + 1, name: s })));
@@ -584,6 +593,53 @@ function renderHeader() {
     current ? label(current) : null, h("span", { class: "caret" }, "▾"));
   picker.replaceChildren(button, list);
 }
+
+// ---------- the player's own character inside a build: every tab works on it, the build is the guide ----------
+function characterDialog() {
+  const b = state.build;
+  const code = h("textarea", { rows: 7, placeholder: t("chCodePh"), spellcheck: "false" });
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); };
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
+  const opened = (nb, msg) => {
+    state.build = nb;
+    state.chat = [];
+    state.changes = null;
+    resetCache();
+    renderHeader();
+    loadBuildList();
+    switchTab(state.tab);
+    toast(msg, true);
+  };
+  const put = h("button", { class: "primary", onclick: async () => {
+    if (!code.value.trim()) { code.focus(); return; }
+    put.disabled = true;
+    put.textContent = t("chLoading");
+    try {
+      const nb = await api("/api/character", { method: "POST", body: { code: code.value } });
+      close();
+      opened(nb, t("chLoaded", t("level", nb.main.level)));
+    } catch (e) { toast(e.message); put.disabled = false; put.textContent = b.main ? t("chReplace") : t("chPut"); }
+  } }, b.main ? t("chReplace") : t("chPut"));
+  const drop = b.main ? h("button", { class: "ghost", onclick: async () => {
+    if (!(await confirmInPage(t("chDropAsk", b.name), t("chDrop")))) return;
+    try {
+      const nb = await api("/api/character", { method: "DELETE" });
+      close();
+      opened(nb, t("chDropped"));
+    } catch (e) { toast(e.message); }
+  } }, t("chDrop")) : null;
+  back.append(h("div", { class: "ask card stack ch-dialog", role: "dialog", "aria-modal": "true" },
+    h("h3", {}, b.main ? t("chTitleHas") : t("chTitle")),
+    h("div", { class: "sub" }, t("chSub", b.name)),
+    b.main ? h("div", { class: "small" }, "👤 ", t("chNow", `${trName(b.main.ascendancy || b.main.class)} · ${t("level", b.main.level)}`)) : null,
+    code,
+    h("div", { class: "row" }, put, drop, h("button", { class: "ghost", onclick: close }, t("cancel")))));
+  document.body.append(back);
+  document.addEventListener("keydown", onKey, true);
+  code.focus();
+}
+$("#bh-character").addEventListener("click", characterDialog);
 
 // ---------- build update: the character changed in the game -> a newer PoB file or code -> what changed ----------
 async function applyReload(code) {
@@ -641,7 +697,7 @@ async function exportToPlanner(overwrite = false) {
   btn.disabled = true;
   try {
     const r = await api(`/api/planner/export?${buildQuery()}`,
-      { method: "POST", body: { overwrite, lang: LANG, who: $("#bh-sub").textContent } });
+      { method: "POST", body: { overwrite, lang: LANG, who: who(state.build.info) } });
     toast(t(r.overwritten ? "plannerReplaced" : "plannerWritten", r.file), true);
   } catch (e) {
     if (e.status !== 409) toast(e.message);

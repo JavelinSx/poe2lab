@@ -1,5 +1,6 @@
 """Web API: open a build, read analyses, compare an item, reject a bad profile, AI settings, local-only guard."""
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -418,3 +419,46 @@ def test_a_mechanic_package_taken_at_once(client):
         assert graph["budget"]["used"] == before["used"] and "dps" in r["changes"]
     assert client.post("/api/tree/package", json={"ids": [], "mechanic": "crit"}, headers=H).status_code == 422
     client.post("/api/tree/reset", headers=H)
+
+
+def test_the_player_s_character_inside_a_build(tmp_path, monkeypatch):
+    """A guide with the player's own character: every tab works on the character (its level, its gear), the build
+    as recorded is the reference to compare with; edits are saved into the character, the guide stays."""
+    from poe2lab import library, pobfiles, profile
+    from poe2lab.web import server
+    for module in (library, pobfiles, profile, server):
+        if hasattr(module, "PROJECT_BUILDS"):
+            monkeypatch.setattr(module, "PROJECT_BUILDS", tmp_path)
+    monkeypatch.setattr(library, "TRASH", tmp_path / ".trash")
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    guide = (fixtures / "titan.txt").read_text(encoding="utf-8").strip()
+    mine = (fixtures / "monk.txt").read_text(encoding="utf-8").strip()
+    with TestClient(server.app) as c:
+        c.post("/api/builds", json={"name": "Гайд", "code": guide}, headers=H)
+        b = c.post("/api/load", json={"name": "Гайд"}, headers=H).json()
+        assert b["main"] is None and b["guide"] is None
+        assert c.post("/api/character", json={"code": "не код"}, headers=H).status_code == 400
+        b = c.post("/api/character", json={"code": mine}, headers=H).json()
+        info = library.describe_code(mine)
+        assert b["main"]["level"] == info["level"] and b["guide"]["ascendancy"] == "Titan"
+        assert b["info"]["level"] == info["level"] and b["info"]["class"] == info["class"]  # the tabs see the character
+        assert [e["hasMain"] for e in c.get("/api/builds").json() if e["name"] == "Гайд"] == [True]
+        assert all(not e["name"].endswith(".main") for e in c.get("/api/builds").json())
+        # the build as recorded is the reference: its gear and numbers against the character's
+        ref = c.get("/api/versus/gear?ref=@build").json()
+        assert ref["ascendancy"] == "Titan" and ref["items"]
+        assert c.get("/api/versus?ref=@build").json()["rows"]
+        # the plan's edits saved go into the character; the guide's file does not change
+        node = c.get("/api/tree?mode=balanced&points=6").json()["growth"][0]
+        c.post("/api/tree/add", json={"id": node["id"], "name": node["name"]}, headers=H)
+        guide_file = (tmp_path / "Гайд.txt").read_text(encoding="utf-8")
+        c.post("/api/builds/commit", headers=H)
+        assert (tmp_path / "Гайд.txt").read_text(encoding="utf-8") == guide_file
+        assert library.main_path("Гайд").read_text(encoding="utf-8").strip() != mine
+        # taken off: the build is a build of its own again
+        b = c.delete("/api/character", headers=H).json()
+        assert b["main"] is None and b["info"]["ascendancy"] == "Titan"
+        c.post("/api/character", json={"code": mine}, headers=H)
+        c.delete("/api/builds/Гайд", headers=H)
+        assert not library.main_path("Гайд").exists() and any((tmp_path / ".trash").glob("*Гайд.main.txt"))
+    server.session.engine = None

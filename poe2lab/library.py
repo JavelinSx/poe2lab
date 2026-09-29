@@ -1,7 +1,8 @@
 """The build list the UI manages: adding a build from a PoB code or a pobb.in link, favourites, removal.
 
 Builds added here are PoB codes in builds/<name>.txt. Removing one moves it (and its profile) to builds/.trash, so a
-mistake can be undone by moving the file back. Builds saved inside PoB are PoB's files: they are only hidden from
+mistake can be undone by moving the file back. A build can hold the player's own character next to it
+(builds/<name>.main.txt, a PoB code): the build is then the guide, the character what the analysis works on. Builds saved inside PoB are PoB's files: they are only hidden from
 the list, never deleted. Favourites and hidden builds live next to the other per-user settings
 (%APPDATA%/poe2lab/library.json)."""
 import json
@@ -47,10 +48,12 @@ def entries() -> list[dict]:
     """Every build the UI lists: favourites first, then PoB-saved (newest first) and codes; hidden ones left out."""
     lib = _load()
     out = [{"name": p.stem, "kind": "pob", "file": str(p)} for p in list_pob_builds() if str(p) not in lib["hidden"]]
-    out += [{"name": p.stem, "kind": "code", "file": str(p)} for p in sorted(PROJECT_BUILDS.glob("*.txt"))]
+    out += [{"name": p.stem, "kind": "code", "file": str(p)} for p in sorted(PROJECT_BUILDS.glob("*.txt"))
+            if not p.name.endswith(MAIN_SUFFIX)]
     for b in out:
         b["favorite"] = b["name"] in lib["favorites"]
         b["hasProfile"] = (PROJECT_BUILDS / f"{b['name']}.profile.json").exists()
+        b["hasMain"] = main_path(b["name"]).exists()
     out.sort(key=lambda b: not b["favorite"])  # stable: keeps the order inside each group
     return out
 
@@ -79,6 +82,19 @@ def describe_code(code: str) -> dict:
         root = ElementTree.fromstring(decode_pob_code(code))
     except Exception:
         raise LibraryError("это не PoB-код: в PoB — Import/Export Build → Generate → Copy") from None
+    return _describe(root)
+
+
+def describe_file(path: Path) -> dict | None:
+    """Class, ascendancy and level of a build file (a PoB code, or PoB's own .xml); None if it cannot be read."""
+    try:
+        text = path.read_text(encoding="utf-8")
+        return _describe(ElementTree.fromstring(text)) if path.suffix.lower() == ".xml" else describe_code(text.strip())
+    except (OSError, ValueError, LibraryError, ElementTree.ParseError):
+        return None
+
+
+def _describe(root) -> dict:
     build = root.find("Build")
     if build is None:
         raise LibraryError("в коде нет билда (раздел Build)")
@@ -110,6 +126,37 @@ def add(name: str, text: str) -> str:
     return name
 
 
+MAIN_SUFFIX = ".main.txt"
+
+
+def main_path(name: str) -> Path:
+    """Where the player's own character of a build is kept."""
+    return PROJECT_BUILDS / f"{name}{MAIN_SUFFIX}"
+
+
+def set_main(name: str, text: str) -> dict:
+    """The player's character (a PoB code or pobb.in link) put next to the build `name`: the previous one to
+    builds/.trash. Returns its class, ascendancy and level."""
+    code = fetch_code(text)
+    info = describe_code(code)
+    path = main_path(name)
+    PROJECT_BUILDS.mkdir(exist_ok=True)
+    if path.exists():
+        TRASH.mkdir(parents=True, exist_ok=True)
+        path.replace(TRASH / f"{time.strftime('%Y%m%d-%H%M%S')} {path.name}")
+    path.write_text(code + "\n", encoding="utf-8")
+    return info
+
+
+def clear_main(name: str):
+    """The player's character taken off the build (to builds/.trash): the build is a build of its own again."""
+    path = main_path(name)
+    if not path.exists():
+        raise LibraryError(f"у билда «{name}» нет своего персонажа")
+    TRASH.mkdir(parents=True, exist_ok=True)
+    path.replace(TRASH / f"{time.strftime('%Y%m%d-%H%M%S')} {path.name}")
+
+
 def save_profile(name: str, raw: dict):
     """The profile of a build of the list (builds/<name>.profile.json)."""
     PROJECT_BUILDS.mkdir(exist_ok=True)
@@ -130,7 +177,7 @@ def remove(name: str) -> str:
         return "hidden"
     TRASH.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    for src in (PROJECT_BUILDS / f"{name}.txt", PROJECT_BUILDS / f"{name}.profile.json"):
+    for src in (PROJECT_BUILDS / f"{name}.txt", PROJECT_BUILDS / f"{name}.profile.json", main_path(name)):
         if src.exists():
             src.replace(TRASH / f"{stamp} {src.name}")  # a timestamp prefix: removing twice never overwrites
     _save(lib)
