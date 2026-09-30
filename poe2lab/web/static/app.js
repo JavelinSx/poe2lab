@@ -3503,9 +3503,16 @@ function renderSkillsBuild(r) {
     const lines = LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : gem.lines.map(trMod);
     const desc = gameText(gem.description);
     if (!gem.support) {
+      // the skill's own numbers as if it were the main one: crit is each skill's own in the game
+      const n = (r.numbers || []).find((x) => x.group === g.index && x.name === gem.name);
+      const nums = n && (n.dps > 0 || n.crit > 0) ? h("div", { class: "sk-nums small" },
+        n.dps > 0 ? h("span", {}, "DPS ", h("b", {}, fmt(n.dps))) : h("span", { class: "muted" }, t("skNoDps")),
+        n.crit > 0 ? h("span", { title: t("skCritHint") }, t("skCrit"), " ", h("b", {}, `${fmt(n.crit, 1)}%`), n.critMulti ? ` ×${fmt(n.critMulti, 2)}` : "") : null,
+        n.speed > 0 ? h("span", {}, h("b", {}, fmt(n.speed, 2)), " ", t("skPerSec")) : null,
+        n.hitChance > 0 && n.hitChance < 100 ? h("span", {}, t("skHit"), " ", h("b", {}, `${fmt(n.hitChance, 0)}%`)) : null) : null;
       return h("div", { class: "sk-active" }, h("div", { class: "row" }, h("b", {}, gemName(gem.name)),
         gem.available ? h("span", { class: "muted small" }, t("skFromLevel", gem.available)) : null),
-        desc ? h("div", { class: "muted small" }, desc) : null, mechChips(gem), termChips(gem.terms));
+        nums, desc ? h("div", { class: "muted small" }, desc) : null, mechChips(gem), termChips(gem.terms));
     }
     const worth = gem.worth ? deltas(gem.worth, METRIC, 0.5) : null;
     return h("div", { class: "sk-support" + (gem.enabled ? "" : " off") },

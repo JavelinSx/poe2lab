@@ -64,13 +64,13 @@ def summary(engine, config: dict, name: str = "") -> dict:
             "ascendancyNotables": [n["name"] for n in nodes if n["ascendancy"] and n["type"] == "Notable"],
             "notables": sorted(n["name"] for n in nodes if not n["ascendancy"] and n["type"] == "Notable"),
             "keystones": [n["name"] for n in nodes if n["type"] == "Keystone"],
-            "skills": [{"name": s["name"], "dps": s["dps"]} for s in engine.skill_damage(config)[:6]]}
+            "skills": [{"name": s["name"], "dps": s["dps"], "crit": s["crit"]} for s in engine.skill_damage(config)[:6]]}
 
 
 def _line(s: dict) -> str:
     st = s["stats"]
     parts = [f"{s['class']} / {s['ascendancy'] or 'без возвышения'}, {s['level']} ур., основной скилл {s['mainSkill']}",
-             f"DPS {st['CombinedDPS'] or 0:,.0f}", f"крит {st['CritChance'] or 0:.1f}% ×{st['CritMultiplier'] or 0:.2f}",
+             f"DPS {st['CombinedDPS'] or 0:,.0f}", f"крит основного скилла {st['CritChance'] or 0:.1f}% ×{st['CritMultiplier'] or 0:.2f}",
              f"скорость {st['Speed'] or 0:.2f}/с", f"здоровье {st['Life'] or 0:,.0f}", f"энергощит {st['EnergyShield'] or 0:,.0f}",
              f"EHP {st['TotalEHP'] or 0:,.0f}"]
     return ", ".join(parts)

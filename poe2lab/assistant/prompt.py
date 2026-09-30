@@ -91,7 +91,8 @@ STAT_KEYS = [("CombinedDPS", "DPS основного скилла", "main skill 
              ("LightningResist", "сопр. молнии", "lightning res"), ("ChaosResist", "сопр. хаосу", "chaos res"),
              ("PhysicalMaximumHitTaken", "переживаемый физ. удар", "max physical hit"),
              ("ChaosMaximumHitTaken", "переживаемый удар хаосом", "max chaos hit"),
-             ("CritChance", "шанс крита, %", "crit chance, %"), ("CritMultiplier", "множитель крита", "crit multiplier")]
+             ("CritChance", "шанс крита главного скилла, %", "main skill crit chance, %"),
+             ("CritMultiplier", "множитель крита главного скилла", "main skill crit multiplier")]
 
 
 def topics_of(question: str) -> list[str]:
@@ -148,8 +149,9 @@ def compact_context(engine, bp, glossary: dict | None, config: dict, lang: str =
     out.append(("Ключевые цифры (PoB): " if ru else "Key numbers (PoB): ") + "; ".join(nums))
     damage = [d for d in engine.skill_damage(config) if d["dps"] > 0][:6]
     if damage:
-        out.append(("Урон по скиллам, если сделать скилл основным: " if ru else "Damage per skill as the main one: ")
-                   + "; ".join(f"{d['name']} {num(d['dps'])}" for d in damage))
+        out.append(("Урон и шанс крита по скиллам, если сделать скилл основным (крит у каждого скилла свой): " if ru
+                    else "Damage and crit chance per skill as the main one (crit is each skill's own): ")
+                   + "; ".join(f"{d['name']} {num(d['dps'])}, {'крит' if ru else 'crit'} {d['crit']:.0f}%" for d in damage))
     out.append(("Профиль билда (подтверждено мной): " if ru else "Build profile (confirmed by me): ")
                + "; ".join(describe_profile(bp)))
     groups = []

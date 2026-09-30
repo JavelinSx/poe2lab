@@ -265,15 +265,15 @@ PACKAGE_POINTS = 16  # a package costs at most this many points
 PACKAGE_NOTABLES = 4  # at most this many notables in one
 PACKAGE_POOL = 8  # the best notables of a mechanic tried together
 PACKAGE_KEEP = 0.8  # a notable joins while the package keeps this share of its value per point
-CRIT_BUILD = 20  # a build critting this often (%) has crit as its own mechanic
+CRIT_BUILD = 20  # a skill critting this often (%) makes crit the build's own mechanic
 # a mechanic switched off to see what it gives the build now (PoB's configuration)
 _MECHANIC_OFF = {"rage": {"multiplierRage": 0}, "frenzy": {"useFrenzyCharges": False},
                  "power": {"usePowerCharges": False}, "endurance": {"useEnduranceCharges": False}}
 
 
-def build_mechanics(engine, output: dict) -> set[str]:
+def build_mechanics(engine, output: dict, config: dict | None = None) -> set[str]:
     """The mechanics the build has: the topics of its skills and gear (fit.build_topics), the charges its gems make
-    or spend, crit when it crits often."""
+    or spend, crit when a skill of it that deals damage crits often - crit is each skill's own, not the character's."""
     from .skills import mechanics_of
     have = build_topics(engine, output)
     for g in engine.skill_groups():
@@ -283,7 +283,8 @@ def build_mechanics(engine, output: dict) -> set[str]:
             if gem.get("enabled", True):
                 m = mechanics_of(gem)
                 have |= {k for k in m["creates"] + m["uses"] if k in ("frenzy", "power", "endurance", "infusion")}
-    if (output.get("CritChance") or 0) >= CRIT_BUILD:
+    if (output.get("CritChance") or 0) >= CRIT_BUILD or any(
+            s["dps"] > 0 and s["crit"] >= CRIT_BUILD for s in engine.skill_damage(config)):
         have.add("crit")
     return have
 
@@ -298,7 +299,7 @@ def mechanic_packages(engine, profile: MapProfile, mode: str = "balanced", top: 
     pricing = Pricing(engine, profile)
     weights = defence_weights(survivable_hits(engine, profile))
     base = engine.what_if(config=pricing.cfg)
-    have = build_mechanics(engine, base)
+    have = build_mechanics(engine, base, pricing.cfg)
     reach = [t for t in engine.tree_reach(PACKAGE_REACH) if t["type"] in ("Notable", "Keystone")]
     pricing.lines({n for t in reach for n in t["path"]})
     priced = {}

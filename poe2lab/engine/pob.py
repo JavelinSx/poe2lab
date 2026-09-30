@@ -294,7 +294,9 @@ return _poe2lab_json(out)""")
 
     def skill_damage(self, config: dict | None = None) -> list[dict]:
         """Damage of every active skill of every enabled socket group if it were the main skill (the build's choice
-        is restored). For a main skill PoB cannot compute (0 DPS) this shows where the damage actually is."""
+        is restored). For a main skill PoB cannot compute (0 DPS) this shows where the damage actually is. With each
+        skill's own crit chance and multiplier, speed and hit chance: in the game crit is each skill's own (its base,
+        its supports, its modifiers), not the character's."""
         group = int(self._lua("return build.mainSocketGroup"))
         g = f"build.skillsTab.socketGroupList[{group}]"
         if not self._json(f"return _poe2lab_json({g} ~= nil)"):
@@ -307,8 +309,10 @@ return _poe2lab_json(out)""")
                     continue
                 for i, name in enumerate(g["skills"], 1):
                     self.set_main_skill(g["index"], i)
-                    dps = self.what_if(config=config)["CombinedDPS"]
-                    out.append({"group": g["index"], "skill": i, "name": name, "dps": dps})
+                    o = self.what_if(config=config)
+                    out.append({"group": g["index"], "skill": i, "name": name, "dps": o["CombinedDPS"],
+                                "crit": o.get("CritChance") or 0.0, "critMulti": o.get("CritMultiplier") or 0.0,
+                                "speed": o.get("Speed") or 0.0, "hitChance": o.get("HitChance") or 0.0})
         finally:
             # back to the build's own choice as it was, even a group with no active skill left (a skill its item
             # grants, missing from a planner file): no range check here

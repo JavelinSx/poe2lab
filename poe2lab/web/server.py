@@ -1113,7 +1113,8 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
             data = session.cached(("skills", "leveling"),
                                   lambda: skill_leveling_view(e, cfg, levels=_guide_levels(session.bp)))
         if view == "build":
-            data = data | {"plan": _plan_view()}  # gem edits are edits of the plan
+            # gem edits are edits of the plan; each skill's own damage, crit, speed (crit is a skill's own in the game)
+            data = data | {"plan": _plan_view(), "numbers": session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))}
         return _json(data)
 
 

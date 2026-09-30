@@ -79,11 +79,13 @@ def build_context(engine, bp: BuildProfile, glossary: dict[str, str] | None = No
     mech = collect_mechanics(engine)
     parts = [f"Билд: {info['class']} / {info['ascendancy'] or 'без возвышения'}, {info['level']} ур., "
              f"основной скилл: {engine.main_skill()}."]
-    # what each skill would deal as the main one, and the main skill's crit: numbers, not guesses
+    # what each skill would deal as the main one with its own crit (crit is each skill's own), and the main skill's
     stats = engine.what_if(config=config) if config is not None else engine.stats()
     damage = engine.skill_damage(config)
-    parts.append("Урон по скиллам (PoB, если сделать скилл основным; 0 — PoB его урон не считает, например у "
-                 "срабатывающих умений):\n" + "\n".join(f"- [{d['group']}] {d['name']}: {d['dps']:,.0f} DPS" for d in damage))
+    parts.append("Урон и крит по скиллам (PoB, если сделать скилл основным; 0 — PoB его урон не считает, например у "
+                 "срабатывающих умений; шанс крита у каждого скилла свой — база скилла или оружия, его поддержки):\n"
+                 + "\n".join(f"- [{d['group']}] {d['name']}: {d['dps']:,.0f} DPS, крит {d['crit']:.1f}% ×{d['critMulti']:.2f}"
+                             for d in damage))
     parts.append(f"Крит основного скилла (PoB): шанс {stats.get('CritChance', 0):.1f}%, "
                  f"множитель ×{stats.get('CritMultiplier', 0):.2f}.")
     if target:
