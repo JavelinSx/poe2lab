@@ -1125,7 +1125,7 @@ TABS.overview = async (view) => {
       h("div", { class: "what mod" }, trMod(s.mod)),
       deltas({ dps: s.dps, phys_hit: s.defence.Physical, chaos_hit: s.defence.Chaos, recovery: s.recovery }))))));
 
-  return h("div", { class: "stack" }, startCard(r), kpi, h("div", { class: "grid two" }, hitCard, issues), path);
+  return h("div", { class: "stack" }, nextCard(r), kpi, h("div", { class: "grid two" }, hitCard, issues), path);
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -1133,23 +1133,78 @@ TABS.overview = async (view) => {
 const GATE_TAB = [[/резист/i, "gear"], [/не хватает (силы|ловкости|интеллекта)|на грани|держатся требования/i, "tree"],
   [/spirit|маны/i, "gear"], [/слабость/i, "gear"], [/регенерации|жизнь в бою|похищение|энергощите/i, "gear"],
   [/попадания/i, "gear"]];
-function startCard(r) {
+// What to do next, in one place: what is broken in game and the biggest weakness (the report), then the best step
+// of each part of the build - a passive, a craft in a slot, a rune in a socket - most worth first (the same goal
+// score everywhere), and the main skill's support that gives almost nothing. Each with a button to where it is done.
+// The parts' steps come from the tabs' own analyses (their cache), loaded after the page is shown.
+function nextCard(r) {
   const gateText = (g) => LANG === "en" && g.title_en ? g.title_en : trFree(g.title);
   const detailText = (g) => LANG === "en" && g.detail_en ? g.detail_en : trFree(g.detail);
-  const go = (tab) => (tab ? h("button", { class: "link small", onclick: () => switchTab(tab) }, t("startGo", t("tab_" + tab))) : null);
+  const goBtn = (fn) => h("button", { class: "ghost small nowrap next-go", onclick: fn }, t("nextGo"));
   const tabOf = (g) => (GATE_TAB.find(([re]) => re.test(g.title)) || [null, null])[1];
+  const goSlot = (slot) => () => {
+    state.gear = { build: state.build.name, slot, set: /Swap/.test(slot) ? 2 : 1 };
+    switchTab("gear");
+  };
+  const row = (icon, label, what, extra, go) => h("li", { class: "next-row" },
+    h("span", { class: "next-ico" }, icon),
+    h("div", { class: "next-body" }, h("div", {}, h("span", { class: "muted small" }, label, ": "), h("b", {}, what)), extra),
+    go ? goBtn(go) : null);
   const must = r.gates.find((g) => g.level === "must");
   const weak = r.gates.find((g) => g.level === "priority");
-  const next = r.path[0];
-  const steps = [];
-  if (must) steps.push([t("startFix"), gateText(must), detailText(must), go(tabOf(must))]);
-  if (weak) steps.push([t("startWeak"), gateText(weak), detailText(weak), go(tabOf(weak))]);
-  if (next) steps.push([t("startMod"), trMod(next.mod), t("startModHint"), go("gear")]);
-  return h("div", { class: "card start-card" }, h("h3", {}, t("startTitle")),
-    h("div", { class: "sub" }, must ? t("startSub") : t("startOk")),
-    h("ol", { class: "start-steps" }, steps.map(([label, what, why, link]) => h("li", {},
-      h("div", {}, h("span", { class: "muted small" }, label, ": "), h("b", {}, what)),
-      h("div", { class: "small muted" }, why, " ", link)))));
+  const list = h("ol", { class: "start-steps next-steps" });
+  if (must) list.append(row("⛔", t("startFix"), gateText(must), h("div", { class: "small muted" }, detailText(must)),
+    tabOf(must) ? () => switchTab(tabOf(must)) : null));
+  if (weak) list.append(row("⚠", t("startWeak"), gateText(weak), h("div", { class: "small muted" }, detailText(weak)),
+    tabOf(weak) ? () => switchTab(tabOf(weak)) : null));
+  const pending = h("li", { class: "next-row muted small" }, loading(t("nextLoading")));
+  list.append(pending);
+
+  (async () => {
+    const points = state.treePoints || 6;
+    const [tree, gear, skills] = await Promise.allSettled([
+      cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`)),
+      cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`)),
+      cached("skills:build", () => api(`/api/skills?view=build&${buildQuery()}`))]);
+    const steps = [];  // [score, row]
+    const g = tree.status === "fulfilled" && tree.value.growth[0];
+    if (g) {
+      steps.push([g.value, row("🌳", t("tab_tree"), trName(g.name),
+        h("div", {}, h("span", { class: "small muted" }, t("nextTreeNote", g.points), " "), deltas(g.changes, METRIC, 0.3)), () => switchTab("tree"))]);
+    }
+    if (gear.status === "fulfilled") {
+      const c = gear.value.craftPath[0];
+      if (c) {
+        steps.push([c.score, row("⚒", t("nextCraft", slotName(c.slot)),
+          (c.removed.length ? trMod(c.removed.join(" / ")) + " → " : t("craftAdd") + " ") + trMod(c.added.join(" / ")),
+          deltas(c.changes, METRIC, 0.3), goSlot(c.slot))]);
+      }
+      // the socket where a rune gains most over what sits there now
+      const runes = gear.value.sockets.filter((s) => s.best.length).map((s) => [s.best[0].score - s.current_score, s]);
+      const [gain, s] = runes.sort((a, b) => b[0] - a[0])[0] || [0, null];
+      if (s && gain > 0) {
+        steps.push([gain, row("◆", t("nextRune", slotName(s.slot)), trName(s.best[0].name),
+          h("div", {}, s.current && s.current !== "None" ? h("span", { class: "small muted" }, t("nextRuneInstead", trName(s.current)), " ") : null,
+            deltas(s.best[0].changes, METRIC, 0.3)), goSlot(s.slot))]);
+      }
+    }
+    steps.sort((a, b) => b[0] - a[0]);
+    // the main skill's support that gives it least: a place for a better one (not a gain of its own - last)
+    if (skills.status === "fulfilled") {
+      const main = skills.value.groups.find((x) => x.main);
+      const measured = main ? main.gems.filter((x) => x.support && x.enabled && x.worth) : [];
+      const key = state.mode === "defence" ? "ehp" : "dps";
+      const weakest = measured.sort((a, b) => (a.worth[key] || 0) - (b.worth[key] || 0))[0];
+      if (weakest && (weakest.worth[key] || 0) < 1) {
+        steps.push([0, row("🔮", t("nextGem"), trName(weakest.name),
+          h("div", { class: "small muted" }, t("nextGemNote", pct(weakest.worth[key] || 0))), () => switchTab("skills"))]);
+      }
+    }
+    pending.replaceWith(...(steps.length ? steps.map((x) => x[1]) : [h("li", { class: "muted small" }, t("nextNone"))]));
+  })();
+
+  return h("div", { class: "card start-card" }, h("h3", {}, t("nextTitle")),
+    h("div", { class: "sub" }, t("nextSub", t("mode_" + state.mode))), list);
 }
 
 // ---------- damage ----------
