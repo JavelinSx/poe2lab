@@ -845,6 +845,47 @@ tr.dense .fit-chips { margin-top: 2px; }
 @media (max-width: 760px) { .jw-main { grid-template-columns: 1fr; } }
 
 /* levelling: a level slider, each skill's supports as sockets */
+/* levelling up to the build: the switch first, then the acts */
+.lr-switch { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: var(--gold-soft);
+  border: 1px solid var(--gold); }
+.lr-flag { font-size: 26px; line-height: 1; }
+.lr-switch-title { font-size: 18px; font-weight: 700; color: var(--gold); margin-bottom: 2px; }
+.lr-why { display: flex; flex-direction: column; gap: 6px; }
+.lr-part { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
+.lr-part.decisive { outline: 1px solid var(--gold); }
+.lr-part.ssf { opacity: .7; }
+.lr-part-ico { width: 34px; display: flex; justify-content: center; }
+.lr-part-ico .ico, .lr-part-ico .item-ico { width: 30px; height: 30px; margin: 0; }
+.lr-part-body { flex: 1; min-width: 0; }
+.lr-worth { font-weight: 700; white-space: nowrap; }
+.lr-wait { font-size: 12px; color: var(--gold); white-space: nowrap; }
+.lr-before { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lr-way { font-weight: 600; }
+.lr-skill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: var(--panel-2); font-size: 13px; }
+.lr-skill.until { opacity: .75; border: 1px dashed var(--line); }
+.lr-lvl { color: var(--muted); font-size: 11px; }
+.lr-stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.lr-stage { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+.lr-stage.switch { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.lr-stage.here { background: var(--panel-2); }
+.lr-stage-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 2px; }
+.lr-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 13px; }
+.lr-k { width: 20px; text-align: center; }
+.lr-to { padding: 4px 0; font-weight: 600; }
+.lr-tips { margin: 0; padding-left: 18px; }
+.lr-wizard { width: min(760px, 94vw); }
+.lr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.lr-tiles.two { grid-template-columns: 1fr 1fr; }
+.lr-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 10px; text-align: center; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text); cursor: pointer; font-weight: 400; }
+.lr-tile:hover, .lr-tile.active { border-color: var(--gold); }
+.lr-tile-ico { font-size: 26px; line-height: 1.2; }
+.lr-tile-skills { display: flex; gap: 4px; }
+.lr-tile-skills .ico { width: 32px; height: 32px; margin: 0; }
+.lr-nav { justify-content: space-between; }
+.lr-dots { display: flex; gap: 6px; }
+.lr-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.lr-dots span.on { background: var(--gold); }
 .lv-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .lv-head input[type=range] { flex: 1; min-width: 180px; accent-color: var(--gold); }
 .lv-level { font-size: 24px; font-weight: 700; color: var(--gold); min-width: 2.5ch; }

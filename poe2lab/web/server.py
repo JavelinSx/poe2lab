@@ -24,6 +24,7 @@ from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.tree import take_package
+from ..analysis import leveling
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -2230,6 +2231,8 @@ def save_profile(raw: dict):
                 raise HTTPException(400, f"PoB не понимает строку поправки: {c.get('mod')!r}")
         path = _profile_path()
         before = path.read_text(encoding="utf-8") if path.exists() else None
+        if before and "leveling" not in raw:  # the levelling answers are saved by their own page
+            raw = raw | {k: v for k, v in json.loads(before).items() if k == "leveling"}
         path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             session.load(str(session.path))
@@ -2242,6 +2245,53 @@ def save_profile(raw: dict):
             _errors(lambda: session.load(str(session.path)))
             raise HTTPException(400, f"профиль не сохранён: {err}")
         return _json(_summary())
+
+
+# ---------- levelling up to the build (poe2lab.analysis.leveling) ----------
+class LevelingAnswers(BaseModel):
+    way: str
+    trade: bool = True
+    pace: str = "fast"  # fast | safe
+    novice: bool = False
+
+
+def _leveling_view():
+    """The ways the build's class can level, the player's answers (the build profile's "leveling") and the roadmap
+    for them. It is about the build as its file has it - the guide - also when the player's character is in it;
+    the character's level then marks where the player is."""
+    if session.main is not None:
+        _, engine, bp = _reference(RECORDED)
+        here = session.engine.info()["level"]
+    else:
+        engine, bp, here = session.engine, session.bp, None
+    answers = _profile_raw().get("leveling") if _profile_path().exists() else None
+    ways = session.cached(("leveling-ways",), lambda: leveling.ways(engine))
+    road = None
+    if answers:
+        key = ("leveling", json.dumps(answers, sort_keys=True))
+        road = session.cached(key, lambda: leveling.roadmap(engine, bp.rage, bp.mana_sustained, answers, here))
+    return _json({"ways": ways, "answers": answers, "roadmap": road, "characterLevel": here})
+
+
+@app.get("/api/leveling")
+def leveling_get(build: str | None = None):
+    with session.lock:
+        session.require(build)
+        return _errors(_leveling_view)
+
+
+@app.post("/api/leveling")
+def leveling_save(req: LevelingAnswers, build: str | None = None):
+    """The player's answers kept in the build profile, and the roadmap for them."""
+    if req.pace not in ("fast", "safe"):
+        raise HTTPException(400, f"неизвестный темп {req.pace!r}")
+    with session.lock:
+        session.require(build)
+        path = _profile_path()
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw["leveling"] = req.model_dump()
+        path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        return _errors(_leveling_view)
 
 
 @app.post("/api/chat")

@@ -13,6 +13,8 @@ broken, what to upgrade, and what to take next on the passive tree. Every number
 - **Passive tree** — a tree viewer with the game's art: node frames, jewels in sockets, **weapon set passives**
   (sets I and II), best growth options, respec candidates, auto-allocation, **mechanic packages** (rage, charges,
   crit, ailments, minions… priced together), a rage and charges uptime model; ascendancy advice.
+- **Levelling up to a guide** — guides are for 75+: pick how to level (the ways the class's attributes allow), get a
+  roadmap by act and, above all, the level to switch to the build and why (each piece it waits for with PoB's number).
 - **Your character vs a guide** — load your character into a build and compare numbers, gems, gear and tree with
   the guide's ("Main / Build" views).
 - **Build constructor** — start from a class and ascendancy, or from a top player on the **poe.ninja ladder**.
@@ -45,6 +47,8 @@ headless): что сломано, какие статы и моды стоят �
 - **Пассивное дерево** — схема с артом игры: рамки нод, самоцветы в гнёздах, ноды **наборов оружия I и II**, лучший
   вариант роста, что перераспределить, автораспределение, **механики вместе** (свирепость, заряды, криты,
   состояния, приспешники…), модель свирепости и зарядов в бою; советы по возвышению.
+- **Как качаться до билда** — гайды обычно на 75+: выбери, чем качаться (варианты под атрибуты класса), получи план
+  по актам и, главное, с какого уровня переходить на билд и почему (каждая часть, которую ждёт переход, — с цифрой PoB).
 - **Свой персонаж против гайда** — загрузи своего персонажа в билд и сравнивай цифры, камни, шмот и дерево с гайдом
   (вкладки «Мейн / Билд»).
 - **Конструктор билда** — с класса и возвышения или с билда топ-игрока **ладдера poe.ninja**.

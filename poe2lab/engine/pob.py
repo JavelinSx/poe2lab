@@ -1424,7 +1424,8 @@ build.calcsTab:BuildOutput()""")
 
     def gem_catalog(self) -> list[dict]:
         """The gems the game gives: skill and support gems cut from uncut gems (a tier above 0) and lineage supports.
-        Each with its colour code, family, level cap and the character level each gem level needs."""
+        Each with its colour code, family, level cap, the character level each gem level needs and the weapon types
+        a skill needs (none for spells and minions)."""
         return self._json(self._GEM_HELPERS + """
 local colours = { colorCodes.STRENGTH, colorCodes.DEXTERITY, colorCodes.INTELLIGENCE }
 local out = arr({})
@@ -1436,10 +1437,22 @@ for id, d in pairs(data.gems) do
     out[#out + 1] = { id = id, name = ge.name, support = ge.support and true or false, tier = d.Tier or 0,
       lineage = ge.isLineage and true or false, family = type(d.gemFamily) == "string" and d.gemFamily or ge.name,
       color = tostring(colours[ge.color] or colorCodes.NORMAL), tags = tags(d), maxLevel = max, reqs = reqs,
-      description = ge.description or "", types = ge.support and arr({}) or types(ge.skillTypes) }
+      description = ge.description or "", types = ge.support and arr({}) or types(ge.skillTypes),
+      weapons = arr((function() local w = {} for k in pairs(ge.weaponTypes or {}) do w[#w + 1] = k end table.sort(w) return w end)()) }
   end
 end
 return _poe2lab_json(out)""")
+
+    def item_levels(self) -> dict[str, int]:
+        """The character level each equipped item needs, by slot (0 when PoB does not know it)."""
+        rows = self._json("""
+local out = _poe2lab_array({})
+for name, slot in pairs(build.itemsTab.slots) do
+  local item = build.itemsTab.items[slot.selItemId]
+  if item then out[#out + 1] = { slot = name, level = item.requirements and item.requirements.level or 0 } end
+end
+return _poe2lab_json(out)""")
+        return {r["slot"]: r["level"] or 0 for r in rows}
 
     def gem_fits(self, group: int) -> list[str]:
         """The support gems (data.gems ids) that can support one of the group's active skills."""

@@ -1173,7 +1173,7 @@ TABS.overview = async (view) => {
 
   const worstShare = worst && share(worst[0], worst[1].juiced);
   const broken = r.gates.filter((g) => g.level === "must").length;
-  return h("div", { class: "stack" }, nextCard(r), kpi, h("div", { class: "grid two" },
+  return h("div", { class: "stack" }, nextCard(r), kpi, levelingCard(), h("div", { class: "grid two" },
     foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null),
     foldedCard(issues, "issues", r.gates.length ? t("issuesSum", r.gates.length, broken) : null)),
   foldedCard(path, "path", r.path.length ? t("firstStep", trMod(r.path[0].mod)) : null));
@@ -2846,6 +2846,171 @@ function marketCard(m, mk) {
     ...body), "market", mk.market ? t("marketSumOn", `${mk.top} ${mk.top_unit}`) : t("marketSumOff"));
 }
 
+// ---------- levelling up to the build (poe2lab.analysis.leveling) ----------
+// Guides are for 75+; up to that the player levels on their own. Four questions (only when asked for), then a
+// roadmap by acts - above all when to switch to the build and why, each reason with PoB's number.
+const LR_WEAPON = { quarterstaff: "🥢", mace: "🔨", bow: "🏹", crossbow: "🎯", spear: "🔱", talisman: "🐺", spell: "✨", minion: "💀" };
+const LR_ELEMENT = { fire: "🔥", cold: "❄️", lightning: "⚡", chaos: "☠️", physical: "⚔️" };
+const LR_MIN_GUIDE = 60;  // a build below this level is not a guide to level up to
+const lrWayTitle = (w) => (w.id === "build" ? t("lrWayBuild")
+  : `${t("lrWeapon_" + w.weapon)}${w.element ? " · " + t("lrEl_" + w.element) : ""}`);
+const lrWayIcon = (w) => (w.id === "build" ? "⭐" : `${LR_WEAPON[w.weapon] || ""}${w.element ? LR_ELEMENT[w.element] || "" : ""}`);
+const lrSkill = (s) => h("span", { class: "lr-skill" + (s.until ? " until" : "") }, gemName(s.name),
+  h("span", { class: "lr-lvl" }, t("lrFrom", s.level)));
+const lrStageName = (key) => t("lrStage_" + key);
+
+function levelingCard() {
+  const card = h("div", { class: "card lr-card hidden" }, h("h3", {}, t("lrTitle")), loading(t("lrLoading")));
+  cached("leveling", () => api(`/api/leveling?${buildQuery()}`))
+    .then((d) => { if (d.ways.level >= LR_MIN_GUIDE) { card.classList.remove("hidden"); drawLeveling(card, d); } else card.remove(); })
+    .catch(() => card.remove());
+  return card;
+}
+
+// why the switch is at its level: the piece the build waits for, in words
+function lrReason(p) {
+  if (p.kind === "skill") {
+    if (p.source === "ascendancy") return t("lrWhySkillAsc", trName(p.name), trName(p.sourceName), p.trial);
+    if (p.source === "item") return t("lrWhySkillItem", trName(p.name), trItem(p.sourceName.split(",")[0]), p.level);
+    return p.level ? t("lrWhySkill", trName(p.name), p.level) : t("lrWhySkillUnknown", trName(p.name));
+  }
+  if (p.kind === "support") return t("lrWhySupport", trName(p.firstName || p.name), pct(p.dps), p.level);
+  return t("lrWhyUnique", trItem(p.name.split(",")[0]), pct(p.dps), p.level);
+}
+
+function lrPart(p, trade) {
+  const pic = p.kind === "unique" ? itemIcon(p.name, p.name.split(",")[1], "unique") : icon(p.name);
+  const gem = p.firstName || p.name;
+  const name = p.kind === "unique" ? h("b", {}, trItem(p.name.split(",")[0]))
+    : hoverTip(h("b", { class: "pk-node" }, trName(gem)), () => gemTipCard(gem));
+  let note = null;
+  if (p.kind === "support" && p.firstName) note = t("lrSupportFull", trName(p.name), p.full);
+  if (p.kind === "skill" && !p.level) note = lrReason(p);
+  if (p.kind === "skill" && p.source === "ascendancy") note = t("lrApprox");
+  if (p.kind === "unique" && p.core && !trade) note = t("lrSsfUnique", pct(p.dps));
+  if (p.kind === "unique" && p.defence) note = t("lrDefUnique", pct(p.ehp));
+  const worth = p.kind === "skill" ? t("lrMainSkill") : p.kind === "support" ? t("lrDps", pct(p.dps))
+    : p.core ? t("lrDps", pct(p.dps)) : t("lrEhp", pct(p.ehp));
+  return h("div", { class: "lr-part" + (p.decisive ? " decisive" : "") + (p.kind === "unique" && p.core && !trade ? " ssf" : "") },
+    h("span", { class: "lr-part-ico" }, pic),
+    h("div", { class: "lr-part-body" }, h("div", {}, name, " ", h("span", { class: "chip " + (p.decisive ? "must" : "tag") },
+      p.level ? t("lrFrom", p.level) : "?")), note ? h("div", { class: "small muted" }, note) : null),
+    h("span", { class: "lr-worth" }, worth),
+    p.decisive ? h("span", { class: "lr-wait" }, t("lrWaitFor")) : null);
+}
+
+function drawLeveling(card, d) {
+  const head = card.querySelector("h3");
+  const edit = (label, cls) => h("button", { class: cls, onclick: () => levelingWizard(d, (nd) => { state.cache.leveling = nd; drawLeveling(card, nd); }) }, label);
+  if (!d.answers || !d.roadmap) {
+    card.replaceChildren(head, h("p", { class: "small" }, t("lrIntro")), h("div", {}, edit(t("lrMake"), "primary")));
+    return;
+  }
+  const r = d.roadmap, sw = r.switch, a = r.answers;
+  const decisive = sw.parts.filter((p) => p.decisive);
+  const banner = h("div", { class: "lr-switch" }, h("span", { class: "lr-flag" }, "🚩"),
+    h("div", {}, h("div", { class: "lr-switch-title" }, sw.level ? t("lrSwitchAt", sw.level, lrStageName(sw.stage)) : t("lrSwitchUnknown")),
+      decisive.length ? h("div", {}, t("lrBecause"), " ", decisive.map(lrReason).join("; ")) : null,
+      r.characterLevel ? h("div", { class: "small muted" }, r.characterLevel >= (sw.level || 999) ? t("lrReady", r.characterLevel) : t("lrLeft", r.characterLevel, sw.level - r.characterLevel)) : null));
+  const core = sw.parts.filter((p) => p.core);
+  const extra = sw.parts.filter((p) => !p.core && p.kind === "unique" && p.defence);
+  const blind = sw.parts.filter((p) => p.kind === "unique" && !p.core && !p.defence && Math.abs(p.dps) < 1 && Math.abs(p.ehp) < 1);
+  const why = h("div", { class: "lr-why" }, h("div", { class: "section-title" }, t("lrWhyTitle")),
+    ...core.map((p) => lrPart(p, sw.trade)), ...extra.map((p) => lrPart(p, sw.trade)),
+    blind.length ? h("div", { class: "small muted" }, t("lrBlind", blind.map((p) => trItem(p.name.split(",")[0])).join(", "))) : null);
+  const until = r.way.skills.filter((s) => !sw.level || s.level < sw.level || r.way.id === "build");
+  const before = h("div", { class: "lr-before" }, h("span", { class: "section-title" }, t("lrUntil")),
+    h("span", { class: "lr-way" }, lrWayIcon(r.way), " ", lrWayTitle(r.way)), ...until.slice(0, 6).map(lrSkill));
+  const stage = (s) => {
+    const rows = [];
+    if (s.switch) {
+      const to = sw.parts.filter((p) => p.core && p.kind !== "unique");
+      rows.push(h("div", { class: "lr-row lr-to" }, h("span", { class: "lr-k" }, "⭐"), t("lrSwitchTo"),
+        ...to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name)))));
+    }
+    if (s.skills.length) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, "⚔"), ...s.skills.map(lrSkill)));
+    if (s.gems.length) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k", title: t("lrGemsHint") }, "💎"),
+      ...s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name)))));
+    if (s.supportTier.length) rows.push(h("div", { class: "lr-row small muted" }, h("span", { class: "lr-k" }, "🔹"), t("lrSupportTier", s.supportTier.join(", "))));
+    if (s.tree.length) rows.push(hoverTip(h("div", { class: "lr-row pk-node" }, h("span", { class: "lr-k" }, "🌳"), t("lrTree", s.tree.length, trName(s.tree[0].name))),
+      () => h("div", { class: "stack" }, h("b", {}, t("lrTreeTip")), h("ol", { class: "small" }, s.tree.map((n) => h("li", {}, trName(n.name), h("span", { class: "muted" }, ` · ~${n.points}`)))))));
+    for (const x of s.ascendancy) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, "👑"), t("lrAsc", x.trial, trName(x.name))));
+    for (const u of s.uniques) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, u.defence ? "🛡" : "💰"), trItem(u.name.split(",")[0])));
+    if (s.penalty) rows.push(h("div", { class: "lr-row small" + (a.pace === "safe" ? " bad-text" : " muted") }, h("span", { class: "lr-k" }, "🔥"), t("lrResist", s.penalty)));
+    if (a.novice && t("lrNov_" + s.key) !== "lrNov_" + s.key) rows.push(h("div", { class: "hint" }, t("lrNov_" + s.key)));
+    if (a.novice && s.switch) rows.push(h("div", { class: "hint" }, t("lrNovSwitch")));
+    return h("div", { class: "lr-stage" + (s.switch ? " switch" : "") + (s.here ? " here" : "") },
+      h("div", { class: "lr-stage-head" }, h("b", {}, lrStageName(s.key)), " ", h("span", { class: "muted small" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)),
+        s.switch ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null,
+        s.here ? h("span", { class: "chip ok" }, t("lrHere")) : null),
+      ...rows);
+  };
+  const tips = [t(a.pace === "safe" ? "lrTipSafe" : "lrTipFast"), t(a.trade ? "lrTipTrade" : "lrTipSsf")];
+  card.replaceChildren(...[head, banner, why, before,
+    h("div", { class: "lr-stages" }, r.stages.map(stage)),
+    h("ul", { class: "small lr-tips" }, tips.map((x) => h("li", {}, x))),
+    h("div", { class: "row" }, edit(t("lrEdit"), "ghost small"),
+      h("span", { class: "muted small" }, t("lrAnswers", lrWayTitle(r.way), t(a.trade ? "lrTradeShort" : "lrSsfShort"), t(a.pace === "safe" ? "lrSafeShort" : "lrFastShort"))),
+      h("button", { class: "link small", onclick: () => { state.skillsMode = "leveling"; switchTab("skills"); } }, t("lrMore")))].filter(Boolean));
+  head.querySelector(".fold-sum")?.remove();
+  if (sw.level) head.append(h("span", { class: "fold-sum" }, "🚩 " + t("lrSwitchShort", sw.level)));
+}
+
+// the levelling tab's line about the plan: the switch level, or where to make the plan
+function levelingNote() {
+  const box = h("div", { class: "action lr-note hidden" });
+  cached("leveling", () => api(`/api/leveling?${buildQuery()}`)).then((d) => {
+    if (d.ways.level < LR_MIN_GUIDE) return;
+    const sw = d.roadmap && d.roadmap.switch;
+    box.replaceChildren(h("span", {}, sw && sw.level ? "🚩 " + t("lrSwitchAt", sw.level, lrStageName(sw.stage)) : t("lrNoPlan")), " ",
+      h("button", { class: "link small", onclick: () => switchTab("overview") }, t("lrToOverview")));
+    box.classList.remove("hidden");
+  }).catch(() => {});
+  return box;
+}
+
+// the four questions, one screen each, as tiles; nothing is asked unless the player presses the button
+function levelingWizard(d, done) {
+  const a = { trade: true, pace: "fast", novice: false, ...(d.answers || {}) };
+  if (!a.way || !d.ways.ways.some((w) => w.id === a.way)) a.way = (d.ways.ways[0] || {}).id;
+  let step = 0;
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); };
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
+  const box = h("div", { class: "ask card stack lr-wizard", role: "dialog", "aria-modal": "true" });
+  back.append(box);
+  const tile = (on, pick, ico, title, ...more) => h("button", { class: "lr-tile" + (on ? " active" : ""), onclick: () => { pick(); next(); } },
+    h("span", { class: "lr-tile-ico" }, ico), h("b", {}, title), ...more);
+  const choice = (key, options) => h("div", { class: "lr-tiles two" }, options.map(([value, ico, title, sub]) =>
+    tile(a[key] === value, () => { a[key] = value; }, ico, title, h("span", { class: "small muted" }, sub))));
+  const screens = [
+    () => [h("h3", {}, t("lrQWay", trName(d.ways.class))), h("div", { class: "small muted" }, t("lrQWaySub")),
+      h("div", { class: "lr-tiles" }, d.ways.ways.map((w) => tile(a.way === w.id, () => { a.way = w.id; }, lrWayIcon(w), lrWayTitle(w),
+        h("span", { class: "lr-tile-skills" }, w.skills.slice(0, 3).map((s) => h("span", { title: trName(s.name) }, icon(s.name) || trName(s.name)))),
+        h("span", { class: "small muted" }, t("lrFromLevel", w.from)),
+        w.id !== "build" && w.likeBuild ? h("span", { class: "chip ok" }, t("lrLike")) : w.id !== "build" && w.sameWeapon ? h("span", { class: "chip tag" }, t("lrSameWeapon")) : null)))],
+    () => [h("h3", {}, t("lrQTrade")), choice("trade", [[true, "🛒", t("lrTrade"), t("lrTradeSub")], [false, "🎒", t("lrSsf"), t("lrSsfSub")]])],
+    () => [h("h3", {}, t("lrQPace")), choice("pace", [["fast", "⚡", t("lrFast"), t("lrFastSub")], ["safe", "🛡", t("lrSafe"), t("lrSafeSub")]])],
+    () => [h("h3", {}, t("lrQNovice")), choice("novice", [[true, "🌱", t("lrNovice"), t("lrNoviceSub")], [false, "🎯", t("lrExpert"), t("lrExpertSub")]])],
+  ];
+  const draw = () => box.replaceChildren(...screens[step](),
+    h("div", { class: "row lr-nav" }, step ? h("button", { class: "ghost small", onclick: () => { step--; draw(); } }, t("lrBack")) : null,
+      h("span", { class: "lr-dots" }, screens.map((_, i) => h("span", { class: i === step ? "on" : "" }))),
+      h("button", { class: "ghost small", onclick: close }, t("cancel"))));
+  async function next() {
+    if (++step < screens.length) { draw(); return; }
+    box.replaceChildren(loading(t("lrLoading")));
+    try {
+      const nd = await api(`/api/leveling?${buildQuery()}`, { method: "POST", body: a });
+      close();
+      done(nd);
+    } catch (e) { close(); toast(e.message); }
+  }
+  document.body.append(back);
+  document.addEventListener("keydown", onKey, true);
+  draw();
+}
+
 // ---------- mechanics ----------
 // ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
 TABS.skills = async (view) => {
@@ -2860,7 +3025,8 @@ TABS.skills = async (view) => {
   try {
     const key = mode === "uniques" ? `skills:uniques:${scope}` : `skills:${mode}${of ? ":target" : ""}`;
     const r = await cached(key, () => api(`/api/skills?view=${mode}&scope=${scope}${of ? "&of=target" : ""}&${buildQuery()}`));
-    body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : mode === "uniques" ? renderUniqueLinks(r) : renderSkillsLeveling(r)));
+    body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : mode === "uniques" ? renderUniqueLinks(r)
+      : [levelingNote(), ...renderSkillsLeveling(r)]));
   } catch (e) {
     body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message),
       of ? h("button", { class: "ghost small", onclick: () => { state.levelOf = "build"; switchTab("skills"); } }, t("lvByBuild")) : null));
