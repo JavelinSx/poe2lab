@@ -4212,13 +4212,50 @@ TABS.assistant = async () => {
   const wrap = h("div", { class: "stack" });
   // no key: the prompt for any chat AI first, the key settings after it; with a key the chat, the prompt below
   const redraw = (s) => {
-    wrap.replaceChildren(...(s.active.configured ? [aiSettingsCard(s, redraw), chatCard(true), promptCard(s)]
-      : [promptCard(s), aiSettingsCard(s, redraw)]));
+    wrap.replaceChildren(...(s.active.configured ? [aiSettingsCard(s, redraw), chatCard(true), promptCard(s), mcpCard()]
+      : [promptCard(s), mcpCard(), aiSettingsCard(s, redraw)]));
     loadStatus();
   };
   redraw(settings);
   return wrap;
 };
+
+// The player's own AI app on this computer (Claude Desktop, Cursor, Claude Code...) with poe2lab's tools over MCP:
+// the app starts poe2lab itself and every number it gives comes from PoB here - on the player's subscription, no key.
+function mcpCard() {
+  const card = h("div", { class: "card stack mcp-card" }, h("h3", {}, t("mcpTitle")), h("div", { class: "sub" }, t("mcpSub")),
+    loading(t("counting")));
+  const copyRow = (label, text) => {
+    const area = h("textarea", { class: "mcp-code", rows: Math.min(10, text.split("\n").length), readonly: true, spellcheck: "false" }, text);
+    return h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "row" }, h("b", { class: "small" }, label),
+      h("button", { class: "ghost small", onclick: async () => toast(t((await copyText(text, area)) ? "copied" : "npCopyFail"), true) }, t("copy"))), area);
+  };
+  const draw = (m) => {
+    const cd = m.claudeDesktop;
+    const head = card.querySelector("h3");
+    head.querySelector(".fold-sum")?.remove();
+    head.append(h("span", { class: "fold-sum" }, cd.connected ? t("mcpSumOn") : t("mcpSumOff")));
+    const act = async (method) => {
+      if (method === "POST" && !(await confirmInPage(t("mcpAsk"), t("mcpConnect")))) return;
+      try {
+        draw(await api("/api/mcp/claude-desktop", { method }));
+        toast(t(method === "POST" ? "mcpDone" : "mcpRemoved"), true);
+      } catch (e) { toast(e.message); }
+    };
+    card.replaceChildren(...[head, card.querySelector(".sub"),  // native replaceChildren would write a null out
+      m.available ? null : h("div", { class: "bad small" }, t("mcpMissing")),
+      h("div", { class: "row mcp-desktop" }, h("span", { class: "mcp-ico" }, "🔌"),
+        !cd.found ? h("span", { class: "muted small" }, t("mcpNoDesktop"))
+          : cd.connected ? [chip("ok", t("mcpConnected")), h("button", { class: "ghost small", onclick: () => act("DELETE") }, t("mcpDisconnect"))]
+            : h("button", { class: "primary", disabled: !m.available, onclick: () => act("POST") }, t("mcpConnect"))),
+      cd.connected ? h("div", { class: "action small" }, t("mcpRestart")) : null,
+      h("details", {}, h("summary", { class: "small" }, t("mcpOther")),
+        h("div", { class: "stack", style: "margin-top:8px" }, h("div", { class: "hint" }, t("mcpOtherHint")),
+          copyRow(t("mcpJson"), m.json), copyRow("Claude Code", m.claudeCode)))].filter(Boolean));
+  };
+  api("/api/mcp").then(draw).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
+  return foldedCard(card, "mcp", null);
+}
 
 function chatCard(configured) {
   if (!configured) return h("div", { class: "card muted" }, t("configureFirst"));

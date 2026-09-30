@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "poe2lab", "ui", "--no-browser"],
       "port": 8765
+    },
+    {
+      "name": "poe2lab-ui-alt",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "poe2lab", "ui", "--no-browser", "--port", "8799"],
+      "port": 8799
     }
   ]
 }

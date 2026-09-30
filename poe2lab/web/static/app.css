@@ -104,6 +104,9 @@ button.primary.danger { background: var(--bad); border-color: var(--bad); color:
 .tv-help-wrap { position: relative; margin-left: auto; }
 .tv-help-wrap + .tree-close { margin-left: 0; }
 .tv-help.on { border-color: var(--gold); color: var(--gold); }
+.mcp-desktop { gap: 10px; align-items: center; }
+.mcp-ico { font-size: 20px; }
+.mcp-code { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .tv-key { display: inline-flex; align-items: center; gap: 5px; margin-right: 8px; white-space: nowrap; }
 .tv-help-box { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 360px; display: flex; flex-direction: column; gap: 8px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }

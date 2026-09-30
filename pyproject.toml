@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Path of Exile 2 (PoE2) build analyzer on top of Path of Building: DPS and defence, gear upgrades, crafting, passive tree advice"
 readme = "README.md"
 license = "MIT"
-keywords = ["path-of-exile-2", "poe2", "path-of-building", "build-analyzer", "build-planner", "passive-tree", "arpg"]
+keywords = ["path-of-exile-2", "poe2", "path-of-building", "build-analyzer", "build-planner", "passive-tree", "arpg", "mcp"]
 requires-python = ">=3.12"
-dependencies = ["psutil", "fastapi", "uvicorn"]
+dependencies = ["psutil", "fastapi", "uvicorn", "mcp>=2.2,<3"]
 
 [project.urls]
 Homepage = "https://github.com/JavelinSx/poe2lab"

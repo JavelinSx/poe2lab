@@ -18,6 +18,9 @@ broken, what to upgrade, and what to take next on the passive tree. Every number
 - **Build constructor** — start from a class and ascendancy, or from a top player on the **poe.ninja ladder**.
 - **Export** — a PoB code for pobb.in and Path of Building, or a file for the game's own **build planner** (.build).
 - **AI assistant** (DeepSeek, Claude, OpenAI, Gemini, OpenRouter, Ollama…) — or a ready prompt for any free chatbot.
+- **MCP server** — use your own AI app (Claude Desktop, Claude Code, Cursor, LM Studio…) with poe2lab's tools: it
+  opens your builds and gets every number from Path of Building (`python -m poe2lab mcp`, or one button for
+  Claude Desktop).
 - Loot filter, crafting journal, a glossary for new players; **English and Russian** interface.
 
 **Quick start (Windows):** *Code → Download ZIP*, unpack to a short path (e.g. `C:\poe2lab`), double-click
@@ -48,6 +51,8 @@ headless): что сломано, какие статы и моды стоят �
 - **Экспорт** — PoB-код для pobb.in и Path of Building, файл для **планировщика билдов** игры (.build).
 - **ИИ-ассистент** (DeepSeek, Claude, OpenAI, Gemini, OpenRouter, Ollama…) — или готовый промпт для любой бесплатной
   нейросети.
+- **MCP-сервер** — свой ИИ-чат (Claude Desktop, Claude Code, Cursor, LM Studio…) с инструментами poe2lab: открывает
+  твои билды и берёт все цифры из Path of Building (кнопка для Claude Desktop или `python -m poe2lab mcp`).
 - Лут-фильтр, журнал крафта, словарь новичка; интерфейс на русском и английском, тексты — из русского клиента игры.
 
 **Как пользоваться, что устанавливается и зачем, описание всех вкладок — в [GUIDE.md](GUIDE.md).**
@@ -119,6 +124,18 @@ OpenAI-совместимый адрес. Кнопка «Загрузить сп
 
 Ассистент получает билд, профиль и механики из данных игры заранее, а все цифры считает через движок PoB.
 Данные билда и вопросы уходят выбранному провайдеру.
+
+### Свой ИИ-чат через MCP
+
+`python -m poe2lab mcp` — MCP-сервер (Model Context Protocol) с теми же инструментами, что у ассистента, плюс
+`list_builds` и `open_build`. Его запускает само ИИ-приложение и общается с ним через stdin/stdout; билды сервер
+только читает. На вкладке «Ассистент» карточка «🔌 Свой ИИ-чат»: кнопка «Подключить к Claude Desktop» (дописывает
+`mcpServers.poe2lab` в `claude_desktop_config.json`, прежний файл — копией `.poe2lab.bak`), настройка JSON для
+других приложений и команда для Claude Code:
+
+```
+claude mcp add poe2lab --scope user -e PYTHONPATH="C:\poe2lab" -- "C:\poe2lab\.venv\Scripts\python.exe" -m poe2lab mcp
+```
 
 ## Командная строка
 

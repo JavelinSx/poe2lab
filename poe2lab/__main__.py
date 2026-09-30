@@ -90,6 +90,16 @@ def ui(argv: list[str]):
     server.run()
 
 
+def mcp_server():
+    """poe2lab for an AI app on this computer (Claude Desktop, Claude Code, Cursor...) over MCP: the app starts this
+    command itself and talks to it over stdin/stdout (poe2lab.mcpserver)."""
+    try:
+        from .mcpserver import serve
+    except ImportError as err:
+        sys.exit(f"MCP недоступен: {err}. Запустите start.bat ещё раз (или pip install -e .), чтобы поставить пакет mcp.")
+    serve()
+
+
 def game_texts(rest):
     """Unpack official Russian texts from the installed game (re-run after a game patch; the UI also does it
     automatically when the game is newer than the unpacked copy)."""
@@ -129,7 +139,7 @@ def setup(rest):
         print(f"тексты игры не распакованы ({err}); интерфейс будет с английскими названиями")
 
 
-EXTRA = ("dossier", "builds", "ui", "gamedata", "setup")
+EXTRA = ("dossier", "builds", "ui", "mcp", "gamedata", "setup")
 
 
 def main():
@@ -145,6 +155,9 @@ def main():
         return
     if command == "ui":
         ui(rest)
+        return
+    if command == "mcp":
+        mcp_server()
         return
     if command == "gamedata":
         game_texts(rest)

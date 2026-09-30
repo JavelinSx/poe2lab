@@ -40,7 +40,7 @@ from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
 from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext, jewelcraft,
-               journal, library, lootfilter, newbuild, pobapp, quality)
+               journal, library, lootfilter, mcpconnect, newbuild, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -2302,18 +2302,41 @@ def _assistant_target() -> tuple[dict | None, str | None, list[str]]:
     character's for the assistant's context, and the names it brings (for their official translations);
     (None, None, []) without one or when it cannot be opened."""
     name = session.bp.target if session.bp else None
-    if not name:
+    if not name and session.main is None:
         return None, None, []
-    try:
-        _, engine, bp = _reference(name)
+    try:  # with the player's character in the build and no target named, the build itself is the guide
+        _, engine, bp = _reference(name or RECORDED)
     except HTTPException:
         return None, None, []
     from ..analysis.target import context_text, summary
     profile = MapProfile.for_level(engine.info()["level"], rage=bp.rage, mana_sustained=bp.mana_sustained)
+    name = name or f"{session.path.stem} (гайд)"
     target = {"name": name, "engine": engine, "profile": profile}
     goal = summary(engine, profile.config(), name)
     names = goal["notables"] + goal["ascendancyNotables"] + goal["keystones"] + [s["name"] for s in goal["skills"]]
     return target, context_text(summary(session.engine, session.profile.config(), session.path.stem), goal), names
+
+
+# ---------- the player's own AI app over MCP (poe2lab.mcpserver, poe2lab.mcpconnect) ----------
+@app.get("/api/mcp")
+def mcp_status():
+    return mcpconnect.status()
+
+
+@app.post("/api/mcp/claude-desktop")
+def mcp_connect():
+    try:
+        return mcpconnect.connect()
+    except mcpconnect.ConnectError as err:
+        raise HTTPException(400, str(err))
+
+
+@app.delete("/api/mcp/claude-desktop")
+def mcp_disconnect():
+    try:
+        return mcpconnect.disconnect()
+    except mcpconnect.ConnectError as err:
+        raise HTTPException(400, str(err))
 
 
 @app.post("/api/chat/reset")
