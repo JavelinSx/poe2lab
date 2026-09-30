@@ -907,7 +907,24 @@ function applyFolding(root) {
     setFolded(card, head, card.dataset.foldDefault ? !folded.has("!" + foldKey(head)) : folded.has(foldKey(head)), false);
   });
 }
-new MutationObserver(() => applyFolding($("#view"))).observe($("#view"), { childList: true, subtree: true });
+// ---------- long explanations on demand ----------
+// A card's long sub-heading (how a number is counted, what a list means) becomes a "?" by its title: the card reads
+// as its heading and numbers, the explanation is one hover away (a click shows it too, for a touch screen). Short
+// sub-headings and ones with controls or links in them stay as they are.
+const SUB_LONG = 90;
+function explainSubs(root) {
+  root.querySelectorAll(".card > .sub").forEach((sub) => {
+    const head = sub.previousElementSibling;
+    const title = head && (head.tagName === "H3" || head.classList.contains("section-title") ? head : head.querySelector(":scope > h3"));
+    if (!title || sub.children.length || sub.textContent.length < SUB_LONG) return;
+    sub.remove();  // kept by the mark: a text added to it later still shows
+    const mark = h("span", { class: "info sub-info", role: "note", "aria-label": sub.textContent }, "?");
+    hoverTip(mark, () => h("div", { class: "small sub-tip" }, sub.textContent));
+    mark.addEventListener("click", () => toast(sub.textContent, true));
+    title.insertBefore(mark, title.querySelector(".fold-sum"));
+  });
+}
+new MutationObserver(() => { explainSubs($("#view")); applyFolding($("#view")); }).observe($("#view"), { childList: true, subtree: true });
 
 function foldAll(on) {
   $("#view").querySelectorAll(".card[data-fold]").forEach((card) => setFolded(card, card.querySelector(".fold-head"), on));
@@ -1849,15 +1866,16 @@ function craftGuide() {
     return h("div", { class: "guide-level" }, h("b", {}, t("g_level_" + level)),
       h("ul", {}, steps.map(([k, n]) => h("li", {}, withItems(t(k), n)))), priceLine);
   });
+  const sub = h("div", { class: "sub" }, t("crGuideSub"));
   const card = h("div", { class: "card craft-guide", "data-fold-default": "1" },
-    h("h3", {}, t("crGuideTitle")), h("div", { class: "sub" }, t("crGuideSub")), levels,
+    h("h3", {}, t("crGuideTitle")), sub, levels,
     h("p", { class: "small" }, withItems(t("g_classes"), ["Gnawed Rib", "Gnawed Jawbone", "Gnawed Collarbone"])));
   cached("craftGuide", () => api("/api/craft/guide")).then((r) => {
     for (const [line, names] of priceLines) {
       const known = names.filter((n) => r.prices[n]);
       if (known.length) line.replaceChildren(t("g_prices"), " ", ...known.map((n) => h("span", { class: "guide-price" }, icon(n), trFree(r.prices[n]))));
     }
-    card.querySelector(".sub").append(r.league ? t("prices", trName(r.league)) : "");
+    sub.append(r.league ? t("prices", trName(r.league)) : "");
   }).catch(() => { /* no prices: the guide still reads */ });
   return card;
 }

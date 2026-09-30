@@ -142,6 +142,8 @@ main { padding: 12px 28px 60px; min-width: 0; height: 100vh; overflow-y: auto; }
 .info { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%;
   border: 1px solid var(--muted); font-size: 11px; text-transform: none; letter-spacing: 0; cursor: help; }
 .info:hover { color: var(--gold); border-color: var(--gold); }
+h3 .sub-info, .section-title .sub-info { margin-left: 8px; vertical-align: middle; font-weight: 400; color: var(--muted); }
+.sub-tip { max-width: 380px; line-height: 1.45; }
 select, input[type=text], input[type=number], input[type=password], textarea {
   background: var(--panel);
   border: 1px solid var(--line);
