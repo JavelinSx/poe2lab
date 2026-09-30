@@ -21,7 +21,8 @@ broken, what to upgrade, and what to take next on the passive tree. Every number
 - Loot filter, crafting journal, a glossary for new players; **English and Russian** interface.
 
 **Quick start (Windows):** *Code → Download ZIP*, unpack to a short path (e.g. `C:\poe2lab`), double-click
-**`start.bat`** — it sets up Python, Path of Building and the game's texts, then opens the interface in the browser.
+**`start.bat`** — it sets up Python, Path of Building and the game's texts, then opens the interface in the browser
+(the program runs in the background; stop it with **⏻ Stop poe2lab** in the interface).
 The full guide ([GUIDE.md](GUIDE.md)) is in Russian; the interface speaks both languages. Screenshots:
 [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md).
 
@@ -61,8 +62,10 @@ headless): что сломано, какие статы и моды стоят �
 Первый запуск занимает 1–3 минуты: если нет Python 3.12+, скрипт предложит поставить его через winget; дальше сам
 создаст окружение `.venv`, поставит зависимости, скачает Path of Building (архив проверенной версии, ~200 МБ) и, если
 установлена Path of Exile 2 (Steam или клиент GGG; другой путь — переменная `POE2_DIR`), распакует из неё русские
-тексты и иконки. Потом откроется браузер с интерфейсом. Следующие запуски — сразу в интерфейс. Остановить — закрыть
-окно консоли. Ключ ИИ у каждого свой — вводится на вкладке «Ассистент».
+тексты и иконки. Потом откроется браузер с интерфейсом, а окно консоли закроется само: poe2lab работает в фоне без
+окна. Следующие запуски — сразу в интерфейс; если poe2lab уже запущен, start.bat просто откроет его в браузере.
+Остановить — кнопка **«⏻ Остановить poe2lab»** внизу слева в интерфейсе. Журнал фонового сервера —
+`%APPDATA%\poe2lab\ui.log` и `ui-errors.log`. Ключ ИИ у каждого свой — вводится на вкладке «Ассистент».
 
 Без игры всё работает, но названия будут английскими (из PoB). Интерфейс это объясняет: внизу слева — «Тексты игры:
 русские ✓» или «английские — почему?»; по нажатию открывается плашка с причиной (игра не найдена, нет утилиты
