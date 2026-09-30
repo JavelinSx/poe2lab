@@ -625,6 +625,11 @@ tr.dense .fit-chips { margin-top: 2px; }
 .gear-top > .card { position: sticky; top: 8px; }
 .tv-points { font-size: 13px; }
 .pk-list { display: flex; flex-direction: column; gap: 10px; }
+.plan-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: -6px 0 14px; padding: 8px 12px;
+  border-radius: 8px; border: 1px solid var(--gold); background: var(--gold-soft); }
+.plan-strip-log summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.plan-strip-log[open] { flex-basis: 100%; }
+.plan-strip-act { margin-left: auto; }
 .sk-nums { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 4px; }
 .stop-app { margin-top: 4px; }
 .stop-app:hover { border-color: var(--bad); color: var(--bad); }

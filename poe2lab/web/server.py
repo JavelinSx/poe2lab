@@ -999,6 +999,7 @@ class ItemMake(BaseModel):
     quality: int | None = None
     implicit_roll: float = 0.5
     roll: float = 0.5
+    breakeven: str | None = None  # a mod line of the item: how low it may roll and the item still not lose
 
 
 def _made_item(req: ItemMake) -> tuple[str, bool]:
@@ -1037,12 +1038,16 @@ def _checked_item(req: ItemMake) -> tuple[str, bool]:
 
 @app.post("/api/gear/try")
 def gear_try(req: ItemMake):
-    """The item tried on in the slot: its text and lines, and the comparison with the slot's item."""
+    """The item tried on in the slot: its text and lines, and the comparison with the slot's item; with
+    `breakeven`, how far that mod line may fall and the item still be no worse than the worn one."""
     with session.lock:
         session.require()
         text, exact = _checked_item(req)
         e, cfg = session.engine, session.profile.config()
         result = asdict(_errors(lambda: compare(e, cfg, req.slot, text, keep_quality=exact)))
+        if req.breakeven and req.breakeven.strip():
+            res = _errors(lambda: breakeven(e, cfg, req.slot, text, req.breakeven.strip()))
+            result["breakeven"] = None if res is None else {"factor": res[0], "line": res[1]}
         return _json(result | {"text": text, "item": _errors(lambda: e.parse_item(text))})
 
 

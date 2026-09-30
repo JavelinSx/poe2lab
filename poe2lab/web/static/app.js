@@ -178,7 +178,9 @@ $("#lang").addEventListener("click", async (e) => {
   if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
-const TAB_ORDER = ["overview", "damage", "skills", "gear", "compare", "tree", "loot", "mechanics", "profile", "assistant"];
+const TAB_ORDER = ["overview", "damage", "skills", "gear", "tree", "loot", "profile", "assistant"];
+// tabs that were folded into others: an old address still lands where their content is now
+const MOVED_TABS = { compare: "gear", mechanics: "profile" };
 
 // the league for prices and trade searches: the player's choice, or poe.ninja's current league
 async function loadLeagues() {
@@ -818,7 +820,7 @@ function renderChanges() {
 
 // forms that replace the build view (add, update, feedback) hide everything tied to the open build
 function hideBuildChrome() {
-  for (const id of ["#build-header", "#tabs", "#changes", "#build-notice", "#ctor-bar"]) $(id).classList.add("hidden");
+  for (const id of ["#build-header", "#tabs", "#changes", "#build-notice", "#ctor-bar", "#plan-strip"]) $(id).classList.add("hidden");
 }
 
 document.addEventListener("click", (e) => {
@@ -916,7 +918,8 @@ function writeHash() {
 
 function readHash() {
   const q = new URLSearchParams(location.hash.slice(1));
-  if (q.get("tab") && TABS[q.get("tab")]) state.tab = q.get("tab");
+  const tab = MOVED_TABS[q.get("tab")] || q.get("tab");
+  if (tab && TABS[tab]) state.tab = tab;
   if (q.get("mode") && ["damage", "balanced", "defence"].includes(q.get("mode"))) {
     state.mode = q.get("mode");
     document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
@@ -945,6 +948,7 @@ async function switchTab(tab) {
     if (sided) view.replaceChildren(sideSwitch(tab), host);
     const content = await (sided && state.side === "build" ? SIDE_VIEWS[tab] : TABS[tab])(host);
     if (switchTab.token === token && content) host.replaceChildren(content);
+    if (switchTab.token === token) renderPlanStrip();
   } catch (e) {
     if (switchTab.token === token) view.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("error")), h("p", { class: "muted" }, e.message)));
   }
@@ -1300,7 +1304,7 @@ async function itemEditor(slot) {
   if (!cat.bases.length && !cat.uniques.length) { toast(t("mkNothingFits", slotName(slot))); return; }
   const now = gearMap(state.build.items)[slot] || null;
   const ed = { tab: cat.bases.length ? "create" : "unique", base: null, fams: null, rarity: "rare", ilvl: cat.itemLevel,
-    quality: 20, iroll: 0.5, slots: { Prefix: [], Suffix: [] }, unique: null, roll: 0.5, text: "", q: "", kind: "all" };
+    quality: 20, iroll: 0.5, slots: { Prefix: [], Suffix: [] }, unique: null, roll: 0.5, text: "", q: "", kind: "all", breakeven: "" };
 
   const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
   const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
@@ -1314,7 +1318,7 @@ async function itemEditor(slot) {
 
   const spec = () => {
     if (ed.tab === "unique") return ed.unique ? { unique: ed.unique.name, base: ed.unique.base, roll: ed.roll } : null;
-    if (ed.tab === "paste") return ed.text.trim() ? { text: ed.text } : null;
+    if (ed.tab === "paste") return ed.text.trim() ? { text: ed.text, breakeven: ed.breakeven.trim() || null } : null;
     if (!ed.base) return null;
     return { base: ed.base.name, rarity: ed.rarity, item_level: ed.ilvl, quality: ed.base.quality ? ed.quality : null,
       implicit_roll: ed.iroll, mods: [...ed.slots.Prefix, ...ed.slots.Suffix].filter(Boolean).map((m) => ({ id: m.id, roll: m.roll })) };
@@ -1448,9 +1452,17 @@ async function itemEditor(slot) {
     return [q, list, ed.unique && ed.unique.ranged ? slider(ed.roll, (v) => { ed.roll = v; refresh(); }) : null];
   };
 
+  // an item copied from the game - or the worn one, to change its mods and see; how low a mod may roll and the
+  // item still not lose (worth knowing when buying)
   const drawPaste = () => {
     const ta = h("textarea", { rows: 12, placeholder: t("mkPastePh"), spellcheck: "false", oninput: () => { ed.text = ta.value; refresh(); } }, ed.text);
-    return [ta];
+    const current = now ? h("button", { class: "ghost small", title: t("cmpCurrentHint"), onclick: async () => {
+      try { ed.text = ta.value = (await api(`/api/item/${encodeURIComponent(slot)}`)).text; refresh(); } catch (e) { toast(e.message); }
+    } }, t("insertCurrent")) : null;
+    const be = h("input", { type: "text", placeholder: t("breakevenPh"), value: ed.breakeven, style: "width:100%",
+      oninput: () => { ed.breakeven = be.value; refresh(); } });
+    return [ta, current ? h("div", { class: "row" }, current) : null,
+      h("details", { open: !!ed.breakeven }, h("summary", {}, t("breakeven")), h("div", { class: "sub" }, t("breakevenHelp")), be)];
   };
 
   const tabs = () => h("div", { class: "segmented" }, [["create", t("jwCreate")], ["unique", t("jwUniques")], ["paste", t("jwPaste")]]
@@ -1600,7 +1612,7 @@ function gearEdit(box, info, g) {
   }
 
   drawControls();
-  box.replaceChildren(...[info.plan ? planBar(info.plan) : null,
+  box.replaceChildren(...[
     h("div", { class: "cmp-item-head" }, itemIcon(info.item.name, info.item.baseName, info.item.rarity),
       h("div", {}, h("div", { class: "muted small" }, slotName(info.slot)), h("div", { class: "item-name" }, itemTitle(info.item)))),
     controls, out].filter(Boolean));
@@ -1988,10 +2000,9 @@ function numbersTable(r) {
 }
 
 // the player's gear against the build's as recorded (RECORDED_REF), or a pasted item against the worn one
-TABS.compare = () => compareView();
 async function compareView() {
   if (!state.cmp || state.cmp.build !== state.build.name) {
-    state.cmp = { build: state.build.name, slot: null, source: "build", ref: RECORDED_REF, set: 1, paste: "", pasted: null };
+    state.cmp = { build: state.build.name, slot: null, source: "build", ref: RECORDED_REF, set: 1 };
   }
   const cmp = state.cmp;
   cmp.ref = RECORDED_REF;
@@ -2031,56 +2042,23 @@ async function compareView() {
   };
 
   const drawRight = () => {
-    const seg = h("div", { class: "segmented" }, [["build", t("cmpSrcBuild")], ["paste", t("cmpSrcPaste")]].map(([k, label]) =>
-      h("button", { class: cmp.source === k ? "active" : "", onclick: () => { cmp.source = k; drawRight(); drawDolls(); drawDetail(); } }, label)));
-    if (cmp.source === "build") {
-      right.replaceChildren(...[seg, h("div", { class: "cmp-ref-title" }, h("b", {}, refLabel)),
-        state.build.main ? null : h("div", { class: "sub" }, t("cmpRecordedSub")), refDoll].filter(Boolean));
-      return;
-    }
-    const text = h("textarea", { rows: 12, placeholder: t("candidatePh"), spellcheck: "false", oninput: () => { cmp.paste = text.value; } }, cmp.paste);
-    const be = h("input", { type: "text", placeholder: t("breakevenPh"), style: "width:100%" });
-    const go = h("button", { class: "primary", onclick: async () => {
-      if (!cmp.slot) { toast(t("cmpPickSlotFirst")); return; }
-      if (!text.value.trim()) { text.focus(); return; }
-      go.disabled = true;
-      detail.replaceChildren(h("div", { class: "card" }, loading(t("counting"))));
-      try {
-        const r = await api("/api/compare", { method: "POST", body: { slot: cmp.slot, text: text.value, breakeven: be.value.trim() || null } });
-        cmp.pasted = { slot: cmp.slot, result: r };
-      } catch (e) { toast(e.message); }
-      go.disabled = false;
-      drawDetail();
-    } }, t("compare"));
-    const current = h("button", { class: "ghost small", title: t("cmpCurrentHint"), onclick: async () => {
-      if (!cmp.slot || !mine[cmp.slot]) { toast(t("cmpPickSlotFirst")); return; }
-      try { text.value = cmp.paste = (await api(`/api/item/${encodeURIComponent(cmp.slot)}`)).text; } catch (e) { toast(e.message); }
-    } }, t("insertCurrent"));
-    right.replaceChildren(seg,
-      h("div", { class: "sub" }, cmp.slot ? t("cmpPasteFor", slotName(cmp.slot)) : t("cmpPickSlotFirst")),
-      text, h("div", { class: "row" }, go, current),
-      h("details", {}, h("summary", {}, t("breakeven")), h("div", { class: "sub" }, t("breakevenHelp")), be));
+    right.replaceChildren(...[h("div", { class: "cmp-ref-title" }, h("b", {}, refLabel)),
+      state.build.main ? null : h("div", { class: "sub" }, t("cmpRecordedSub")), refDoll].filter(Boolean));
   };
 
   const drawDetail = () => {
     const slot = cmp.slot;
     if (!slot) { detail.replaceChildren(h("div", { class: "card cmp-hint" }, t("cmpPick"))); return; }
     const my = mine[slot];
-    let other = null, label = "", result = null, waiting = false, note = null, empty = "";
-    if (cmp.source === "build") {
-      label = refLabel;
-      other = ref && ref.items[slot];
-      empty = ref ? t("cmpRefEmpty", refLabel) : "";
-      const s = versus && versus.slots.find((x) => x.slot === slot);
-      if (other && VERSUS_SLOTS.includes(slot)) {
-        if (!versus) waiting = true;
-        else if (s && s.error) note = t("cannotEquip");
-        else if (s && s.swap) result = s.swap;
-      }
-    } else {
-      label = t("cmpPasted");
-      empty = t("cmpPasteFirst");
-      if (cmp.pasted && cmp.pasted.slot === slot) { other = cmp.pasted.result.item; result = cmp.pasted.result; }
+    let result = null, waiting = false, note = null;
+    const label = refLabel;
+    const other = ref && ref.items[slot];
+    const empty = ref ? t("cmpRefEmpty", refLabel) : "";
+    const s = versus && versus.slots.find((x) => x.slot === slot);
+    if (other && VERSUS_SLOTS.includes(slot)) {
+      if (!versus) waiting = true;
+      else if (s && s.error) note = t("cannotEquip");
+      else if (s && s.swap) result = s.swap;
     }
     detail.replaceChildren(h("div", { class: "card stack" },
       h("h3", {}, slotName(slot)),
@@ -2391,12 +2369,57 @@ async function savePlan() {
 }
 
 // the plan in one line on the tabs that edit it besides the tree: how many edits, what they change, reset / save
-function planBar(plan) {
-  return h("div", { class: "plan-bar" }, h("b", {}, t("planBarTitle", plan.log.length)), deltas(plan.changes, METRIC, 0.3),
-    h("div", { class: "row" }, ctorOf(state.build)
-      ? h("button", { class: "primary small", onclick: commitBuild }, t("svCommit")) : null,
-    h("button", { class: "ghost small", onclick: savePlan }, t("planSave")),
+// ---- the plan's edits (tree, gems, gear, jewels): one strip under the tabs, on every tab - how many, what they
+// change against the build, what exactly, and save / reset ----
+async function renderPlanStrip() {
+  const strip = $("#plan-strip");
+  let plan = null;
+  try { plan = await cached("plan", () => api(`/api/plan?${buildQuery()}`)); } catch (_) { /* no build open */ }
+  if (!plan || !plan.log.length) { strip.classList.add("hidden"); strip.replaceChildren(); return; }
+  // into the build itself: a build the constructor made, or the player's own character in a guide
+  const into = ctorOf(state.build) || state.build.main;
+  strip.replaceChildren(
+    h("b", {}, "✎ ", t("planBarTitle", plan.log.length)), deltas(plan.changes, METRIC, 0.3),
+    h("details", { class: "plan-strip-log" }, h("summary", {}, t("planWhat")), h("ul", { class: "plan-log" }, plan.log.map(planLogLine))),
+    h("div", { class: "row plan-strip-act" },
+      into ? h("button", { class: "primary small", title: t(state.build.main ? "svCommitMainHint" : "svCommitHint"), onclick: commitBuild },
+        state.build.main ? t("svCommitMain") : t("svCommit")) : null,
+      h("button", { class: "ghost small", onclick: savePlan }, t("planSave")),
       h("button", { class: "ghost small", onclick: () => planCall("/api/tree/reset", {}, { tab: state.tab, rebuild: true }) }, t("planReset"))));
+  strip.classList.remove("hidden");
+}
+
+// one line of the plan's log: what an edit took and gave
+const planNames = (list) => {
+  const counts = {};
+  (list || []).forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
+  return Object.entries(counts).map(([n, c]) => (c > 1 ? `${c}× ${trName(n)}` : trName(n))).join(", ");
+};
+function planLogLine(e) {
+  const names = planNames;
+  return e.action === "jewel"
+    ? h("li", {}, t("jwLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${jwName(e.removed)}`) : null,
+      e.removed && e.added ? " " : null, e.added ? h("span", { class: "pos" }, `+ ${jwName(e.added)}`) : null)
+    : e.action === "item" && "worn" in e
+    ? h("li", {}, t("gearLog", slotName(e.target)), " ", e.worn ? h("span", { class: "neg" }, `− ${jwName(e.worn)}`) : null, " ",
+      h("span", { class: "pos" }, `+ ${jwName(e.item)}`))
+    : e.action === "item"
+    ? h("li", {}, t("gearLog", slotName(e.target)), " ", [e.quality ? t("gearLogQ", ...e.quality) : null,
+      e.sockets ? t("gearLogS", ...e.sockets) : null,
+      e.catalyst ? t("gearLogC", e.catalyst[0] ? trName(`${e.catalyst[0]} Catalyst`) : t("gearNoCatalyst"), e.catalyst[1]) : null,
+      ...(e.added || []).map((n) => "+ " + trName(n))].filter(Boolean).join(", "))
+    : e.action === "gem"
+    ? h("li", {}, t("gmLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${trName(e.removed)}`) : null,
+      e.removed && e.added ? " " : null,
+      e.added ? h("span", { class: "pos" }, `+ ${trName(e.added)}${e.level ? ` (${t("gmLevelQ", e.level, e.quality)})` : ""}`) : null,
+      e.dropped && e.dropped.length ? h("span", { class: "muted" }, " " + t("gmDropped", e.dropped.map(trName).join(", "))) : null)
+    : e.action === "swap"
+    ? h("li", {}, (e.target || "").startsWith("package:") ? [h("b", {}, t("pkLog", t("pk_" + e.target.slice(8)))), h("br")] : null,
+      h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
+    : e.action === "add" && (e.target || "").startsWith("package:")
+    ? h("li", { class: "pos" }, `+ ${t("pkLog", t("pk_" + e.target.slice(8)))} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
+    : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`)
+      : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`);
 }
 
 function editButton(action, node) {
@@ -2420,48 +2443,11 @@ function planCard(plan, points) {
     const r = await treeCall("/api/tree/optimize", { mode: state.mode, seed: Math.floor(Math.random() * 1e9) }, t("optimizing"));
     if (r) toast(r.found ? t("optimized", r.found) : t("optimizedNone"), !!r.found);
   } }, plan && plan.log.length ? t("optimizeMore") : t("optimize"));
-  const reset = plan ? h("button", { class: "ghost", onclick: () => treeCall("/api/tree/reset") }, t("planReset")) : null;
-  const save = plan && plan.log.length ? h("button", { class: "ghost", onclick: savePlan }, t("planSave")) : null;
-  const commit = plan && plan.log.length && ctorOf(state.build)
-    ? h("button", { class: "primary", onclick: commitBuild }, t("svCommit")) : null;
-  const names = (list) => {
-    const counts = {};
-    (list || []).forEach((n) => { counts[n] = (counts[n] || 0) + 1; });
-    return Object.entries(counts).map(([n, c]) => (c > 1 ? `${c}× ${trName(n)}` : trName(n))).join(", ");
-  };
-  const logLine = (e) => e.action === "jewel"
-    ? h("li", {}, t("jwLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${jwName(e.removed)}`) : null,
-      e.removed && e.added ? " " : null, e.added ? h("span", { class: "pos" }, `+ ${jwName(e.added)}`) : null)
-    : e.action === "item" && "worn" in e
-    ? h("li", {}, t("gearLog", slotName(e.target)), " ", e.worn ? h("span", { class: "neg" }, `− ${jwName(e.worn)}`) : null, " ",
-      h("span", { class: "pos" }, `+ ${jwName(e.item)}`))
-    : e.action === "item"
-    ? h("li", {}, t("gearLog", slotName(e.target)), " ", [e.quality ? t("gearLogQ", ...e.quality) : null,
-      e.sockets ? t("gearLogS", ...e.sockets) : null,
-      e.catalyst ? t("gearLogC", e.catalyst[0] ? trName(`${e.catalyst[0]} Catalyst`) : t("gearNoCatalyst"), e.catalyst[1]) : null,
-      ...(e.added || []).map((n) => "+ " + trName(n))].filter(Boolean).join(", "))
-    : e.action === "gem"
-    ? h("li", {}, t("gmLogAt", trName(e.target)), " ", e.removed ? h("span", { class: "neg" }, `− ${trName(e.removed)}`) : null,
-      e.removed && e.added ? " " : null,
-      e.added ? h("span", { class: "pos" }, `+ ${trName(e.added)}${e.level ? ` (${t("gmLevelQ", e.level, e.quality)})` : ""}`) : null,
-      e.dropped && e.dropped.length ? h("span", { class: "muted" }, " " + t("gmDropped", e.dropped.map(trName).join(", "))) : null)
-    : e.action === "swap"
-    ? h("li", {}, (e.target || "").startsWith("package:") ? [h("b", {}, t("pkLog", t("pk_" + e.target.slice(8)))), h("br")] : null,
-      h("span", { class: "neg" }, `− ${names(e.removed)}`), h("br"), h("span", { class: "pos" }, `+ ${names(e.added)}`))
-    : e.action === "add" && (e.target || "").startsWith("package:")
-    ? h("li", { class: "pos" }, `+ ${t("pkLog", t("pk_" + e.target.slice(8)))} (${t("pointsN", e.nodes.length)}): ${names(e.nodes)}`)
-    : e.action === "add" ? h("li", { class: "pos" }, `+ ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`)
-      : h("li", { class: "neg" }, `− ${trName(e.target)} (${t("pointsN", e.nodes.length)}${e.set ? " · " + t("tvWsSet", e.set) : ""}): ${names(e.nodes)}`);
-  // the points: what the character's level gives (pointsLine) - "more than the build had" said little for a build
-  // being made from nothing
+  // the points: what the character's level gives (pointsLine); the edits themselves are in the strip above the tab
   return h("div", { class: "card plan" },
     h("h3", {}, t("planTitle")), h("div", { class: "sub" }, t("planSub", t("mode_" + state.mode))), pointsLine(points),
-    plan ? h("div", { class: "stack" },
-      h("div", {}, h("div", { class: "sub", style: "margin:0 0 4px" }, t("planVsBuild")), deltas(plan.changes, METRIC, 0.3)),
-      plan.log.length ? h("details", {}, h("summary", {}, t("planLog", plan.log.length)), h("ul", { class: "plan-log" }, plan.log.map(logLine))) : null,
-      h("div", { class: "hint" }, t("planNote")))
-      : h("p", { class: "muted" }, t("planEmpty")),
-    h("div", { class: "row", style: "margin-top:10px" }, commit, optimize, save, reset));
+    plan && plan.log.length ? null : h("p", { class: "muted" }, t("planEmpty")),
+    h("div", { class: "row", style: "margin-top:10px" }, optimize));
 }
 
 // ---- jewels in the tree's sockets: each socket's jewel and what it gives; take it out, or put in a unique, one
@@ -3320,6 +3306,8 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
     for (const x of graph.nodes) byId.set(x.id, x);
     edited = true;
     if (opts.onEdit) opts.onEdit();
+    delete state.cache.plan;  // the strip of the plan's edits follows the tree's
+    renderPlanStrip();
     regrow.classList.add("stale");  // the hints were for the tree before this edit
     loadFrames();
     drawPoints();
@@ -3682,8 +3670,7 @@ function renderSkillsLeveling(r) {
 // the levelling stage in force at a level: the last one that has started
 const stageAt = (plan, level) => plan.stages.filter((s) => s.level <= level).pop() || plan.stages[0];
 
-TABS.mechanics = async (view) => {
-  view.replaceChildren(loading(t("collecting")));
+async function gapsCard() {
   const m = await cached("mechanics", () => api(`/api/mechanics?${buildQuery()}`));
   // "Name, Base (Slot)" / "Skill (группа N)": names through trItem, so a rare's random English name is dropped in
   // Russian (the game builds it from words with several Russian variants — it cannot be recovered exactly)
@@ -3705,18 +3692,10 @@ TABS.mechanics = async (view) => {
   const shown = m.gaps.filter((g) => LANG === "en" || g.text_local || !/^[A-Za-z0-9_%+]+ = /.test(g.text));
   const impact = shown.filter((g) => g.likely_impact);
   const rest = shown.filter((g) => !g.likely_impact);
-  return h("div", { class: "grid two" },
-    h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
-      impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
-    h("div", { class: "card" }, h("h3", {}, t("skillsTitle")), h("div", { class: "sub" }, t("skillsSub")),
-      m.skills.filter((s) => !s.support).map((s) => h("details", {}, h("summary", {}, icon(s.name), `${s.group}. ${trName(s.name)}`),
-        s.description && (LANG === "en" || GAME.names[s.description])
-          ? h("p", { class: "muted small" }, LANG === "en" ? s.description : GAME.names[s.description]) : null,
-        h("ul", {}, LANG !== "en" && s.linesLocal && s.linesLocal.length
-          ? s.linesLocal.map((l, i) => h("li", { title: s.lines[i] || "" }, l))
-          : s.lines.map((l) => h("li", { title: l }, trMod(l)))))),
-      m.uniques.map((u) => h("details", {}, h("summary", {}, trItem(u.name)), h("ul", {}, u.lines.map((l) => h("li", { title: l }, trMod(l))))))));
-};
+  // the skills' and uniques' own lines are in the Skills tab; here what PoB leaves out of its numbers
+  return h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
+    impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null);
+}
 
 // ---------- profile ----------
 TABS.profile = async () => {
@@ -3759,7 +3738,7 @@ TABS.profile = async () => {
     save.disabled = false;
   } }, t("save"));
 
-  return h("div", { class: "grid two" },
+  const facts = h("div", { class: "grid two" },
     h("div", { class: "card stack" }, h("h3", {}, `${t("factsTitle")} — ${state.build.name}`),
       h("div", { class: "sub" }, t("factsSub")),
       state.build.hasProfile ? null : h("div", { class: "action" }, t("noProfileYet", state.build.name)),
@@ -3774,6 +3753,9 @@ TABS.profile = async () => {
       h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
     h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))));
+  let gaps;
+  try { gaps = await gapsCard(); } catch (e) { gaps = h("div", { class: "card" }, h("p", { class: "muted" }, e.message)); }
+  return h("div", { class: "stack" }, facts, gaps);
 };
 
 // "+" on a mechanic PoB ignores: turn it into a correction of the profile. PoB cannot read the game line itself
@@ -3797,7 +3779,7 @@ async function toggleAddPanel(box, g) {
       renderHeader();
       loadBuildList();
       toast(t("corrAdded", trMod(line)), true);
-      switchTab("mechanics");
+      switchTab("profile");
     } catch (e) { toast(e.message); panel.remove(); }
   };
   try {
