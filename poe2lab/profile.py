@@ -47,6 +47,7 @@ class BuildProfile:
     planner: dict | None = None  # a build from the game's planner format: the guide's source, levels and notes
     corrections: list[Correction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    quests: dict = field(default_factory=dict)  # the campaign rewards the player took: PoB config key -> value
     # filled when applied
     correction_dps_pct: float = 0.0
     path: Path | None = None
@@ -65,7 +66,7 @@ class BuildProfile:
             mana_sustained=raw.get("mana_sustained", False), league=raw.get("league"), target=raw.get("target"),
             planner=raw.get("planner"),
             corrections=[Correction(**c) for c in raw.get("corrections", [])],
-            notes=raw.get("notes", []), path=path,
+            notes=raw.get("notes", []), quests=raw.get("quests") or {}, path=path,
         )
 
 
@@ -95,6 +96,10 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
             engine.set_main_skill(profile.group, profile.skill)
         except PobError:
             pass  # the build changed since the profile was written (gems moved): keep the build's own main skill
+    if profile.quests:
+        # the rewards the player says they took, in place of what the build's file has
+        known = {r["var"] for r in engine.quest_rewards()}
+        engine.set_config_input({k: v for k, v in profile.quests.items() if k in known})
     if profile.path is None:
         # Nobody answered the Rage question for this build yet: assume what its author set in PoB, not the maximum.
         profile.rage = int(engine.config().get("multiplierRage") or 0)

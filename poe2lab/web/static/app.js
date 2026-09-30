@@ -1213,11 +1213,17 @@ function nextCard(r) {
 
   (async () => {
     const points = state.treePoints || 6;
-    const [tree, gear, skills] = await Promise.allSettled([
+    const [tree, gear, skills, quest] = await Promise.allSettled([
       cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`)),
       cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`)),
-      cached("skills:build", () => api(`/api/skills?view=build&${buildQuery()}`))]);
+      cached("skills:build", () => api(`/api/skills?view=build&${buildQuery()}`)), questStep()]);
     const steps = [];  // [score, row]
+    if (quest.status === "fulfilled" && quest.value) {
+      const [q, o] = quest.value;
+      steps.push([o.score, row("🎁", t("nextQuest", questName(q)), optionTitle(q, q.options.indexOf(o)) || optionText(o),
+        h("div", {}, h("span", { class: "small muted" }, t("nextQuestNote", questWhere(q)), " "), deltas(o.changes, METRIC, 0.3)),
+        () => switchTab("profile"))]);
+    }
     const g = tree.status === "fulfilled" && tree.value.growth[0];
     if (g) {
       steps.push([g.value, row("🌳", t("tab_tree"), trName(g.name),
@@ -2939,7 +2945,7 @@ function drawLeveling(card, d) {
     if (s.penalty) rows.push(h("div", { class: "lr-row small" + (a.pace === "safe" ? " bad-text" : " muted") }, h("span", { class: "lr-k" }, "🔥"), t("lrResist", s.penalty)));
     if (a.novice && t("lrNov_" + s.key) !== "lrNov_" + s.key) rows.push(h("div", { class: "hint" }, t("lrNov_" + s.key)));
     if (a.novice && s.switch) rows.push(h("div", { class: "hint" }, t("lrNovSwitch")));
-    return h("div", { class: "lr-stage" + (s.switch ? " switch" : "") + (s.here ? " here" : "") },
+    return h("div", { class: "lr-stage" + (s.switch ? " switch" : "") + (s.here ? " here" : ""), "data-stage": s.key },
       h("div", { class: "lr-stage-head" }, h("b", {}, lrStageName(s.key)), " ", h("span", { class: "muted small" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)),
         s.switch ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null,
         s.here ? h("span", { class: "chip ok" }, t("lrHere")) : null),
@@ -2954,6 +2960,15 @@ function drawLeveling(card, d) {
       h("button", { class: "link small", onclick: () => { state.skillsMode = "leveling"; switchTab("skills"); } }, t("lrMore")))].filter(Boolean));
   head.querySelector(".fold-sum")?.remove();
   if (sw.level) head.append(h("span", { class: "fold-sum" }, "🚩 " + t("lrSwitchShort", sw.level)));
+  questsData().then((qd) => {  // each act's reward choice: the one to take (or taken)
+    for (const q of qd.choices) {
+      const pick = q.options.find((o) => o.value === q.chosen) || q.options.find((o) => o.best);
+      const box = card.querySelector(`.lr-stage[data-stage="${QUEST_ACT[q.act]}"]`);
+      if (!pick || !box) continue;
+      box.append(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, "🎁"),
+        `${questName(q)}: ${optionTitle(q, q.options.indexOf(pick)) || optionText(pick)}`, q.chosen === pick.value ? " ✓" : ""));
+    }
+  }).catch(() => {});
 }
 
 // the levelling tab's line about the plan: the switch level, or where to make the plan
@@ -2967,6 +2982,71 @@ function levelingNote() {
     box.classList.remove("hidden");
   }).catch(() => {});
   return box;
+}
+
+// ---------- the campaign's rewards: which to take (poe2lab.analysis.quests) ----------
+// Each option of a choice priced by PoB in its place on this build; the player marks what they took, and every
+// number counts it from then on (the answer is set in PoB's configuration and kept in the build profile).
+const QUEST_ACT = { 1: "act1", 2: "act2", 3: "act3", 4: "act4", 5: "interlude" };
+// the choices' own names: the lessons are official, the quests are named by what they give
+const QUEST_OPTION_NAMES = { "Tribal Medicine": ["Kaom's Lesson", "Rakiata's Lesson"] };
+const questsData = () => cached(`quests:${state.mode}`, () => api(`/api/quests?mode=${state.mode}&${buildQuery()}`));
+const questName = (q) => t("qn_" + q.info.replace(/[^A-Za-z]/g, "")) === "qn_" + q.info.replace(/[^A-Za-z]/g, "") ? trName(q.info) : t("qn_" + q.info.replace(/[^A-Za-z]/g, ""));
+// PoB writes some areas with capitals ("Halls Of The Dead"), the game's names do not
+const questArea = (a) => (trName(a) !== a ? trName(a) : trName(a.replace(/ (Of|The|And|In)(?= )/g, (m) => m.toLowerCase())));
+const questWhere = (q) => `${lrStageName(QUEST_ACT[q.act] || "maps")} · ${questArea(q.area)}`;
+function optionTitle(q, i) {
+  const names = QUEST_OPTION_NAMES[q.info];
+  return names ? trName(names[i]) : null;
+}
+const optionText = (o) => o.lines.map((l) => trMod(l)).join(" · ");
+const worthless = (o) => !Object.values(o.changes).some((v) => Math.abs(v) >= 0.3);
+
+function questsCard() {
+  const card = h("div", { class: "card stack q-card" }, h("h3", {}, t("qTitle")), h("div", { class: "sub" }, t("qSub")),
+    loading(t("qLoading")));
+  const draw = (d) => {
+    const head = card.querySelector("h3");
+    head.querySelector(".fold-sum")?.remove();
+    head.append(h("span", { class: "fold-sum" }, d.unchosen.length ? t("qSumOpen", d.unchosen.length) : t("qSumDone")));
+    const save = async (var_, value) => {
+      try {
+        const nd = await api(`/api/quests?mode=${state.mode}&${buildQuery()}`, { method: "POST", body: { var: var_, value } });
+        resetCache();  // every number counts the reward now
+        state.cache[`quests:${state.mode}`] = Promise.resolve(nd);
+        draw(nd);
+        toast(t("qSaved"), true);
+      } catch (e) { toast(e.message); }
+    };
+    const choice = (q) => h("div", { class: "q-quest" },
+      h("div", { class: "q-head" }, h("b", {}, questName(q)), h("span", { class: "muted small" }, questWhere(q)),
+        q.chosen ? null : h("span", { class: "chip warn" }, t("qNotChosen"))),
+      h("div", { class: "q-options" }, q.options.map((o, i) => h("button", {
+        class: "q-option" + (q.chosen === o.value ? " chosen" : "") + (o.best ? " best" : ""),
+        title: t("qPickHint"), onclick: () => save(q.var, q.chosen === o.value ? "None" : o.value) },
+      h("div", { class: "q-opt-top" }, optionTitle(q, i) ? h("b", {}, optionTitle(q, i)) : null,
+        o.best ? h("span", { class: "chip ok" }, "★ " + t("qBest")) : null,
+        q.chosen === o.value ? h("span", { class: "chip tag" }, "✓ " + t("qTaken")) : null),
+      h("div", { class: "small" }, optionText(o)),
+      worthless(o) ? h("div", { class: "hint" }, o.blind ? t("qBlind_" + o.blind) : t("qNothing")) : deltas(o.changes, METRIC, 0.3)))));
+    const fixed = d.fixed.map((f) => h("label", { class: "q-fixed" },
+      h("input", { type: "checkbox", checked: f.taken, onchange: (e) => save(f.var, e.target.checked) }),
+      h("span", {}, f.lines.map((l) => trMod(l)).join(" · ")), h("span", { class: "muted small" }, questWhere(f)),
+      Object.values(f.changes).some((v) => Math.abs(v) >= 0.3) ? deltas(f.changes, METRIC, 0.3) : null));
+    card.replaceChildren(...[head, card.querySelector(".sub"), ...d.choices.map(choice),
+      h("details", {}, h("summary", { class: "small" }, t("qFixed", d.fixed.filter((f) => f.taken).length, d.fixed.length)),
+        h("div", { class: "hint" }, t("qFixedHint")), h("div", { class: "stack", style: "gap:4px;margin-top:6px" }, fixed))].filter(Boolean));
+  };
+  questsData().then(draw).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
+  return foldedCard(card, "quests", null);
+}
+
+// the best reward not marked yet, for "what to do next": the one worth most for the goal
+async function questStep() {
+  const d = await questsData();
+  const open = d.choices.filter((q) => !q.chosen).map((q) => [q, q.options.find((o) => o.best)]).filter(([, o]) => o);
+  open.sort((a, b) => b[1].score - a[1].score);
+  return open[0] || null;
 }
 
 // the four questions, one screen each, as tiles; nothing is asked unless the player presses the button
@@ -4063,7 +4143,7 @@ TABS.profile = async () => {
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))), "counted", t("linesN", state.build.profile.length)));
   let gaps;
   try { gaps = await gapsCard(); } catch (e) { gaps = h("div", { class: "card" }, h("p", { class: "muted" }, e.message)); }
-  return h("div", { class: "stack" }, facts, gaps);
+  return h("div", { class: "stack" }, facts, questsCard(), gaps);
 };
 
 // "+" on a mechanic PoB ignores: turn it into a correction of the profile. PoB cannot read the game line itself

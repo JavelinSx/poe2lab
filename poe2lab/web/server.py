@@ -24,7 +24,7 @@ from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.tree import take_package
-from ..analysis import leveling
+from ..analysis import leveling, quests as quest_rewards
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -2231,8 +2231,8 @@ def save_profile(raw: dict):
                 raise HTTPException(400, f"PoB не понимает строку поправки: {c.get('mod')!r}")
         path = _profile_path()
         before = path.read_text(encoding="utf-8") if path.exists() else None
-        if before and "leveling" not in raw:  # the levelling answers are saved by their own page
-            raw = raw | {k: v for k, v in json.loads(before).items() if k == "leveling"}
+        if before:  # the levelling and quest answers are saved by their own pages
+            raw = {k: v for k, v in json.loads(before).items() if k in ("leveling", "quests")} | raw
         path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             session.load(str(session.path))
@@ -2245,6 +2245,40 @@ def save_profile(raw: dict):
             _errors(lambda: session.load(str(session.path)))
             raise HTTPException(400, f"профиль не сохранён: {err}")
         return _json(_summary())
+
+
+# ---------- the campaign's rewards: which to take (poe2lab.analysis.quests) ----------
+@app.get("/api/quests")
+def quests_get(mode: str = "balanced", build: str | None = None):
+    if mode not in MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    with session.lock:
+        session.require(build)
+        return _json(session.cached(("quests", mode), lambda: quest_rewards.rewards(session.engine, session.profile, mode)))
+
+
+class QuestAnswer(BaseModel):
+    var: str
+    value: str | bool
+
+
+@app.post("/api/quests")
+def quests_save(req: QuestAnswer, mode: str = "balanced", build: str | None = None):
+    """The reward the player took (or not): kept in the build profile and set in PoB, so every number counts it."""
+    with session.lock:
+        session.require(build)
+        if not quest_rewards.valid(session.engine.quest_rewards(), req.var, req.value):
+            raise HTTPException(400, "нет такой награды или варианта")
+        path = _profile_path()
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw["quests"] = (raw.get("quests") or {}) | {req.var: req.value}
+        path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        session.bp.quests = raw["quests"]
+        session.engine.set_config_input({req.var: req.value})
+        session.cache.clear()  # every number moves with it
+        session.ref = None  # a reference build opens with the profile again
+        session.assistant = session.toolbox = None
+        return _json(session.cached(("quests", mode), lambda: quest_rewards.rewards(session.engine, session.profile, mode)))
 
 
 # ---------- levelling up to the build (poe2lab.analysis.leveling) ----------

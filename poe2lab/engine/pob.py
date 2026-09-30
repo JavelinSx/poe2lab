@@ -1574,6 +1574,39 @@ return _poe2lab_json(out)""")
         """Current Configuration tab values explicitly set in the build."""
         return self._json("return _poe2lab_json(build.configTab.input)")
 
+    def quest_rewards(self) -> list[dict]:
+        """The campaign's rewards that change the character (PoB's data.questRewards, its "Quest Rewards" config):
+        a fixed stat (on unless the build turned it off) or one of several options (none unless the build chose
+        one); each with its config key and its value in this build."""
+        rows = self._json("""
+local out = _poe2lab_array({})
+for _, q in ipairs(data.questRewards) do
+  if q.useConfig ~= false then
+    local var = "quest" .. q.Description .. q.Area .. q.Info
+    out[#out + 1] = { var = var, act = q.Act, part = q.Description, area = q.Area, info = q.Info,
+                      level = q.AreaLevel, stat = q.Stat, options = q.Options and _poe2lab_array(q.Options) or nil,
+                      value = build.configTab.input[var] }
+  end
+end
+return _poe2lab_json(out)""")
+        for r in rows:
+            if r.get("options"):
+                r["value"] = r.get("value") or "None"
+            else:
+                r["value"] = r.get("value") is not False
+        return rows
+
+    def set_config_input(self, values: dict):
+        """Set Configuration tab values for good (unlike what_if(config=...)) and recalculate."""
+        if not values:
+            return
+        cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in values.items())
+        self._lua(f"""
+local configTab = build.configTab
+for k, v in pairs({{ {cfg} }}) do configTab.input[k] = v end
+configTab:BuildModList()
+build.calcsTab:BuildOutput()""")
+
     def can_parse_mod(self, line: str) -> bool:
         return self._lua(f"""
 local mods, extra = modLib.parseMod({lua_string(line)})

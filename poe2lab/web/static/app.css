@@ -871,6 +871,17 @@ tr.dense .fit-chips { margin-top: 2px; }
 .lr-stage-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 2px; }
 .lr-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 13px; }
 .lr-k { width: 20px; text-align: center; }
+/* the campaign's rewards: each choice's options side by side */
+.q-quest { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+.q-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.q-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
+.q-option { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 8px 10px;
+  border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); color: var(--text); cursor: pointer; font-weight: 400; }
+.q-option:hover { border-color: var(--gold); }
+.q-option.best { border-color: #3ecf74; }
+.q-option.chosen { box-shadow: inset 0 0 0 2px var(--gold); }
+.q-opt-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.q-fixed { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
 .lr-to { padding: 4px 0; font-weight: 600; }
 .lr-tips { margin: 0; padding-left: 18px; }
 .lr-wizard { width: min(760px, 94vw); }
