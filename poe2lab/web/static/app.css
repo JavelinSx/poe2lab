@@ -81,7 +81,32 @@ button.primary.danger { background: var(--bad); border-color: var(--bad); color:
 .add-build { max-width: 720px; }
 .add-build textarea { font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-all; }
 .side-foot { display: flex; flex-direction: column; gap: 8px; }
-.side-foot #feedback, .side-foot #journal-open { text-align: left; }
+/* the sidebar's pages and settings as tiles: a picture and a word */
+.side-title-row { display: flex; align-items: center; justify-content: space-between; }
+.icon-btn { background: none; border: 1px solid transparent; color: var(--muted); border-radius: 6px; padding: 0 6px; font-size: 15px; cursor: pointer; }
+.icon-btn:hover { color: var(--gold); border-color: var(--line); }
+.side-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.side-tile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; font-size: 11px; color: var(--muted);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; position: relative; }
+.side-tile .st-ico { font-size: 17px; line-height: 1.1; color: var(--text); }
+.side-tile:hover, .side-tile.active { border-color: var(--gold); color: var(--gold); }
+.side-tile.attn::after { content: ""; position: absolute; top: 4px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); }
+.settings-box { display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.settings-box #ru-status { text-align: left; }
+/* the build's actions: one menu in the header */
+.bh-menu-wrap { position: relative; }
+.bh-menu-list { position: absolute; left: 0; top: calc(100% + 4px); z-index: 40; width: 340px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.bh-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: none; border: 0;
+  color: var(--text); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-weight: 400; }
+.bh-menu-item:hover { background: var(--gold-soft); }
+/* the tree viewer: the legend and how to use it behind "?" */
+.tv-help-wrap { position: relative; margin-left: auto; }
+.tv-help-wrap + .tree-close { margin-left: 0; }
+.tv-help.on { border-color: var(--gold); color: var(--gold); }
+.tv-key { display: inline-flex; align-items: center; gap: 5px; margin-right: 8px; white-space: nowrap; }
+.tv-help-box { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 360px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 .fb { max-width: 760px; }
 .fb textarea.fb-text { font-family: var(--font); font-size: 15px; }
 .fb-drop { border: 1px dashed rgba(153, 161, 174, .45); border-radius: var(--radius); padding: 14px; text-align: center; cursor: pointer; color: var(--muted); }
@@ -506,7 +531,7 @@ details > summary .ico { margin-left: 2px; }
 .gl-list { display: flex; flex-direction: column; gap: 12px; }
 .gl-entry { border-left: 2px solid var(--gold-soft); padding-left: 10px; }
 .gl-entry b { color: var(--gold); }
-.side-foot #glossary-open { text-align: left; }
+
 .sk-meta { border-left: 2px solid var(--gold-soft); padding: 4px 10px; margin: 6px 0 8px; display: flex; flex-direction: column; gap: 3px; }
 
 /* passives and ascendancy; the tree view */
@@ -844,4 +869,4 @@ tr.dense .fit-chips { margin-top: 2px; }
 .pr-assumed { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
 .pr-description { white-space: pre-line; color: var(--muted); }
 .planner-report a { color: var(--gold); word-break: break-all; }
-.bh-title #bh-planner { margin-left: 6px; }
+.bh-title .bh-menu-wrap { margin-left: 6px; }

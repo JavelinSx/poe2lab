@@ -9,19 +9,24 @@
 <body>
   <aside class="sidebar">
     <div class="brand">poe2<span>lab</span></div>
-    <div class="side-title" data-i18n="builds"></div>
+    <div class="side-title-row"><span class="side-title" data-i18n="builds"></span>
+      <button id="refresh-builds" class="icon-btn" data-i18n-title="refresh">↻</button></div>
     <button id="new-build" class="primary small" data-i18n="nbButton"></button>
     <button id="add-build" class="ghost small" data-i18n="addBuild"></button>
     <div id="builds" class="build-list"></div>
     <div class="side-foot">
-      <button id="glossary-open" class="link small" data-i18n="glOpen"></button>
-      <button id="journal-open" class="link small" data-i18n="jnOpen"></button>
-      <button id="feedback" class="link small" data-i18n="fbButton"></button>
-      <label class="league-pick small"><span class="muted" data-i18n="leagueLabel"></span>
-        <select id="league"></select></label>
-      <button id="ru-status" class="link small hidden"></button>
-      <div id="llm-status" class="small muted"></div>
-      <button id="refresh-builds" class="ghost small" data-i18n="refresh"></button>
+      <div class="side-tiles">
+        <button id="glossary-open" class="side-tile" data-i18n-title="glOpen"><span class="st-ico">📖</span><span data-i18n="glShort"></span></button>
+        <button id="journal-open" class="side-tile" data-i18n-title="jnOpen"><span class="st-ico">⚒</span><span data-i18n="jnShort"></span></button>
+        <button id="feedback" class="side-tile" data-i18n-title="fbButton"><span class="st-ico">✉</span><span data-i18n="fbShort"></span></button>
+        <button id="settings-open" class="side-tile" data-i18n-title="setHint" aria-expanded="false"><span class="st-ico">⚙</span><span data-i18n="setShort"></span></button>
+      </div>
+      <div id="settings-box" class="settings-box hidden">
+        <label class="league-pick small"><span class="muted" data-i18n="leagueLabel"></span>
+          <select id="league"></select></label>
+        <button id="ru-status" class="link small hidden"></button>
+        <div id="llm-status" class="small muted"></div>
+      </div>
       <button id="stop-app" class="ghost small stop-app" data-i18n="stopApp" data-i18n-title="stopHint"></button>
       <div class="ggg-notice">This product isn't affiliated with or endorsed by Grinding Gear Games in any way.</div>
     </div>
@@ -38,7 +43,9 @@
 
     <header id="build-header" class="build-header hidden">
       <div class="bh-main">
-        <div class="bh-title"><h1 id="bh-name"></h1><button id="bh-character" class="ghost small" data-i18n="chButton"></button><button id="bh-planner" class="ghost small" data-i18n="toPlanner"></button></div>
+        <div class="bh-title"><h1 id="bh-name"></h1>
+          <span class="bh-menu-wrap"><button id="bh-menu" class="ghost small" aria-haspopup="menu" aria-expanded="false"></button>
+            <div id="bh-menu-list" class="bh-menu-list hidden" role="menu"></div></span></div>
         <div id="bh-sub" class="muted"></div>
       </div>
       <div class="bh-controls">

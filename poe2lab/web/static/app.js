@@ -154,7 +154,8 @@ function applyStaticTexts() {
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-title]").forEach((el) => {
     el.title = t(el.dataset.i18nTitle);
-    el.onclick = () => toast(el.title, true);  // a hover tooltip is easy to miss: a click shows it too
+    // a "?" mark's hover tooltip is easy to miss: a click shows it too (a button's click is its own action)
+    if (el.tagName !== "BUTTON") el.onclick = () => toast(el.title, true);
   });
   document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === LANG));
   document.querySelectorAll("#tabs button[data-tab]").forEach((b) => { b.title = t("tabHint_" + b.dataset.tab); });
@@ -455,14 +456,15 @@ function renderCtorBar() {
 }
 
 // saving a build: into itself (the plan's edits), the game's planner, a PoB code for pobb.in and PoB
+async function copyBuildCode() {
+  try {
+    const r = await api(`/api/builds/code?${buildQuery()}`);
+    toast(t((await copyText(r.code)) ? "svCodeCopied" : "npCopyFail"), true);
+  } catch (e) { toast(e.message); }
+}
 async function saveMenu() {
   const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) back.remove(); } });
-  const code = async () => {
-    try {
-      const r = await api(`/api/builds/code?${buildQuery()}`);
-      toast(t((await copyText(r.code)) ? "svCodeCopied" : "npCopyFail"), true);
-    } catch (e) { toast(e.message); }
-  };
+  const code = copyBuildCode;
   const row = (label, hint, onclick, cls = "ghost") => h("div", { class: "sv-row" }, h("button", { class: cls, onclick }, label), h("span", { class: "muted small" }, hint));
   back.append(h("div", { class: "ask card stack" }, h("h3", {}, t("svTitle")),
     row(t("svCommit"), t("svCommitHint"), async () => { back.remove(); await commitBuild(); }, "primary"),
@@ -575,15 +577,13 @@ function renderHeader() {
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
-  $("#bh-planner").title = t("toPlannerHint");
+  $("#bh-menu").textContent = t("bhMenu");
   renderChanges();
   renderCtorBar();
   $("#bh-sub").replaceChildren(...(b.main
     ? [h("span", { class: "bh-who mine", title: t("chMineHint") }, "👤 ", t("chMine"), " ", who(b.info)),
       h("span", { class: "bh-who", title: t("chGuideHint") }, "📘 ", t("chGuide"), " ", who(b.guide))]
     : [who(b.info)]));
-  $("#bh-character").textContent = b.main ? t("chButtonHas") : t("chButton");
-  $("#bh-character").title = t("chButtonHint");
   // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
   const entries = b.groups.flatMap((g) => g.skills.map((s, i) => ({ group: g.index, skill: i + 1, name: s })));
@@ -676,7 +676,25 @@ function characterDialog() {
   document.addEventListener("keydown", onKey, true);
   code.focus();
 }
-$("#bh-character").addEventListener("click", characterDialog);
+
+// The build's own actions in one menu: bring it up to date (or put the player's character in), write it into the
+// game's planner, copy its PoB code. Saving the plan's edits is on the edits' strip.
+function openBuildMenu(on) {
+  const list = $("#bh-menu-list");
+  $("#bh-menu").setAttribute("aria-expanded", String(on));
+  if (!on) { list.classList.add("hidden"); return; }
+  const b = state.build;
+  const item = (label, hint, title, fn) => h("button", { class: "bh-menu-item", role: "menuitem", title,
+    onclick: () => { openBuildMenu(false); fn(); } }, h("b", {}, label), h("span", { class: "muted small" }, hint));
+  list.replaceChildren(
+    item(b.main ? t("chButtonHas") : t("chButton"), t("bhCharShort"), t("chButtonHint"), characterDialog),
+    item(t("toPlanner"), t("bhPlannerShort"), t("toPlannerHint"), () => exportToPlanner()),
+    item(t("svCode"), t("svCodeHint"), "", copyBuildCode));
+  list.classList.remove("hidden");
+}
+$("#bh-menu").addEventListener("click", (e) => { e.stopPropagation(); openBuildMenu($("#bh-menu-list").classList.contains("hidden")); });
+document.addEventListener("click", (e) => { if (!e.target.closest(".bh-menu-wrap")) openBuildMenu(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#bh-menu-list").classList.contains("hidden")) openBuildMenu(false); });
 
 // ---------- build update: the character changed in the game -> a newer PoB file or code -> what changed ----------
 async function applyReload(code) {
@@ -692,7 +710,7 @@ async function applyReload(code) {
 }
 
 async function reloadFromFile() {
-  const btn = $("#bh-character");
+  const btn = $("#bh-menu");
   const was = btn.textContent;
   btn.disabled = true;
   btn.textContent = t("reloading");
@@ -700,11 +718,9 @@ async function reloadFromFile() {
   btn.disabled = false;
 }
 
-$("#bh-planner").addEventListener("click", () => exportToPlanner());
-
 // the open build into the game's build planner folder (the game picks the file up at once)
 async function exportToPlanner(overwrite = false) {
-  const btn = $("#bh-planner");
+  const btn = $("#bh-menu");
   btn.disabled = true;
   try {
     const r = await api(`/api/planner/export?${buildQuery()}`,
@@ -899,6 +915,11 @@ function foldAll(on) {
 $("#fold-all").addEventListener("click", () => foldAll(true));
 $("#unfold-all").addEventListener("click", () => foldAll(false));
 $("#refresh-builds").addEventListener("click", loadBuildList);
+$("#settings-open").addEventListener("click", (e) => {
+  const on = $("#settings-box").classList.toggle("hidden") === false;
+  e.currentTarget.setAttribute("aria-expanded", String(on));
+  e.currentTarget.classList.toggle("active", on);
+});
 // the server runs with no window of its own (start.bat): stopping it is here
 $("#stop-app").addEventListener("click", async () => {
   if (!(await confirmInPage(t("stopAsk"), t("stopApp")))) return;
@@ -3104,14 +3125,23 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
   };
   const onResize = () => { if (!overlay.isConnected) detach(); else draw(); };
   setFocus(focus);
-  hintsLegend.append(dot(C.hint), t("tvGrowth"), dot("rgba(77,163,255,.45)"), t("tvRoad"),
-    ...(full.useful.size ? [dot("rgba(77,163,255,.3)"), t("tvUseful")] : []));
+  // a colour with its word, kept together when the legend wraps
+  const key = (d, text) => h("span", { class: "tv-key" }, d, text);
+  hintsLegend.append(key(dot(C.hint), t("tvGrowth")), key(dot("rgba(77,163,255,.45)"), t("tvRoad")),
+    ...(full.useful.size ? [key(dot("rgba(77,163,255,.3)"), t("tvUseful"))] : []));
   setHints(hints);
-  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg, pointsBox,
-    wsSeg, regrow, hintsBtn, packBox,
-    h("span", { class: "tree-legend small" }, dot(C.gold), t("tvAlloc"), dot(C.ws[1]), t("tvWsSet", 1), dot(C.ws[2]), t("tvWsSet", 2),
-      hintsLegend, dot(C.respec, true), t("tvRespec")),
-    h("span", { class: "muted small" }, t("tvHint")),
+  const helpBox = h("div", { class: "tv-help-box hidden" },
+    h("div", { class: "tree-legend small" }, key(dot(C.gold), t("tvAlloc")), key(dot(C.ws[1]), t("tvWsSet", 1)), key(dot(C.ws[2]), t("tvWsSet", 2)),
+      hintsLegend, key(dot(C.respec, true), t("tvRespec"))),
+    h("div", { class: "muted small" }, t("tvHint")));
+  const helpBtn = h("button", { class: "ghost small tv-help", title: t("tvHelp"), "aria-expanded": "false", onclick: () => {
+    const on = helpBox.classList.toggle("hidden") === false;
+    helpBtn.setAttribute("aria-expanded", String(on));
+    helpBtn.classList.toggle("on", on);
+  } }, "?");
+  overlay.append(h("div", { class: "tree-bar" }, h("b", {}, t("tvTitle", trName(graph.class), trName(graph.ascendancy))), seg,
+    wsSeg, hintsBtn, regrow, pointsBox, packBox,
+    h("span", { class: "tv-help-wrap" }, helpBtn, helpBox),
     embed ? fullBtn : h("button", { class: "tree-close", title: t("tvClose"), onclick: close }, "×")), canvas, tip);
   (embed || document.body).append(overlay);
   document.addEventListener("keydown", onKey);
@@ -4393,6 +4423,7 @@ function renderLangBanner(force = false) {
     indicator.textContent = ruReady() ? t("ruStatusOk") : t("ruStatusMissing");
     indicator.onclick = () => renderLangBanner(true);
   }
+  $("#settings-open").classList.toggle("attn", LANG === "ru" && !!st && !ruReady());
   let dismissed = false;
   try { dismissed = sessionStorage.getItem(bannerKey) === "off"; } catch (_) { /* storage blocked */ }
   if (force) { try { sessionStorage.removeItem(bannerKey); } catch (_) { /* storage blocked */ } dismissed = false; }
