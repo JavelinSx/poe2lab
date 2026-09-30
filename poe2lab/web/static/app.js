@@ -67,8 +67,10 @@ let TIP = null;
 function hideTip() { if (TIP) TIP.style.display = "none"; }
 function hoverTip(el, render) {
   el.addEventListener("mouseenter", () => {
+    const body = render();
+    if (!body) return;
     if (!TIP) { TIP = h("div", { class: "hover-tip card" }); document.body.append(TIP); }
-    TIP.replaceChildren(render());
+    TIP.replaceChildren(body);
     TIP.style.display = "block";
     const r = el.getBoundingClientRect(), w = TIP.offsetWidth, ht = TIP.offsetHeight;
     const x = r.right + 10 + w <= innerWidth - 8 ? r.right + 10 : Math.max(8, r.left - w - 10);
@@ -568,6 +570,7 @@ const who = (x) => `${trName(x.class)} / ${x.ascendancy ? trName(x.ascendancy) :
 function renderHeader() {
   const b = state.build;
   GEM_INFO = { ...(b.gemColors || {}) };
+  GEM_TIPS.clear();  // a gem's lines are at this build's level and quality
   setBuildNames(b);
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
@@ -848,7 +851,7 @@ const saveFolded = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([
 const foldKey = (head) => `${state.page || state.tab}|${(head.dataset.foldName || head.textContent).trim().slice(0, 80)}`;
 // a card folded until opened, its heading saying the main thing (a number, the best option) - the tab a list of lines
 function foldedCard(card, name, summary) {
-  const head = card && card.querySelector(":scope > h3, :scope > .slot-head");
+  const head = card && foldable(card);
   if (!head) return card;
   card.dataset.foldDefault = "1";
   head.dataset.foldName = name;
@@ -996,9 +999,14 @@ const SIDE_VIEWS = {
         h("span", { class: "muted small" }, t("vsGemLevel", gem.level, gem.quality)),
         status === "missing" ? chip("warn", t("vsGemMissing")) : status === "lower" ? chip("tag", t("vsGemLower", m.level)) : chip("ok", "✓"));
     };
-    const cards = s.ref.filter((g) => g.gems.length).map((g) => h("div", { class: "card vs-group" + (g.main ? " main" : "") },
-      h("h3", {}, g.actives.map((a) => trName(a.name)).join(" + ") || g.label || t("vsGroup", g.index), g.main ? " " : null, g.main ? chip("ok", t("vsMainGroup")) : null),
-      h("div", { class: "vs-gems" }, g.gems.map(row))));
+    const cards = s.ref.filter((g) => g.gems.length).map((g) => {
+      const [m0, l0] = [missing, lower];
+      const card = h("div", { class: "card vs-group" + (g.main ? " main" : "") },
+        h("h3", {}, g.actives.map((a) => trName(a.name)).join(" + ") || g.label || t("vsGroup", g.index), g.main ? " " : null, g.main ? chip("ok", t("vsMainGroup")) : null),
+        h("div", { class: "vs-gems" }, g.gems.map(row)));
+      const [m, l] = [missing - m0, lower - l0];
+      return m || l || g.main ? card : foldedCard(card, "vs" + g.index, "✓");
+    });
     const extra = [...have.keys()].filter((n) => !theirs.has(n));
     return h("div", { class: "stack" }, h("div", { class: "card" }, h("h3", {}, t("vsSkillsTitle")), h("div", { class: "sub" }, t("vsSkillsSum", missing, lower))),
       h("div", { class: "grid two" }, cards),
@@ -1125,7 +1133,12 @@ TABS.overview = async (view) => {
       h("div", { class: "what mod" }, trMod(s.mod)),
       deltas({ dps: s.dps, phys_hit: s.defence.Physical, chaos_hit: s.defence.Chaos, recovery: s.recovery }))))));
 
-  return h("div", { class: "stack" }, nextCard(r), kpi, h("div", { class: "grid two" }, hitCard, issues), path);
+  const worstShare = worst && share(worst[0], worst[1].juiced);
+  const broken = r.gates.filter((g) => g.level === "must").length;
+  return h("div", { class: "stack" }, nextCard(r), kpi, h("div", { class: "grid two" },
+    foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null),
+    foldedCard(issues, "issues", r.gates.length ? t("issuesSum", r.gates.length, broken) : null)),
+  foldedCard(path, "path", r.path.length ? t("firstStep", trMod(r.path[0].mod)) : null));
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -1219,10 +1232,12 @@ TABS.damage = async (view) => {
         maximum: fmt(x.maximum), without: fmt(x.dps_without), with: fmt(x.dps_with), mult: fmt(x.dps_with / x.dps_without, 2),
         ehp: x.ehp_without && Math.abs(x.ehp_with / x.ehp_without - 1) >= 0.005 ? `EHP ${fmt(x.ehp_without)} → ${fmt(x.ehp_with)}` : "" }),
       x.name === "Rage" && !x.set_in_build ? h("span", { class: "muted" }, t("rageEmpty")) : null));
-    blocks.push(h("div", { class: "card" }, h("h3", {}, t("coreTitle")), res,
+    const coreSum = core.resources.map((x) => `${t("res_" + x.name.replace(/ /g, ""))} ×${fmt(x.dps_with / x.dps_without, 2)}`).join(" · ");
+    blocks.push(foldedCard(h("div", { class: "card" }, h("h3", {}, t("coreTitle")), res,
       core.unit ? h("div", { class: "sub" }, t("rate", unitName(core.unit.name), pct(core.unit.dps_pct_per_point))) : null,
       h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", { class: "num" }, "DPS"), h("th", { class: "num" }, t("colUnits")))),
-        h("tbody", {}, core.exchange.slice(0, 12).map((x) => h("tr", {}, h("td", { class: "mod", title: x.mod }, trMod(x.mod)), h("td", { class: "num" }, pct(x.dps)), h("td", { class: "num" }, fmt(x.points, 1))))))));
+        h("tbody", {}, core.exchange.slice(0, 12).map((x) => h("tr", {}, h("td", { class: "mod", title: x.mod }, trMod(x.mod)), h("td", { class: "num" }, pct(x.dps)), h("td", { class: "num" }, fmt(x.points, 1))))))),
+    "core", coreSum || null));
   }
 
   const rng = r.damageRange;
@@ -1231,20 +1246,22 @@ TABS.damage = async (view) => {
   const condRow = (c) => h("tr", {}, h("td", { title: c.label }, conditionLabel(c.label)),
     h("td", {}, deltas({ dps: c.dps_pct, phys_hit: c.phys_hit_pct, chaos_hit: c.chaos_hit_pct, recovery: c.recovery_pct }, METRIC, 0.5)));
   const [a, lo, b2, hi, c2] = t("range", fmt(rng.low), fmt(rng.high), fmt(rng.high / rng.low, 2));
-  blocks.push(h("div", { class: "card" }, h("h3", {}, t("condTitle")),
+  blocks.push(foldedCard(h("div", { class: "card" }, h("h3", {}, t("condTitle")),
     rng.conditions.length ? h("p", {}, a, h("b", {}, lo), b2, h("b", {}, hi), c2) : null,
     expectedLine(rng),
     off.length ? h("div", { class: "sub" }, t("condOff")) : null,
     off.length ? h("table", {}, h("tbody", {}, off.map(condRow))) : null,
     on.length ? h("div", { class: "sub", style: "margin-top:12px" }, t("condOn")) : null,
-    on.length ? h("table", {}, h("tbody", {}, on.map(condRow))) : null));
+    on.length ? h("table", {}, h("tbody", {}, on.map(condRow))) : null),
+  "conditions", rng.high > rng.low ? `DPS ${fmt(rng.low)} … ${fmt(rng.high)}` : null));
 
   const max = Math.max(...r.ranking.map((x) => x.score), 1);
-  blocks.push(h("div", { class: "card" }, h("h3", {}, t("investTitle")), h("div", { class: "sub" }, t("investSub")),
+  blocks.push(foldedCard(h("div", { class: "card" }, h("h3", {}, t("investTitle")), h("div", { class: "sub" }, t("investSub")),
     h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", {}, t("colEffect")), h("th", { class: "num" }, t("colScore")))),
       h("tbody", {}, r.ranking.map((x) => h("tr", {}, h("td", { class: "mod", title: x.mod }, trMod(x.mod)),
         h("td", {}, deltas({ dps: x.dps, phys_hit: x.physHit, chaos_hit: x.chaosHit, recovery: x.recovery })),
-        h("td", { class: "num" }, scoreBar(x.score, max))))))));
+        h("td", { class: "num" }, scoreBar(x.score, max))))))),
+  "invest", r.ranking.length ? t("bestIs", trMod(r.ranking[0].mod)) : null));
 
   return h("div", { class: "grid two" }, blocks);
 };
@@ -1261,13 +1278,15 @@ TABS.gear = async (view) => {
 
   // the item a step is about, as its picture: many slots, so the eye finds the right one at once
   const slotIcon = (slot) => { const it = items[slot]; return it ? itemIcon(it.name, it.baseName, it.rarity) : null; };
-  const path = h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
+  const stepMax = Math.max(0.01, ...g.craftPath.map((s) => s.score));
+  const path = foldedCard(h("div", { class: "card" }, h("h3", {}, t("craftTitle")), h("div", { class: "sub" }, t("craftSub")),
     g.craftPath.length ? h("div", { class: "steps" }, g.craftPath.map((s) => h("div", { class: "step" }, h("div", { class: "step-body" },
       h("div", { class: "what" }, slotIcon(s.slot), chip("tag", slotName(s.slot)), " ",
         s.removed.length ? h("span", {}, h("span", { class: "mod muted" }, trMod(s.removed.join(" / "))), " → ") : t("craftAdd"),
         h("span", { class: "mod" }, trMod(s.added.join(" / ")))),
-      deltas(s.changes),
-      howBlock(s.how))))) : h("p", { class: "muted" }, t("nothingToCraft")));
+      h("div", { class: "row step-worth" }, deltas(s.changes), scoreBar(s.score, stepMax)),
+      howBlock(s.how))))) : h("p", { class: "muted" }, t("nothingToCraft"))),
+  "craft", g.craftPath.length ? t("craftSum", g.craftPath.length, slotName(g.craftPath[0].slot)) : null);
 
   // a slot with something to improve: a better rune for one of its sockets or a step of the craft path
   const badges = {};
@@ -1769,12 +1788,13 @@ function tradeList(items, good) {
   };
   return h("div", { class: "trade-list" }, items.map((it) => h("div", { class: "trade-item" + (good ? " good" : "") },
     h("div", { class: "trade-item-head" }, itemIcon(it.name, it.base, it.rarity),
-      h("div", {}, h("b", {}, trName(it.base)), h("div", { class: "muted small" }, t("trIlvl", it.ilvl), it.corrupted ? [" · ", t("corrupted")] : null)),
+      h("div", {}, hoverTip(h("b", { class: "pk-node" }, trName(it.base)), () => linesTip(itemIcon(it.name, it.base, it.rarity), trName(it.base),
+        it.explicit.map((l) => h("li", { title: l }, trMod(l))))),
+      h("div", { class: "muted small" }, t("trIlvl", it.ilvl), it.corrupted ? [" · ", t("corrupted")] : null)),
       it.error ? null : h("div", { class: "trade-score" }, h("b", { class: it.score > 0 ? "pos" : "neg" }, pct(it.score)),
         good ? h("div", {}, chip("ok", t("trBetter"))) : null,
         it.unmet.length ? h("div", {}, chip("must", t("trUnmet", it.unmet.join(", ")))) : null)),
     it.error ? h("div", { class: "bad small" }, it.error) : deltas(it.changes),
-    h("ul", { class: "item-lines small" }, it.explicit.map((l) => h("li", { title: l }, trMod(l)))),
     h("div", { class: "trade-item-foot" }, priceCell(it.price),
       it.whisper ? h("button", { class: "ghost small", title: it.whisper, onclick: copy(it.whisper) }, t("trWhisper")) : null))));
 }
@@ -2676,14 +2696,15 @@ TABS.loot = async (view) => {
       x.unique ? h("div", { class: "hint" }, t("lootUnique")) : null),
     h("td", { class: "num" }, x.unique ? "—" : x.item_level),
     h("td", {}, x.unique ? h("span", { class: "muted small" }, t("lootByBase"))
-      : x.affixes.length ? h("div", {}, h("ul", { class: "item-lines small" }, x.mods.slice(0, 5).map((m) => h("li", { title: m }, trMod(m)))),
-        h("div", { class: "hint" }, t("lootAffixes", x.affixes.length))) : h("span", { class: "muted small" }, t("lootNoMods"))),
+      : x.affixes.length ? hoverTip(h("span", { class: "pk-node small" }, t("lootModsN", x.mods.length)),
+        () => linesTip(icon(x.base), trName(x.base), x.mods.map((m) => h("li", { title: m }, trMod(m))), t("lootAffixes", x.affixes.length)))
+        : h("span", { class: "muted small" }, t("lootNoMods"))),
     h("td", { class: "small" }, x.leveling.length ? t("lootLevelingCell", x.leveling.length) : h("span", { class: "muted" }, "—"))));
-  const what = h("div", { class: "card" }, h("h3", {}, t("lootWhat")), h("div", { class: "sub" }, t("lootWhatSub", t("mode_" + state.mode))),
+  const what = foldedCard(h("div", { class: "card" }, h("h3", {}, t("lootWhat")), h("div", { class: "sub" }, t("lootWhatSub", t("mode_" + state.mode))),
     h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", {}, t("slot")), h("th", {}, t("lootBase")),
       h("th", { class: "num" }, t("lootIlvl")), h("th", {}, t("lootGold")), h("th", {}, t("lootLeveling")))), h("tbody", {}, rows)),
     h("div", { class: "hint", style: "margin-top:8px" }, t("lootLegend")),
-    h("div", { class: "hint", style: "margin-top:4px" }, t("lootLevelingLegend")));
+    h("div", { class: "hint", style: "margin-top:4px" }, t("lootLevelingLegend"))), "what", t("lootWhatSum", r.rules.length));
 
   // where the player's filter comes from
   let source = "file";
@@ -2779,11 +2800,11 @@ function marketCard(m, mk) {
         h("ul", { class: "item-lines small" }, sm.maybe.map((u) => h("li", { title: u.names.join(", ") },
           h("span", { class: "named" }, icon(u.base), trName(u.base)), " — ", t("marketMaybeOne", u.names.map(trName).join(", "), price(u.div)))))) : null);
   }
-  return h("div", { class: "card stack" }, h("h3", {}, t("marketTitle")), h("div", { class: "sub" }, t("marketSub")),
+  return foldedCard(h("div", { class: "card stack" }, h("h3", {}, t("marketTitle")), h("div", { class: "sub" }, t("marketSub")),
     h("label", { class: "row", style: "gap:8px" }, on, t("marketOn")),
     mk.market ? h("div", { class: "row craft-controls" }, h("label", {}, t("marketTopBar"), " ", bar("top")),
       h("label", {}, t("marketLowBar"), " ", bar("low"))) : null,
-    ...body);
+    ...body), "market", mk.market ? t("marketSumOn", `${mk.top} ${mk.top_unit}`) : t("marketSumOff"));
 }
 
 // ---------- mechanics ----------
@@ -3432,7 +3453,31 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
   }).observe(canvas);
 }
 
-const gemName = (name) => h("span", { class: "named", title: name }, icon(name), trName(name));
+// A gem's name; the pointer over it shows the gem as the game describes it (once the build's skills are read), the
+// same card on every tab. Its English name is there too, to search the trade site or a guide.
+const GEM_TIPS = new Map();
+function gemTipCard(name) {
+  const gem = GEM_TIPS.get(name);
+  if (!gem && (LANG === "en" || trName(name) === name)) return null;  // nothing to add to the name
+  const lines = gem ? (LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : (gem.lines || []).map(trMod)) : [];
+  const desc = gem && gameText(gem.description);
+  return h("div", { class: "stack" },
+    h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(name), h("b", {}, trName(name)),
+      gem ? h("span", { class: "muted small" }, gem.support ? t("skTipSupport") : t("skTipActive")) : null),
+    LANG !== "en" && trName(name) !== name ? h("div", { class: "muted small" }, name) : null,
+    desc ? h("div", { class: "small" }, desc) : null,
+    lines.length ? h("ul", { class: "item-lines small" }, lines.map((l) => h("li", {}, l))) : null,
+    gem && gem.mechanics ? mechChips(gem) : null);
+}
+const gemName = (name) => hoverTip(h("span", { class: "named pk-node" }, icon(name), trName(name)), () => gemTipCard(name));
+// an item's card on hover: its picture and name, its lines, a note under them
+function linesTip(pic, name, rows, note) {
+  return h("div", { class: "stack" }, h("div", { class: "row", style: "gap:8px;align-items:center" }, pic, h("b", {}, name)),
+    rows.length ? h("ul", { class: "item-lines small" }, rows) : h("div", { class: "muted small" }, t("gearNoMods")),
+    note ? h("div", { class: "hint" }, note) : null);
+}
+const uniqueTip = (name, base, lines) => linesTip(itemIcon(name, base, "unique"), trItem(name.split(",")[0]),
+  lines.map((l) => h("li", { title: l }, trMod(l))));
 // the game's own description in the player's language (from the installed game), English otherwise
 const gameText = (text) => (LANG === "en" ? text : GAME.names[text] || null);
 const MECH_NAMES = {};
@@ -3504,30 +3549,16 @@ function renderSkillsBuild(r) {
   TERMS = r.terms || {};
   // a gem or unique of a link; the pointer over it shows what it is (the game's description, its lines, what it
   // creates and uses) - the same data as its card below
-  const gemsByName = new Map(r.groups.flatMap((g) => g.gems.map((gem) => [gem.name, gem])));
+  for (const g of r.groups) for (const gem of g.gems) GEM_TIPS.set(gem.name, gem);
   const itemsByName = new Map((r.items || []).map((it) => [it.name, it]));
-  const gemTip = (name) => {
-    const gem = gemsByName.get(name);
-    if (!gem) return h("b", {}, trName(name));
-    const lines = LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : (gem.lines || []).map(trMod);
-    const desc = gameText(gem.description);
-    return h("div", { class: "stack" },
-      h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(name), h("b", {}, trName(name)),
-        h("span", { class: "muted small" }, gem.support ? t("skTipSupport") : t("skTipActive"))),
-      desc ? h("div", { class: "small" }, desc) : null,
-      lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 8).map((l) => h("li", {}, l))) : null,
-      mechChips(gem));
-  };
   const itemTip = (name) => {
     const it = itemsByName.get(name);
-    return h("div", { class: "stack" },
-      h("div", { class: "row", style: "gap:8px;align-items:center" }, itemIcon(name, name.split(",")[1], "unique"), h("b", {}, trItem(name.split(",")[0]))),
-      it ? h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", {}, trMod(l)))) : null,
-      it ? mechChips(it) : null);
+    const card = uniqueTip(name, name.split(",")[1], it ? it.lines : []);
+    if (it) card.append(mechChips(it) || "");
+    return card;
   };
   const ref = (x) => (x.item ? hoverTip(h("span", { class: "named pk-node" }, `${trItem(x.gem.split(",")[0])} (${slotName(x.skill)})`), () => itemTip(x.gem))
-    : h("span", { class: "named" }, hoverTip(h("span", { class: "pk-node" }, gemName(x.gem)), () => gemTip(x.gem)),
-      x.support ? h("span", { class: "muted" }, " → ", hoverTip(h("span", { class: "pk-node" }, trName(x.skill)), () => gemTip(x.skill))) : null));
+    : h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, " → ", gemName(x.skill)) : null));
   // the game's own explanation of a mechanic when the game data is unpacked, ours otherwise
   const explain = (l) => {
     const official = (l.terms || []).filter((id) => TERMS[id]);
@@ -3535,16 +3566,16 @@ function renderSkillsBuild(r) {
     return h("div", { class: "hint" }, official.map((id, i) => h("div", {}, i ? h("b", {}, `${termName(id)}: `) : null,
       termText(LANG !== "en" && TERMS[id].textLocal ? TERMS[id].textLocal : TERMS[id].text))));
   };
-  const links = h("div", { class: "card" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSub")),
+  const links = foldedCard(h("div", { class: "card" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSub")),
     r.links.length ? r.links.map((l) => h("div", { class: "sk-link" + (l.missing ? " missing" : "") },
       h("div", {}, h("b", {}, MECH_NAMES[l.key] || l.name), l.missing ? h("span", { class: "chip must", style: "margin-left:8px" }, t("skMissing")) : null),
       explain(l),
       l.creates.length ? h("div", { class: "small" }, h("span", { class: "muted" }, t("skCreatedBy")), " ", l.creates.map((x, i) => [i ? ", " : "", ref(x)])) : null,
       h("div", { class: "small" }, h("span", { class: "muted" }, t("skUsedBy")), " ", l.uses.map((x, i) => [i ? ", " : "", ref(x)]))))
-      : h("p", { class: "muted small" }, t("skNoLinks")));
+      : h("p", { class: "muted small" }, t("skNoLinks"))),
+  "links", r.links.length ? t("skLinksSum", r.links.length, r.links.filter((l) => l.missing).length) : null);
+  // a gem's row: what the build gets from it; its description and lines are on hover over its name
   const gemRow = (gem, g) => {
-    const lines = LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : gem.lines.map(trMod);
-    const desc = gameText(gem.description);
     if (!gem.support) {
       // the skill's own numbers as if it were the main one: crit is each skill's own in the game
       const n = (r.numbers || []).find((x) => x.group === g.index && x.name === gem.name);
@@ -3555,13 +3586,12 @@ function renderSkillsBuild(r) {
         n.hitChance > 0 && n.hitChance < 100 ? h("span", {}, t("skHit"), " ", h("b", {}, `${fmt(n.hitChance, 0)}%`)) : null) : null;
       return h("div", { class: "sk-active" }, h("div", { class: "row" }, h("b", {}, gemName(gem.name)),
         gem.available ? h("span", { class: "muted small" }, t("skFromLevel", gem.available)) : null),
-        nums, desc ? h("div", { class: "muted small" }, desc) : null, mechChips(gem), termChips(gem.terms));
+        nums, mechChips(gem), termChips(gem.terms));
     }
     const worth = gem.worth ? deltas(gem.worth, METRIC, 0.5) : null;
     return h("div", { class: "sk-support" + (gem.enabled ? "" : " off") },
       h("div", { class: "row" }, gemName(gem.name), gem.enabled ? null : chip("warn", t("skDisabled")),
         gem.because.length ? h("span", { class: "muted small" }, t("skFits", (LANG === "en" && gem.becauseEn ? gem.becauseEn : gem.because).join(", "))) : null),
-      lines.length ? h("ul", { class: "item-lines small" }, lines.slice(0, 5).map((l) => h("li", {}, l))) : (desc ? h("div", { class: "small" }, desc) : null),
       worth ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : "skWorthMain")), " ", worth) : null,
       // raw stat ids ("support_momentum_...") mean nothing to a player; the English view keeps them
       (() => { const shown = (LANG === "en" && gem.unseenEn ? gem.unseenEn : gem.unseen).filter((u) => LANG === "en" || !/^[A-Za-z0-9%+]+(_[A-Za-z0-9%+]+)+$/.test(u));
@@ -3582,22 +3612,31 @@ function renderSkillsBuild(r) {
       m.missing.length ? h("div", { class: "small neg-text" }, t("metaMissing", m.missing.map((k) => t("metaSrc_" + k)).join(", "))) : null,
       termChips(m.kind === "energy" ? ["Meta", "Energy", "Trigger", "Invocation"] : m.kind === "aura" ? ["Meta", "Curse", "Aura"] : ["Meta"]));
   };
-  const cards = r.groups.filter((g) => g.gems.length).map((g) => h("div", { class: "card sk-group" + (g.enabled ? "" : " off") },
-    h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
-      g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
-      g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
-    g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
-    metaBlock(g),
-    g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
-    g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
-      g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null));
-  const items = (r.items || []).length ? h("div", { class: "card" }, h("h3", {}, t("skUniques")), h("div", { class: "sub" }, t("skUniquesSub")),
+  // the main skill's group open, the others folded to their skill's damage (or their supports' count)
+  const groupSum = (g) => {
+    const n = (r.numbers || []).find((x) => x.group === g.index && x.dps > 0);
+    const supports = g.gems.filter((x) => x.support).length;
+    return n ? `DPS ${fmt(n.dps)}` : supports ? t("skSupportsN", supports) : null;
+  };
+  const cards = r.groups.filter((g) => g.gems.length).sort((a, b) => b.main - a.main).map((g) => {
+    const card = h("div", { class: "card sk-group" + (g.enabled ? "" : " off") + (g.main ? " wide" : "") },
+      h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
+        g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
+        g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
+      g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
+      metaBlock(g),
+      g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
+      g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
+        g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null);
+    return g.main ? card : foldedCard(card, "group:" + g.actives.map((a) => a.name).join("+"), groupSum(g));
+  });
+  const items = (r.items || []).length ? foldedCard(h("div", { class: "card" }, h("h3", {}, t("skUniques")), h("div", { class: "sub" }, t("skUniquesSub")),
     h("div", { class: "grid two" }, r.items.map((it) => h("div", { class: "sk-item" },
-      h("div", { class: "row" }, itemIcon(it.name, it.name.split(",")[1], "unique"), h("b", { title: it.name }, trItem(it.name.split(",")[0])),
+      h("div", { class: "row" }, itemIcon(it.name, it.name.split(",")[1], "unique"),
+        hoverTip(h("b", { class: "pk-node" }, trItem(it.name.split(",")[0])), () => itemTip(it.name)),
         h("span", { class: "muted small" }, slotName(it.slot))),
-      h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", { title: l }, trMod(l)))),
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
-      mechChips(it), termChips(it.terms))))) : null;
+      mechChips(it), termChips(it.terms))))), "uniques", t("skUniquesSum", r.items.length)) : null;
   return [links, items, h("div", { class: "grid cards" }, cards)].filter(Boolean);
 }
 
@@ -3622,13 +3661,12 @@ function renderUniqueLinks(r) {
   if (!r.suggestions.length) return [head, h("p", { class: "muted" }, t("unNone"))];
   const cards = r.suggestions.map((u) => {
     return h("div", { class: "card sk-item" },
-      h("div", { class: "row" }, itemIcon(u.name, u.base, "unique"), h("b", { title: u.name }, trItem(u.name)), h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
+      h("div", { class: "row" }, itemIcon(u.name, u.base, "unique"), hoverTip(h("b", { class: "pk-node" }, trItem(u.name)), () => uniqueTip(u.name, u.base, u.lines)),
+        h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
         u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null),
       h("ul", { class: "un-reasons small" }, u.reasons.map((x) => h("li", {}, reason(x)))),
       h("div", { class: "small" }, h("span", { class: "muted" }, t("unWorth", slotName(u.slot))), " ",
         u.outsidePob ? h("span", { class: "chip util" }, t("unPobBlind")) : deltas(u.changes, METRIC, 0.5)),
-      h("details", {}, h("summary", { class: "small" }, t("unLines")),
-        h("ul", { class: "item-lines small" }, u.lines.map((l) => h("li", { title: l }, trMod(l))))),
       u.unread.length ? h("div", { class: "hint" }, t("skUnseen"), " ", u.unread.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
       u.source ? h("div", { class: "hint" }, t("unSource"), " ", trFree(u.source)) : null,
       termChips(u.terms));
@@ -3748,8 +3786,9 @@ async function gapsCard() {
   const impact = shown.filter((g) => g.likely_impact);
   const rest = shown.filter((g) => !g.likely_impact);
   // the skills' and uniques' own lines are in the Skills tab; here what PoB leaves out of its numbers
-  return h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
-    impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null);
+  return foldedCard(h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
+    impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
+  "gaps", t("gapsSum", impact.length, shown.length));
 }
 
 // ---------- profile ----------
@@ -3806,8 +3845,8 @@ TABS.profile = async () => {
       h("button", { class: "ghost small", onclick: () => { raw.corrections.push({ mod: "", source: "manual", uptime: 1, confirmed: false }); drawCorr(); } }, t("addCorrection")),
       h("div", { class: "section-title" }, t("targetTitle")), h("div", { class: "sub" }, t("targetSub")), targetSel,
       h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
-    h("div", { class: "card" }, h("h3", {}, t("howCounted")),
-      state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))));
+    foldedCard(h("div", { class: "card" }, h("h3", {}, t("howCounted")),
+      state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))), "counted", t("linesN", state.build.profile.length)));
   let gaps;
   try { gaps = await gapsCard(); } catch (e) { gaps = h("div", { class: "card" }, h("p", { class: "muted" }, e.message)); }
   return h("div", { class: "stack" }, facts, gaps);

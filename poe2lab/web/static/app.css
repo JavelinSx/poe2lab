@@ -395,6 +395,10 @@ details > summary .ico { margin-left: 2px; }
 .sk-active { margin: 6px 0 10px; }
 .sk-supports { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 10px; }
 .sk-support .item-lines { margin-top: 2px; }
+/* the main skill's group: across the grid, its supports side by side */
+.sk-group.wide { grid-column: 1 / -1; }
+.sk-group.wide .sk-supports { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.sk-group.wide .sk-supports > .muted { grid-column: 1 / -1; }
 .sk-link { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .sk-link:last-child { border-bottom: 0; }
 .sk-link.missing b { color: var(--warn); }
@@ -516,6 +520,8 @@ details > summary .ico { margin-left: 2px; }
 .tree-overlay.embedded.full { position: fixed; inset: 0; height: auto; z-index: 50; border-radius: 0; border: 0; }
 .tree-overlay.embedded .tree-bar { gap: 10px; padding: 6px 10px; }
 .fold-sum { margin-left: 10px; font-weight: 400; font-size: 13px; color: var(--muted); }
+.step-worth { gap: 12px; align-items: center; justify-content: space-between; }
+.step-worth .score { min-width: 120px; }
 tr.dense td { padding-top: 5px; padding-bottom: 5px; }
 tr.dense td:first-child { min-width: 250px; }
 tr.dense td:first-child > div:first-child { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
