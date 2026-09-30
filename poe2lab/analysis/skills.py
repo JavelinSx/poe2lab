@@ -5,8 +5,10 @@ creates or inflicts something, another uses it up), and when each gem becomes av
 Links between skills are not a database of combinations: a short dictionary of the game's mechanics (Impale,
 Ice Crystals, Freeze, charges, Rage...) says how a gem's own description and stat ids show that it creates or
 uses one; every pair in the build is then found by matching. Numbers come from PoB what-ifs."""
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from .. import keywords as kw
 from .gradients import metric_changes
@@ -150,19 +152,49 @@ def _text(gem: dict) -> str:
     return " ".join([gem.get("description", ""), *gem.get("stats", []), *gem.get("types", [])]).lower()
 
 
+# What each gem and unique says about the mechanics, read once by Jev (scripts/label_mechanics.py) after a game
+# patch: probabilities by "gem:<name>" / "unique:<name>". The regex above reads the texts of anything not in it.
+LABELS_FILE = Path(__file__).resolve().parents[2] / "data" / "mechanics_labels.json"
+LABEL_THRESHOLD = 0.5
+LABEL_BOTH = 0.8  # both "creates" and "uses" of one mechanic: each at least this sure, or only the stronger
+_labels: dict | None = None
+
+
+def _label(gem: dict) -> dict | None:
+    global _labels
+    if _labels is None:
+        try:
+            _labels = json.loads(LABELS_FILE.read_text(encoding="utf-8"))["items"]
+        except (OSError, ValueError, KeyError):
+            _labels = {}
+    name = gem.get("name") or ""
+    return _labels.get(f"gem:{name}") or _labels.get(f"unique:{name.split(',')[0].strip()}")
+
+
 def mechanics_of(gem: dict) -> dict[str, list[str]]:
-    """{"creates": [...keys], "uses": [...keys]} for one gem."""
+    """{"creates": [...keys], "uses": [...keys]} for one gem or unique: what its text says (Jev's labels when there
+    are any, the regex otherwise), plus the game's general rules by damage type and skill kind."""
     text, tags = _text(gem), set(gem.get("tags", []))
+    label = _label(gem)
     out = {"creates": [], "uses": []}
     for m in MECHANICS:
+        if label is not None:
+            made, spent = label["creates"].get(m.key, 0), label["uses"].get(m.key, 0)
+            reads_creates, reads_uses = made >= LABEL_THRESHOLD, spent >= LABEL_THRESHOLD
+            # a gem rarely both makes and spends one thing: unless both readings are sure, the weaker is noise
+            # (Frozen Locus makes the Ice Crystal, Glacial Cascade explodes it)
+            if reads_creates and reads_uses and min(made, spent) < LABEL_BOTH:
+                reads_creates, reads_uses = made > spent, spent >= made
+        else:
+            reads_creates, reads_uses = bool(re.search(m.creates, text)), bool(re.search(m.uses, text))
         blocked = bool(m.blocks and re.search(m.blocks, text))
         # a damage type creates ailments for the skills that deal it, not for supports tagged with it
-        uses = not blocked and (re.search(m.uses, text) or (not gem["support"] and tags & set(m.used_by_tags)))
+        uses = not blocked and (reads_uses or (not gem["support"] and tags & set(m.used_by_tags)))
         prevented = bool(m.prevents and re.search(m.prevents, text))
         # by damage type or skill kind only a gem that does not itself spend it (Tempest Bell spends Combo, the
         # other attacks build it)
-        by_tags = not gem["support"] and tags & set(m.created_by_tags) and not re.search(m.uses, text)
-        if not prevented and (re.search(m.creates, text) or by_tags):
+        by_tags = not gem["support"] and tags & set(m.created_by_tags) and not reads_uses
+        if not prevented and (reads_creates or by_tags):
             out["creates"].append(m.key)
         if uses:
             out["uses"].append(m.key)
@@ -196,8 +228,8 @@ def links(groups: list[dict], items: list[dict] = ()) -> list[dict]:
     out = []
     for key in sorted(set(creators) | set(users), key=lambda k: [m.key for m in MECHANICS].index(k)):
         c, u = creators.get(key, []), users.get(key, [])
-        # a link is two different gems; a mechanic only created (or only used) is a warning, not a link
-        if c and u and ({r["gem"] for r in c} | {r["gem"] for r in u}) != {r["gem"] for r in c} & {r["gem"] for r in u}:
+        # a link is two different gems (one making it, another using it); only created or only used is a warning
+        if any(a["gem"] != b["gem"] for a in c for b in u):
             out.append({"key": key, "name": by[key].name, "explain": by[key].explain, "creates": c, "uses": u,
                         "terms": MECHANIC_TERMS.get(key, [])})
         elif u and not c and not by[key].used_by_tags and any(not r["support"] for r in u):

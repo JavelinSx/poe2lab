@@ -1443,6 +1443,34 @@ for id, d in pairs(data.gems) do
 end
 return _poe2lab_json(out)""")
 
+    def gem_texts(self) -> list[dict]:
+        """Every gem the game gives (as gem_catalog) with what it says: its description, its stat lines in English
+        at level 10 (or its highest below that) and its stat ids - what the game data tells about its mechanics."""
+        return self._json(self._GEM_HELPERS + """
+local out = arr({})
+for id, d in pairs(data.gems) do
+  local ge = d.grantedEffect
+  if ge and not ge.hidden and ((d.Tier or 0) > 0 or ge.isLineage) then
+    local gem = { level = math.min(d.naturalMaxLevel or 1, 10), quality = 0, gemData = d, grantedEffect = ge,
+                  enabled = true }
+    local lines, seen = arr({}), {}
+    for _, set in ipairs(ge.statSets or {}) do
+      local ok, stats = pcall(calcLib.buildSkillInstanceStats, gem, ge, set, false)
+      if ok and stats then
+        local ok2, ls = pcall(data.describeStats, stats, set.statDescriptionScope)
+        for _, l in ipairs(ok2 and ls or {}) do
+          l = StripEscapes(l)
+          if not seen[l] then seen[l] = true lines[#lines + 1] = l end
+        end
+      end
+    end
+    out[#out + 1] = { id = id, name = ge.name, support = ge.support and true or false, tier = d.Tier or 0,
+      description = ge.description or "", lines = lines, stats = statIds(ge), tags = tags(d),
+      types = ge.support and arr({}) or types(ge.skillTypes) }
+  end
+end
+return _poe2lab_json(out)""")
+
     def item_levels(self) -> dict[str, int]:
         """The character level each equipped item needs, by slot (0 when PoB does not know it)."""
         rows = self._json("""

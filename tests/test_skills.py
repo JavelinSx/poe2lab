@@ -14,7 +14,13 @@ def gem(description="", stats=(), tags=(), support=False, name="X"):
     return {"name": name, "description": description, "stats": list(stats), "tags": list(tags), "support": support}
 
 
-def test_creating_and_using_a_mechanic_read_from_the_game_text():
+@pytest.fixture
+def regex_only(monkeypatch):
+    """The dictionary's own reading of these made-up texts: Jev's labels (by the real gems' names) left out."""
+    monkeypatch.setattr(sk, "_labels", {})
+
+
+def test_creating_and_using_a_mechanic_read_from_the_game_text(regex_only):
     cascade = gem("Frozen enemies hit by the final spike are dealt heavy damage but the Freeze is Consumed. "
                   "Ice Crystals hit by the final spike explode.", ["never_freeze"], ["cold", "attack"])
     assert sk.mechanics_of(cascade) == {"creates": ["combo"], "uses": ["impale", "ice_crystal", "freeze"]}
@@ -32,7 +38,7 @@ def test_creating_and_using_a_mechanic_read_from_the_game_text():
     assert sk.mechanics_of(bell) == {"creates": [], "uses": ["impale", "combo"]}
 
 
-def test_links_pair_different_gems_and_flag_what_nothing_creates():
+def test_links_pair_different_gems_and_flag_what_nothing_creates(regex_only):
     def group(i, *gems):
         return {"index": i, "enabled": True, "actives": [{"name": gems[0]["name"]}],
                 "gems": [g | {"enabled": True, "mechanics": sk.mechanics_of(g)} for g in gems]}
