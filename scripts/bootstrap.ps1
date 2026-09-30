@@ -1,8 +1,13 @@
 ﻿# poe2lab: setup and start on Windows with one double-click (start.bat runs this).
 # Steps, each skipped when already done: Python 3.12+ (offers to install it with winget), a private virtual
 # environment in .venv with the dependencies, Path of Building and the game's texts (python -m poe2lab setup),
-# then the interface in the browser.
-param([switch]$NoStart)  # -NoStart: prepare everything but do not launch the interface
+# then the interface in the browser - its server runs in the background with no window (the interface has a Stop
+# button), and this window closes by itself.
+param(
+    [switch]$NoStart,  # prepare everything but do not launch the interface
+    [int]$Port = 8765,
+    [switch]$NoBrowser  # start the server without opening the browser (checks)
+)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
@@ -80,5 +85,36 @@ Step "Path of Building и тексты игры"
 if ($LASTEXITCODE -ne 0) { Fail "Подготовка не удалась — сообщение выше." }
 
 if ($NoStart) { Write-Host ""; Write-Host "Готово." -ForegroundColor Green; exit 0 }
-Step "Запуск: интерфейс откроется в браузере. Чтобы остановить — закройте это окно."
-& $venvPy -m poe2lab ui
+
+# The server runs in the background with no window: closing this window does not stop it; the interface's
+# "Stop poe2lab" button does. Started again while it runs, it only opens the browser.
+$url = "http://127.0.0.1:$Port/"
+function Test-Running {
+    try { return (Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 ($url + "api/status")).StatusCode -eq 200 } catch { return $false }
+}
+if (Test-Running) {
+    Write-Host ""; Write-Host "poe2lab уже запущен — открываю в браузере: $url" -ForegroundColor Green
+    if (-not $NoBrowser) { Start-Process $url }
+    Start-Sleep -Seconds 2
+    exit 0
+}
+Step "Запуск"
+$logDir = Join-Path $env:APPDATA "poe2lab"
+New-Item -ItemType Directory -Force $logDir | Out-Null
+$log = Join-Path $logDir "ui.log"
+$errLog = Join-Path $logDir "ui-errors.log"
+$uiArgs = @("-m", "poe2lab", "ui", "--port", "$Port")
+if ($NoBrowser) { $uiArgs += "--no-browser" }
+Start-Process -FilePath $venvPy -ArgumentList $uiArgs -WorkingDirectory $Root -WindowStyle Hidden `
+    -RedirectStandardOutput $log -RedirectStandardError $errLog
+for ($i = 0; $i -lt 60 -and -not (Test-Running); $i++) { Start-Sleep -Seconds 1 }
+if (-not (Test-Running)) {
+    Write-Host "Интерфейс не запустился. Последние строки журнала ($errLog):" -ForegroundColor Red
+    if (Test-Path $errLog) { Get-Content $errLog -Tail 20 }
+    Fail "Если порт $Port занят другой программой — закройте её и запустите start.bat снова."
+}
+Write-Host ""
+Write-Host "poe2lab запущен: $url" -ForegroundColor Green
+Write-Host "Он работает в фоне — это окно закроется само. Остановить poe2lab — кнопка «⏻ Остановить poe2lab» внизу слева в приложении."
+Start-Sleep -Seconds 4
+exit 0

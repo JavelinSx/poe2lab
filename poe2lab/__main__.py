@@ -83,8 +83,11 @@ def ui(argv: list[str]):
     url = f"http://127.0.0.1:{args.port}/"
     if not args.no_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    print(f"poe2lab UI: {url}  (Ctrl+C to stop)")
-    uvicorn.run("poe2lab.web.server:app", host="127.0.0.1", port=args.port, log_level="warning")
+    print(f"poe2lab UI: {url}  (Ctrl+C or the Stop button in the interface to stop)")
+    from .web import server as web
+    server = uvicorn.Server(uvicorn.Config(web.app, host="127.0.0.1", port=args.port, log_level="warning"))
+    web.stop_hook = lambda: setattr(server, "should_exit", True)  # the interface's Stop button
+    server.run()
 
 
 def game_texts(rest):

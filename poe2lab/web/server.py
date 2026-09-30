@@ -191,6 +191,19 @@ def status():
                     "provider": cfg.provider if cfg else None}}
 
 
+stop_hook = None  # set by `python -m poe2lab ui`: ends the server (the interface's Stop button)
+
+
+@app.post("/api/shutdown")
+def shutdown():
+    """The interface's Stop button: the server ends right after this answer - start.bat runs it with no window of
+    its own, so this is how a player stops it. A server started otherwise (tests, another host) refuses."""
+    if stop_hook is None:
+        raise HTTPException(409, "сервер запущен не через poe2lab ui — остановите его там, где запускали")
+    threading.Timer(0.5, stop_hook).start()  # the answer reaches the page first
+    return {"ok": True}
+
+
 class LLMSettings(BaseModel):
     provider: str
     model: str | None = None

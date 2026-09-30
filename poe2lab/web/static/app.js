@@ -894,6 +894,15 @@ function foldAll(on) {
 $("#fold-all").addEventListener("click", () => foldAll(true));
 $("#unfold-all").addEventListener("click", () => foldAll(false));
 $("#refresh-builds").addEventListener("click", loadBuildList);
+// the server runs with no window of its own (start.bat): stopping it is here
+$("#stop-app").addEventListener("click", async () => {
+  if (!(await confirmInPage(t("stopAsk"), t("stopApp")))) return;
+  try {
+    await api("/api/shutdown", { method: "POST" });
+    document.body.replaceChildren(h("div", { class: "stopped-page" },
+      h("h2", {}, t("stoppedTitle")), h("p", {}, t("stoppedText")), h("p", { class: "muted small" }, t("stoppedAgain"))));
+  } catch (e) { toast(e.message); }
+});
 
 const TABS = {};
 

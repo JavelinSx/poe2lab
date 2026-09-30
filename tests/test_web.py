@@ -471,3 +471,15 @@ def test_the_player_s_character_inside_a_build(tmp_path, monkeypatch):
         c.delete("/api/builds/Гайд", headers=H)
         assert not library.main_path("Гайд").exists() and any((tmp_path / ".trash").glob("*Гайд.main.txt"))
     server.session.engine = None
+
+
+def test_the_stop_button(client, monkeypatch):
+    """Stop ends the server only when `python -m poe2lab ui` started it (its hook); otherwise it says so."""
+    from poe2lab.web import server
+    monkeypatch.setattr(server, "stop_hook", None)
+    assert client.post("/api/shutdown", headers=H).status_code == 409
+    assert client.post("/api/shutdown").status_code == 403  # the page's own header only: no other site stops it
+    stopped = []
+    monkeypatch.setattr(server, "stop_hook", lambda: stopped.append(True))
+    monkeypatch.setattr(server.threading, "Timer", lambda delay, fn: type("T", (), {"start": lambda self: fn()})())
+    assert client.post("/api/shutdown", headers=H).json() == {"ok": True} and stopped == [True]

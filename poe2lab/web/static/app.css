@@ -625,6 +625,9 @@ tr.dense .fit-chips { margin-top: 2px; }
 .gear-top > .card { position: sticky; top: 8px; }
 .tv-points { font-size: 13px; }
 .pk-list { display: flex; flex-direction: column; gap: 10px; }
+.stop-app { margin-top: 4px; }
+.stop-app:hover { border-color: var(--bad); color: var(--bad); }
+.stopped-page { max-width: 560px; margin: 18vh auto; padding: 0 16px; text-align: center; }
 .side-switch { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .vs-gems { display: flex; flex-direction: column; gap: 6px; }
 .vs-gem { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 8px; border-radius: 6px; background: var(--panel-2); }
