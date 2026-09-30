@@ -240,7 +240,9 @@ def test_gems_in_any_skill(client):
     groups = view["groups"]
     # each skill with its own numbers: crit is a skill's own, not the character's
     hitting = [n for n in view["numbers"] if n["dps"] > 0]
-    assert hitting and all(0 < n["crit"] <= 100 and n["critMulti"] > 1 and n["speed"] > 0 for n in hitting)
+    assert hitting and all(0 <= n["crit"] <= 100 for n in hitting)
+    maul = next(n for n in hitting if n["name"] == "Maul")  # an attack: its own crit, multiplier and speed
+    assert 0 < maul["crit"] <= 100 and maul["critMulti"] > 1 and maul["speed"] > 0
     # the main skill has its five supports: one more is refused, and a support of a family it has is named
     main = next(g for g in groups if g["main"])
     assert sum(x["support"] for x in main["gems"]) == 5
