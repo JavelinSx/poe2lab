@@ -54,3 +54,21 @@ def test_meta_gems_say_what_they_give():
     coea = metas["Cast on Elemental Ailment"]
     assert coea["energy"]["gains"] and coea["cost"] > 0 and coea["spirit"] >= 0
     assert "Elemental Storm" in metas  # triggered on spell crits by the ascendancy
+
+
+def test_crit_damage_speed_and_defences_are_made_of_their_sources(monk):
+    engine, cfg, rows = monk
+    g = ex.main_group(engine, engine.skill_groups(), rows)
+    cd = ex.crit_damage(engine, cfg, g)
+    # PoE2's crit bonus starts at +100%; when the formula gives PoB's number it is marked exact
+    assert sum(x["value"] for x in cd["adds"]) >= 100 and cd["value"] > 1
+    if cd["exact"]:
+        assert 1 + cd["bonus"] / 100 == pytest.approx(cd["value"], rel=ex.EXACT)
+    sp = ex.speed(engine, cfg, g)
+    assert sp["value"] > 0 and sp["base"] > 0
+    defs = {d["stat"]: d for d in ex.defences(engine, cfg)}
+    assert defs and all(d["value"] >= ex.DEFENCE_MIN for d in defs.values())
+    for d in defs.values():
+        assert all(gear["slot"] in ex.GEAR_SLOTS for gear in d["gear"])
+        if d["exact"]:
+            assert d["base"] * (1 + d["incTotal"] / 100) * d["moreTotal"] == pytest.approx(d["value"], rel=ex.EXACT)

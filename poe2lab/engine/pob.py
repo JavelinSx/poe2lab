@@ -444,6 +444,8 @@ if skill then
   out.weaponCrit = w and w.CritChance or nil
   out.weapon = w and w.name or nil
   out.skillCrit = skill.skillData and skill.skillData.CritChance or nil
+  out.attackRate = w and w.AttackRate or nil
+  out.castTime = skill.activeEffect.grantedEffect.castTime or nil
 end
 return _poe2lab_json(out)""")
 

@@ -1079,8 +1079,7 @@ const SIDE_VIEWS = {
     // how the guide works: its crit, mana and meta gems (the character's are on the Main side)
     const explained = h("div", { class: "grid two" }, loading(t("exLoading")));
     cached("skills:explain:guide", () => api(`/api/skills?view=explain&of=guide&${buildQuery()}`))
-      .then((d) => explained.replaceChildren(...[d.crit ? critCard(d.crit, null) : null, d.mana ? manaCard(d.mana) : null,
-        ...d.metas.map(metaCard)].filter(Boolean)))
+      .then((d) => explained.replaceChildren(...explainCards(d, null)))
       .catch((e) => explained.replaceChildren(errorCard(e)));
     return h("div", { class: "stack" }, h("div", { class: "card" }, h("h3", {}, t("vsSkillsTitle")), h("div", { class: "sub" }, t("vsSkillsSum", missing, lower))),
       h("div", { class: "section-title" }, "🔍 ", t("exTitleGuide")), explained,
@@ -3227,12 +3226,17 @@ TABS.skills = async (view) => {
     h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
   betterSupports(body);
   cached("skills:explain", () => api(`/api/skills?view=explain&${buildQuery()}`))
-    .then((d) => explained.replaceChildren(...[d.crit ? critCard(d.crit, d.guide) : null, d.mana ? manaCard(d.mana) : null,
-      ...d.metas.map(metaCard)].filter(Boolean)))
+    .then((d) => explained.replaceChildren(...explainCards(d, d.guide)))
     .catch((e) => explained.replaceChildren(errorCard(e)));
 };
 
 // ---------- how the build works (poe2lab.analysis.explain) ----------
+// the cards in order: damage first (crit, its damage, speed), mana, the meta gems, then the defences
+function explainCards(d, guide) {
+  return [d.crit && d.crit.value > 0 ? critCard(d.crit, guide) : null, d.critDamage && d.crit && d.crit.value > 0 ? critDamageCard(d.critDamage) : null,
+    d.speed && d.speed.value > 0 ? speedCard(d.speed) : null, d.mana ? manaCard(d.mana) : null, ...(d.metas || []).map(metaCard),
+    ...(d.defences || []).map(defenceCard)].filter(Boolean);
+}
 const pctOf = (v) => `${fmt(v, 1)}%`;
 // where a modifier comes from, by name: a passive, the ascendancy, a jewel, an item, a gem
 function exSource(x) {
@@ -3242,21 +3246,57 @@ function exSource(x) {
 }
 const exConds = (x) => x.conds.map((c) => h("span", { class: "chip warn", title: c }, t("exIf", conditionLabel(c).replace(/\?\s*$/, ""))));
 
-// the main skill's crit chance: base, "increased" by source, "more", and what it stands on
+// one stat as PoB makes it: a formula (when it gives PoB's number), the base, "increased" by source, "more", and the
+// conditions it stands on; `fmtV` writes the stat's values
+function bdCard(icon, title, b, { formula, baseLine, extra, fmtV, key, sum }) {
+  return foldedCard(h("div", { class: "card ex-card" }, h("h3", {}, icon, " ", title),
+    b.exact && formula ? h("div", { class: "ex-formula" }, formula) : null,
+    baseLine ? h("div", { class: "small muted" }, baseLine) : null,
+    b.inc.length ? h("table", { class: "ex-table" }, h("tbody", {}, b.inc.map((x) => h("tr", {}, h("td", {}, exSource(x), " ", exConds(x)),
+      h("td", { class: "num" }, `${x.value > 0 ? "+" : ""}${fmt(x.value)}%`))),
+      b.incRest ? h("tr", {}, h("td", { class: "muted small" }, t("exMore", b.incRest)), h("td", {})) : null)) : null,
+    b.more.length ? h("div", { class: "small" }, h("b", {}, t("exMoreTitle")), " ",
+      b.more.map((x, i) => [i ? " · " : "", exSource(x), ` ×${fmt(1 + x.value / 100, 2)}`, " ", exConds(x)])) : null,
+    ...b.without.map((w) => h("div", { class: "hint" }, "⚠ ", t("exWithout", conditionLabel(w.label).replace(/\?\s*$/, ""), fmtV(w.value), pct(w.dps)))),
+    extra || null),
+  key, sum);
+}
+
+// the main skill's crit chance
 function critCard(c, guide) {
   const adds = c.adds.reduce((a, x) => a + x.value, 0);
-  return foldedCard(h("div", { class: "card ex-card" }, h("h3", {}, "🎯 ", t("exCritTitle", trName(c.skill), pctOf(c.value))),
-    h("div", { class: "ex-formula" }, t("exCritFormula", pctOf(c.base + adds), fmt(c.incTotal), fmt(c.moreTotal, 2), pctOf(c.value))),
-    h("div", { class: "small muted" }, c.weapon ? t("exCritBaseWeapon", pctOf(c.base), trItem(c.weapon.split(",")[0])) : t("exCritBaseSkill", pctOf(c.base)),
-      adds ? " " + t("exCritAdds", pctOf(adds), c.adds.map((x) => trName(x.name)).join(", ")) : ""),
-    h("table", { class: "ex-table" }, h("tbody", {}, c.inc.map((x) => h("tr", {}, h("td", {}, exSource(x), " ", exConds(x)),
-      h("td", { class: "num" }, `${x.value > 0 ? "+" : ""}${fmt(x.value)}%`))),
-      c.incRest ? h("tr", {}, h("td", { class: "muted small" }, t("exMore", c.incRest)), h("td", {})) : null)),
-    c.more.length ? h("div", { class: "small" }, h("b", {}, t("exMoreTitle")), " ",
-      c.more.map((x, i) => [i ? " · " : "", exSource(x), ` ×${fmt(1 + x.value / 100, 2)}`, " ", exConds(x)])) : null,
-    ...c.without.map((w) => h("div", { class: "hint" }, "⚠ ", t("exWithout", conditionLabel(w.label).replace(/\?\s*$/, ""), pctOf(w.crit), pct(w.dps)))),
-    guide && guide.crit ? h("div", { class: "small muted" }, t("exGuideCrit", trName(guide.skill), pctOf(guide.crit))) : null),
-  "ex-crit", pctOf(c.value));
+  return bdCard("🎯", t("exCritTitle", trName(c.skill), pctOf(c.value)), c, {
+    formula: t("exCritFormula", pctOf(c.base + adds), fmt(c.incTotal), fmt(c.moreTotal, 2), pctOf(c.value)),
+    baseLine: [c.weapon ? t("exCritBaseWeapon", pctOf(c.base), trItem(c.weapon.split(",")[0])) : t("exCritBaseSkill", pctOf(c.base)),
+      adds ? " " + t("exCritAdds", pctOf(adds), c.adds.map((x) => trName(x.name)).join(", ")) : ""].join(""),
+    extra: guide && guide.crit ? h("div", { class: "small muted" }, t("exGuideCrit", trName(guide.skill), pctOf(guide.crit))) : null,
+    fmtV: pctOf, key: "ex-crit", sum: pctOf(c.value) });
+}
+
+// what a crit deals over a normal hit
+function critDamageCard(c) {
+  const base = c.adds.reduce((a, x) => a + x.value, 0);
+  return bdCard("💥", t("exCritDmgTitle", trName(c.skill), fmt(c.value, 2)), c, {
+    formula: t("exCritDmgFormula", fmt(base), fmt(c.incTotal), fmt(c.moreTotal, 2), fmt(c.bonus)),
+    baseLine: t("exCritDmgBase", fmt(base)), fmtV: (v) => `×${fmt(v, 2)}`, key: "ex-critdmg", sum: `×${fmt(c.value, 2)}` });
+}
+
+// how often the main skill is used
+function speedCard(c) {
+  return bdCard("⏱", t("exSpeedTitle", trName(c.skill), fmt(c.value, 2)), c, {
+    formula: t("exSpeedFormula", fmt(c.base, 2), fmt(c.incTotal), fmt(c.moreTotal, 2), fmt(c.value, 2)),
+    baseLine: c.base ? (c.weapon ? t("exSpeedBaseWeapon", fmt(c.base, 2), trItem(c.weapon.split(",")[0])) : t("exSpeedBaseSpell", fmt(c.base, 2))) : null,
+    fmtV: (v) => fmt(v, 2), key: "ex-speed", sum: `${fmt(c.value, 2)}/${t("exSec")}` });
+}
+
+// the character's life, energy shield, evasion, armour: the gear's own first
+function defenceCard(d) {
+  const adds = d.adds.reduce((a, x) => a + x.value, 0);
+  return bdCard("🛡", t("exDefTitle_" + d.stat, fmt(d.value)), d, {
+    formula: t("exDefFormula", fmt(d.base), fmt(d.incTotal), fmt(d.moreTotal, 2), fmt(d.value)),
+    baseLine: [d.gear.length ? t("exDefGear", d.gear.map((g) => `${slotName(g.slot)} ${fmt(g.value)}`).join(", ")) : "",
+      adds ? " " + t("exDefAdds", fmt(adds), d.adds.map((x) => x.kind === "item" ? trItem(x.name.split(",")[0]) : trName(x.name)).join(", ")) : ""].join(""),
+    fmtV: (v) => fmt(v), key: "ex-def-" + d.stat, sum: fmt(d.value) });
 }
 
 // how the main skill's mana comes and goes, why leech takes little, and what fixes it
