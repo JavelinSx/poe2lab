@@ -279,6 +279,11 @@ def _part_weights(description: str, sets: list[dict], attributes: dict) -> dict[
     return {i: w / total for i, w in raw.items() if w > 0}
 
 
+def average_hit(out: dict) -> float:
+    """One hit of the calculated skill: a spell's AverageHit, an attack's from its weapon (its top-level one is 0)."""
+    return out.get("AverageHit") or out.get("MainHand.AverageHit") or out.get("OffHand.AverageHit") or 0.0
+
+
 def _measure_group(engine, config, g: dict) -> dict:
     """Whose damage a support in this group moves, and how it is read: the group's own skill by its damage per
     second ("own"); a skill PoB cannot rate - triggered on crit, by a meta gem: DPS ~0 - by the damage of one hit,
@@ -301,7 +306,7 @@ def _measure_group(engine, config, g: dict) -> dict:
             return m | {"group": g["index"], "how": "hit", "skill": skill, "sets": weights}
     if out.get("CombinedDPS", 0.0) >= 1:
         return m | {"group": g["index"], "how": "own"}
-    if out.get("AverageHit", 0.0) > 0:
+    if average_hit(out) > 0:
         return m | {"group": g["index"], "how": "hit"}
     parts = [s for s in engine.stat_set_hits(g["index"], skill, config) if s["hit"] > 0] if skill else []
     if not parts:
@@ -312,13 +317,20 @@ def _measure_group(engine, config, g: dict) -> dict:
 def _hit(engine, config, m: dict, disable_gems=()) -> float:
     """One hit of the measured skill (its parts weighted, for a skill made of several)."""
     if not m["sets"]:
-        return engine.what_if(config=config, main_socket_group=m["group"], disable_gems=disable_gems).get("AverageHit", 0.0)
+        return average_hit(engine.what_if(config=config, main_socket_group=m["group"], disable_gems=disable_gems))
     total = 0.0
     for index, w in m["sets"].items():
         with engine.shown_stat_set(m["group"], m["skill"], index):
             out = engine.what_if(config=config, main_socket_group=m["group"], disable_gems=disable_gems)
-        total += w * out.get("AverageHit", 0.0)
+        total += w * average_hit(out)
     return total
+
+
+def trigger_hit(engine, config, g: dict) -> float:
+    """The damage of one use of the group's skill - one trigger of a triggered skill: its hit, its parts weighted
+    for a skill made of several (Elemental Expression)."""
+    m = _measure_group(engine, config, g)
+    return _hit(engine, config, m) if m["group"] else 0.0
 
 
 def _gains(engine, config, g: dict, m: dict, ids: list[str]) -> dict:

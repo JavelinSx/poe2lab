@@ -27,6 +27,10 @@ function _poe2lab_numbers(t)
   -- A minion skill as the main skill: the player's own DPS is 0 and the damage lives in output.Minion (per
   -- minion). Every analysis reads CombinedDPS, so there it becomes the army's damage: one minion times the
   -- active limit. The player's own number stays as PlayerCombinedDPS.
+  -- an attack's hit lives in its weapon's table (the top-level AverageHit is 0)
+  for _, hand in ipairs({ "MainHand", "OffHand" }) do
+    if type(t[hand]) == "table" and _poe2lab_finite(t[hand].AverageHit) then res[hand .. ".AverageHit"] = t[hand].AverageHit end
+  end
   local m = t.Minion
   if type(m) == "table" then
     for k, v in pairs(m) do
@@ -193,7 +197,7 @@ TRIGGER_OUTPUTS = {"hit": "AverageHit", "hitSpeed": "HitSpeed", "cooldown": "Coo
                    "igniteOnHit": "IgniteChanceOnHit", "igniteOnCrit": "IgniteChanceOnCrit",
                    "shockOnHit": "ShockChanceOnHit", "shockOnCrit": "ShockChanceOnCrit",
                    "freezeBuildup": "FreezeBuildupAvg", "igniteDps": "IgniteDPS", "igniteDuration": "IgniteDuration",
-                   "threshold": "EnemyAilmentThreshold"}
+                   "threshold": "EnemyAilmentThreshold", "duration": "Duration"}
 
 
 class PobEngine:
@@ -321,6 +325,7 @@ return _poe2lab_json(out)""")
                     # what a triggered skill's own numbers are made of (poe2lab.analysis.triggers): the hit it
                     # deals, how often the skill hits, its ailments, and the enemy's ailment threshold
                     extra = {k: o.get(src) or 0.0 for k, src in TRIGGER_OUTPUTS.items()}
+                    extra["hit"] = extra["hit"] or o.get("MainHand.AverageHit") or o.get("OffHand.AverageHit") or 0.0
                     out.append({"group": g["index"], "skill": i, "name": name, "dps": o["CombinedDPS"],
                                 "crit": o.get("CritChance") or 0.0, "critMulti": o.get("CritMultiplier") or 0.0,
                                 "speed": o.get("Speed") or 0.0, "hitChance": o.get("HitChance") or 0.0} | extra)

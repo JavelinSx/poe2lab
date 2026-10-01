@@ -93,3 +93,32 @@ def test_the_answers_are_kept_in_the_build_profile(client, tmp_path):
     client.put("/api/profile", json={"notes": ["x"]}, headers=H)
     assert json.loads((tmp_path / "titan.profile.json").read_text(encoding="utf-8"))["leveling"]["way"] == "mace:physical"
     assert client.post("/api/leveling", json={"way": "build", "pace": "slow"}, headers=H).status_code == 400
+
+
+def test_the_switch_waits_for_what_the_main_skill_stands_on(titan, monk):
+    """Besides its own gems the main skill needs buffs worth its damage, what it spends from other skills, and the
+    Spirit all of them reserve."""
+    engine, bp = monk
+    sw = leveling.switch(engine, leveling.MapProfile(rage=bp.rage).config(), trade=True)
+    parts = {p["name"]: p for p in sw["parts"]}
+    reg = parts["Charge Regulation"]
+    assert reg["kind"] == "buff" and reg["core"] and reg["spirit"] > 0 and reg["dps"] >= leveling.CORE_SUPPORT
+    assert reg["decisive"] and sw["level"] == reg["level"] > parts["Whirling Assault"]["level"]
+    spirit = parts["Spirit"]
+    assert spirit["need"] >= reg["spirit"] and not spirit["short"] and spirit["level"] <= sw["level"]
+    assert {x["level"] for x in spirit["sources"] if x["kind"] == "quest"} == {11, 36, 61}  # +30, +30, +40
+    # starting with the main skill's gems alone: earlier, without the buff, for less damage
+    early = sw["early"]
+    assert early["level"] < sw["level"] and early["without"] == ["Charge Regulation"] and 0 < early["dps"] < 100
+    # the Titan's Rage comes from its own passives and supports: no other skill to wait for
+    engine, bp = titan
+    sw = leveling.switch(engine, leveling.MapProfile(rage=bp.rage).config(), trade=True)
+    assert not [p for p in sw["parts"] if p["kind"] == "source"]
+
+
+def test_spirit_from_body_armour():
+    line = "+1 to Spirit for every 8 Item Energy Shield on Equipped Body Armour"
+    m = leveling._ARMOUR_SPIRIT.search(line)
+    assert m and m.group(1) == "8" and m.group(2) == "Energy Shield"
+    assert leveling._ARMOUR_SPIRIT.search("+1 to Spirit for every 20 Evasion Rating on Equipped Body Armour").group(2) == "Evasion Rating"
+    assert leveling._NO_GEAR_SPIRIT.search("Cannot gain Spirit from Equipment")

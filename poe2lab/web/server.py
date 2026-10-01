@@ -28,6 +28,7 @@ from ..analysis import leveling, quests as quest_rewards
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
+from ..analysis.triggers import trigger_view
 from ..analysis.versus import versus
 from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context, build_glossary, list_models,
                          make_client)
@@ -1120,7 +1121,10 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
                                   lambda: skill_leveling_view(e, cfg, levels=_guide_levels(session.bp)))
         if view == "build":
             # gem edits are edits of the plan; each skill's own damage, crit, speed (crit is a skill's own in the game)
-            data = data | {"plan": _plan_view(), "numbers": session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))}
+            numbers = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
+            # how often the triggered skills go off, which PoB does not count (poe2lab.analysis.triggers)
+            data = data | {"plan": _plan_view(), "numbers": numbers,
+                           "triggers": session.cached(("triggers",), lambda: trigger_view(e, cfg, numbers))}
         return _json(data)
 
 

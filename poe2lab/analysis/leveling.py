@@ -1,11 +1,15 @@
 """Levelling up to a build. Guides are made for level 75 and above; up to it the player levels on their own. This
 gives the ways the build's class can level - its weapons and elements, from PoB's gem data by the class's
 attributes - and a roadmap from level 1 by the campaign's acts. Above all it says when to switch to the build and
-why: the level by which every piece that carries the build's power can be had - its main skill, and the supports
-and uniques PoB measures the build losing most without."""
+why: the level by which every piece that carries the build's power can be had - its main skill, the supports and
+uniques PoB measures the build losing most without, and what the main skill stands on (the chain): its buffs, the
+skills that make what it spends (charges, rage), and the Spirit all of them reserve."""
+import re
+
 from .. import newbuild
+from .combat import made_by_lines
 from .gradients import metric_changes
-from .skills import UNCUT_SUPPORT_AREA, available_level
+from .skills import UNCUT_SUPPORT_AREA, available_level, mechanics_of
 from .threats import CAMPAIGN, MAPS_LEVEL, MapProfile
 
 # PoB's weapon types -> the weapon a way of levelling is played with
@@ -23,6 +27,15 @@ CORE_ITEM = 15.0  # % of the build's damage (or, for defence uniques, EHP) a uni
 NO_ITEM_SLOTS = ("Jewel", "Flask", "Charm")  # not what the switch waits for
 # the ascendancy's trials: which part of the game each pair of points comes in (the order, not an exact place)
 TRIALS = ["act2", "interlude", "maps", "maps"]
+# what a skill spends that PoB is told about in its Configuration instead of following where it comes from: the box
+# and the value that takes it away
+CHAIN_CONFIG = {"power": ("usePowerCharges", False), "frenzy": ("useFrenzyCharges", False),
+                "endurance": ("useEnduranceCharges", False), "rage": ("multiplierRage", 0)}
+_SPIRIT = re.compile(r"\+(\d+) to Spirit", re.I)
+# Invoker's "Lead me through Grace...": "+1 to Spirit for every 8 Item Energy Shield on Equipped Body Armour"
+_ARMOUR_SPIRIT = re.compile(r"\+1 to Spirit for every (\d+) (?:Item )?(Energy Shield|Evasion Rating|Armour)\b[^.]*Body Armour",
+                            re.I)
+_NO_GEAR_SPIRIT = re.compile(r"cannot gain spirit from equipment", re.I)
 
 
 def stages() -> list[dict]:
@@ -188,6 +201,129 @@ def _first_of_family(gem: dict, catalog: list[dict]) -> dict | None:
     return first
 
 
+def _gem_source(engine, gem: dict, levels: dict, asc: list[dict]) -> dict:
+    """When an active gem can be had: its uncut gem's drop, or the ascendancy notable or item that grants it."""
+    part = {"name": gem["name"], "level": available_level(gem)}
+    if part["level"] is None:
+        part |= _skill_source(engine, gem["name"], levels, asc)
+    return part
+
+
+def _spirit(engine, config: dict, base: dict, need: float, levels: dict, asc: list[dict]) -> dict:
+    """Whether the Spirit the build's core reserves can be had, and from which level: the campaign's quests (each at
+    its area's level), the items that give it (each at its level; Invoker's Spirit from body armour counts as the
+    armour's), and the rest (the tree) from the start. With an ascendancy notable that turns body armour defences
+    into Spirit and forbids Spirit from equipment: what the armour must give."""
+    sources = []
+    for q in engine.quest_rewards():
+        m = _SPIRIT.search(q.get("stat") or "")
+        if m:
+            sources.append({"kind": "quest", "name": q["info"], "area": q["area"], "part": q["part"],
+                            "spirit": int(m.group(1)), "level": q["level"], "on": bool(q["value"])})
+    names = {it["slot"]: it["name"] for it in engine.equipped_item_details()}
+    for slot, level in levels.items():
+        if slot.startswith(NO_ITEM_SLOTS) or slot not in names:
+            continue
+        gives = base.get("Spirit", 0) - engine.what_if(config=config, remove_slot=slot).get("Spirit", 0)
+        if gives >= 1:
+            sources.append({"kind": "item", "name": names[slot], "slot": slot, "spirit": round(gives), "level": level or None})
+    counted = sum(x["spirit"] for x in sources if x["kind"] == "item" or x["on"])
+    rest = round(base.get("Spirit", 0) - counted)
+    if rest >= 1:
+        sources.append({"kind": "other", "name": "", "spirit": rest, "level": None})
+    total, level = 0, None
+    for x in sorted(sources, key=lambda x: x["level"] or 0):
+        total += x["spirit"]
+        if level is None and total >= need:
+            level = x["level"] or 1
+    if level is None:  # even the build as its file has it reserves more than it has
+        level = max((x["level"] or 0 for x in sources), default=0) or None
+    armour = None
+    for n in asc:
+        rates = [{"per": int(m.group(1)), "what": m.group(2)} for line in n["stats"] if (m := _ARMOUR_SPIRIT.search(line))]
+        if rates:
+            quests = sum(x["spirit"] for x in sources if x["kind"] == "quest")
+            armour = {"node": n["name"], "rates": rates, "need": max(0, round(need - quests)),
+                      "noGear": any(_NO_GEAR_SPIRIT.search(line) for line in n["stats"])}
+    return {"kind": "spirit", "name": "Spirit", "need": round(need), "have": round(total), "level": level,
+            "short": total < need, "sources": sources, "armour": armour, "core": True}
+
+
+def chain(engine, config: dict, groups: list[dict], main: dict | None, skill: dict | None, base: dict,
+          levels: dict, asc: list[dict]) -> list[dict]:
+    """What the main skill stands on besides its own gems - the build does not start before all of it can be had:
+    - buffs: other skills whose loss costs the main skill CORE_SUPPORT% of its damage (Eternal Rage...);
+    - sources: what it spends that PoB takes from its Configuration (charges, rage) and which of the build's skills
+      make it - by the way the build keeps it up: a meta gem triggering it (Profane Ritual by Cast on Critical)
+      before casting it by hand;
+    - Spirit: what the main skill, the buffs and the sources reserve, against when that much Spirit can be had."""
+    if not main or not skill:
+        return []
+    out, reserving = [], {}
+    loss = {}
+    for g in groups:
+        if not g["enabled"] or not g["gems"]:
+            continue
+        o = engine.what_if(config=config, disable_gems=[(g["index"], x["index"]) for x in g["gems"]])
+        loss[g["index"]] = {"dps": -metric_changes(o, base)["dps"],
+                            "spirit": max(0, round(o.get("SpiritUnreserved", 0) - base.get("SpiritUnreserved", 0)))}
+    reserving[main["index"]] = loss.get(main["index"], {}).get("spirit", 0)
+    for g in groups:
+        active = next((x for x in g["gems"] if not x["support"] and x["enabled"]), None)
+        if g["index"] == main["index"] or g["index"] not in loss or not active:
+            continue
+        if loss[g["index"]]["dps"] >= CORE_SUPPORT:
+            out.append({"kind": "buff", "dps": loss[g["index"]]["dps"], "spirit": loss[g["index"]]["spirit"],
+                        "group": g["index"], "core": True} | _gem_source(engine, active, levels, asc))
+            reserving[g["index"]] = loss[g["index"]]["spirit"]
+    uses = set(mechanics_of(skill)["uses"])
+    uses |= {k for x in main["gems"] if x["support"] and x["enabled"] for k in mechanics_of(x)["uses"]}
+    # made without another skill: by the main skill's own gems, a passive or an item
+    own = {k for x in main["gems"] if x["enabled"] for k in mechanics_of(x)["creates"]}
+    lines = [line for n in engine.tree_graph()["nodes"] if n["alloc"] for line in n["stats"]]
+    lines += [l["line"] for it in engine.equipped_item_details() for k in ("implicit", "explicit", "runes", "enchant")
+              for l in it.get(k, [])]
+    own |= made_by_lines(lines)
+    for key, (var, off) in CHAIN_CONFIG.items():
+        if key not in uses or key in own:
+            continue
+        lost = -metric_changes(engine.what_if(config=config | {var: off}), base)["dps"]
+        if lost < CORE_SUPPORT:
+            continue
+        paths = []
+        for g in groups:
+            if not g["enabled"] or g["index"] == main["index"]:
+                continue
+            maker = next((x for x in g["gems"] if not x["support"] and x["enabled"] and key in mechanics_of(x)["creates"]
+                          and "Meta" not in x.get("types", [])), None)
+            if maker:
+                meta = next((x for x in g["gems"] if not x["support"] and "Meta" in x.get("types", [])), None)
+                paths.append((g, maker, meta))
+        if not paths:
+            continue  # made by the tree or an item: nothing to wait for
+        g, maker, meta = next((p for p in paths if p[2]), paths[0])
+        buff = next((b for b in out if b["kind"] == "buff" and b["group"] == g["index"]), None)
+        if buff:  # a buff that makes it (Eternal Rage): one piece
+            buff["mechanic"] = key
+            continue
+        part = {"kind": "source", "mechanic": key, "dps": lost, "spirit": loss.get(g["index"], {}).get("spirit", 0),
+                "core": True} | _gem_source(engine, maker, levels, asc)
+        if meta:
+            via = _gem_source(engine, meta, levels, asc)
+            part |= {"via": meta["name"], "viaLevel": via["level"]}
+            if via["level"] and part["level"]:
+                part["level"] = max(part["level"], via["level"])
+            hand = next((p for p in paths if not p[2]), None)
+            if hand:  # cast by hand meanwhile: no Spirit, but not steady
+                part["byHand"] = _gem_source(engine, hand[1], levels, asc)["level"]
+        out.append(part)
+        reserving[g["index"]] = part["spirit"]
+    need = sum(reserving.values())
+    if need >= 1:
+        out.append(_spirit(engine, config, base, need, levels, asc))
+    return out
+
+
 def switch(engine, config: dict, trade: bool = True, catalog: list[dict] | None = None,
            asc: list[dict] | None = None) -> dict:
     """When to switch to the build and why: every piece that carries its power with the level it can be had from and
@@ -232,13 +368,41 @@ def switch(engine, config: dict, trade: bool = True, catalog: list[dict] | None 
                       "level": levels.get(item["slot"]) or None, "dps": dps, "ehp": ehp,
                       "core": dps >= CORE_ITEM, "defence": dps < CORE_ITEM <= ehp, "counted": trade})
     counted = [p for p in parts if p["core"] and p["level"] and p.get("counted", True)]
+    gems_level = max((p["level"] for p in counted), default=None)
+    links = chain(engine, config, groups, main, skill if main else None, base, levels, asc)
+    parts += links
+    counted += [p for p in links if p["core"] and p["level"]]
     level = max((p["level"] for p in counted), default=None)
     for p in parts:
         p["decisive"] = p in counted and p["level"] == level
-    order = {"skill": 0, "support": 1, "unique": 2}
+    order = {"skill": 0, "source": 1, "spirit": 2, "buff": 3, "support": 4, "unique": 5}
     parts.sort(key=lambda p: (not p["core"], order[p["kind"]], -(p.get("dps") or 0)))
     return {"level": level, "stage": stage_of(level), "parts": parts, "trade": trade,
-            "mainDps": base.get("CombinedDPS", 0)}
+            "mainDps": base.get("CombinedDPS", 0), "early": _early(engine, config, base, links, gems_level, level)}
+
+
+def _early(engine, config: dict, base: dict, links: list[dict], at: int | None, level: int | None) -> dict | None:
+    """Starting with the build's own gems before what they stand on is there: from `at`, the level its gems can be
+    had, the share of the build's damage it deals without the sources, and the buffs that cannot be up yet (their
+    gem not there, or the Spirit for them not)."""
+    if not at or not level or at >= level or not base.get("CombinedDPS"):
+        return None
+    spirit = next((p for p in links if p["kind"] == "spirit"), None)
+    short = spirit is not None and (spirit["level"] or 0) > at
+    cfg = dict(config)
+    without = []
+    for p in links:
+        late = not p["level"] or p["level"] > at or (short and p.get("spirit"))
+        if p["kind"] == "source" and late:
+            var, off = CHAIN_CONFIG[p["mechanic"]]
+            cfg[var] = off
+            without.append(p["name"])
+        elif p["kind"] == "buff" and late:
+            without.append(p["name"])
+    late_buffs = {p["group"] for p in links if p["kind"] == "buff" and p["name"] in without}
+    off = [(g["index"], x["index"]) for g in engine.skill_groups() if g["index"] in late_buffs for x in g["gems"]]
+    out = engine.what_if(config=cfg, disable_gems=off)
+    return {"level": at, "dps": out.get("CombinedDPS", 0) / base["CombinedDPS"] * 100, "without": without}
 
 
 def tree_order(engine) -> list[dict]:

@@ -2884,13 +2884,35 @@ function lrReason(p) {
     return p.level ? t("lrWhySkill", trName(p.name), p.level) : t("lrWhySkillUnknown", trName(p.name));
   }
   if (p.kind === "support") return t("lrWhySupport", trName(p.firstName || p.name), pct(p.dps), p.level);
+  if (p.kind === "source") return t("lrWhySource", t("lrMech_" + p.mechanic), trName(p.name), p.via ? trName(p.via) : "", p.level);
+  if (p.kind === "buff") return t("lrWhyBuff", trName(p.name), pct(p.dps), p.level);
+  if (p.kind === "spirit") return p.short ? t("lrWhySpiritShort", p.need, p.have) : t("lrWhySpirit", p.need, p.level);
   return t("lrWhyUnique", trItem(p.name.split(",")[0]), pct(p.dps), p.level);
 }
 
+// where the Spirit comes from, by level: quests, items, the rest
+function lrSpiritSources(p) {
+  return p.sources.map((x) => {
+    // a quest by its area (the boss names have no translation), an item by its slot
+    const what = x.kind === "quest" ? questArea(x.area) : x.kind === "item" ? slotName(x.slot) : t("lrSpiritOther");
+    return `${what} +${x.spirit}` + (x.level ? ` (${t("lrLv", x.level)})` : "");
+  }).join(" · ");
+}
+
+// Invoker's Spirit from body armour: what the armour must give, and the catch of taking the notable early
+function lrArmourNote(p) {
+  const a = p.armour;
+  if (!a || !a.need) return null;
+  const amounts = a.rates.map((r) => `${fmt(a.need * r.per)} ${t("lrDef_" + r.what.replace(/ /g, ""))}`).join(t("lrOr"));
+  return h("div", { class: "hint" }, t("lrArmourSpirit", trName(a.node), a.need, amounts), a.noGear ? " " + t("lrNoGearSpirit") : "");
+}
+
 function lrPart(p, trade) {
-  const pic = p.kind === "unique" ? itemIcon(p.name, p.name.split(",")[1], "unique") : icon(p.name);
+  const pic = p.kind === "unique" ? itemIcon(p.name, p.name.split(",")[1], "unique")
+    : p.kind === "spirit" ? h("span", { class: "lr-emoji" }, "✨") : icon(p.name);
   const gem = p.firstName || p.name;
   const name = p.kind === "unique" ? h("b", {}, trItem(p.name.split(",")[0]))
+    : p.kind === "spirit" ? h("b", {}, t("lrSpirit"))
     : hoverTip(h("b", { class: "pk-node" }, trName(gem)), () => gemTipCard(gem));
   let note = null;
   if (p.kind === "support" && p.firstName) note = t("lrSupportFull", trName(p.name), p.full);
@@ -2898,12 +2920,17 @@ function lrPart(p, trade) {
   if (p.kind === "skill" && p.source === "ascendancy") note = t("lrApprox");
   if (p.kind === "unique" && p.core && !trade) note = t("lrSsfUnique", pct(p.dps));
   if (p.kind === "unique" && p.defence) note = t("lrDefUnique", pct(p.ehp));
-  const worth = p.kind === "skill" ? t("lrMainSkill") : p.kind === "support" ? t("lrDps", pct(p.dps))
-    : p.core ? t("lrDps", pct(p.dps)) : t("lrEhp", pct(p.ehp));
+  if (p.kind === "source") note = [t("lrSourceNote", t("lrMech_" + p.mechanic), p.via ? trName(p.via) : ""),
+    p.spirit ? t("lrReserves", p.spirit) : "", p.byHand ? t("lrByHand", p.byHand) : ""].filter(Boolean).join(" · ");
+  if (p.kind === "buff") note = [p.mechanic ? t("lrMakes", t("lrMech_" + p.mechanic)) : "", p.spirit ? t("lrReserves", p.spirit) : ""].filter(Boolean).join(" · ") || null;
+  if (p.kind === "spirit") note = lrSpiritSources(p);
+  const worth = p.kind === "skill" ? t("lrMainSkill") : p.kind === "spirit" ? t("lrSpiritNeed", p.need, p.have)
+    : p.kind !== "unique" ? t("lrDps", pct(p.dps)) : p.core ? t("lrDps", pct(p.dps)) : t("lrEhp", pct(p.ehp));
   return h("div", { class: "lr-part" + (p.decisive ? " decisive" : "") + (p.kind === "unique" && p.core && !trade ? " ssf" : "") },
     h("span", { class: "lr-part-ico" }, pic),
     h("div", { class: "lr-part-body" }, h("div", {}, name, " ", h("span", { class: "chip " + (p.decisive ? "must" : "tag") },
-      p.level ? t("lrFrom", p.level) : "?")), note ? h("div", { class: "small muted" }, note) : null),
+      p.level ? t("lrFrom", p.level) : "?")), note ? h("div", { class: "small muted" }, note) : null,
+      p.kind === "spirit" ? lrArmourNote(p) : null),
     h("span", { class: "lr-worth" }, worth),
     p.decisive ? h("span", { class: "lr-wait" }, t("lrWaitFor")) : null);
 }
@@ -2928,6 +2955,8 @@ function drawLeveling(card, d) {
   const banner = h("div", { class: "lr-switch" }, h("span", { class: "lr-flag" }, "🚩"),
     h("div", {}, h("div", { class: "lr-switch-title" }, sw.level ? t("lrSwitchAt", sw.level, lrStageName(sw.stage)) : t("lrSwitchUnknown")),
       decisive.length ? h("div", {}, t("lrBecause"), " ", decisive.map(lrReason).join("; ")) : null,
+      sw.early ? h("div", { class: "small" }, t("lrEarly", sw.early.level, pct(sw.early.dps - 100),
+        sw.early.without.map((n) => n === "Spirit" ? t("lrSpirit") : trName(n)).join(", "))) : null,
       r.characterLevel ? h("div", { class: "small muted" }, r.characterLevel >= (sw.level || 999) ? t("lrReady", r.characterLevel) : t("lrLeft", r.characterLevel, sw.level - r.characterLevel)) : null));
   const core = sw.parts.filter((p) => p.core);
   const extra = sw.parts.filter((p) => !p.core && p.kind === "unique" && p.defence);
@@ -2941,7 +2970,7 @@ function drawLeveling(card, d) {
   const stage = (s) => {
     const rows = [];
     if (s.switch) {
-      const to = sw.parts.filter((p) => p.core && p.kind !== "unique");
+      const to = sw.parts.filter((p) => p.core && !["unique", "spirit"].includes(p.kind));
       rows.push(h("div", { class: "lr-row lr-to" }, h("span", { class: "lr-k" }, "⭐"), t("lrSwitchTo"),
         ...to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name)))));
     }
@@ -3934,8 +3963,25 @@ function renderSkillsBuild(r) {
       m.missing.length ? h("div", { class: "small neg-text" }, t("metaMissing", m.missing.map((k) => t("metaSrc_" + k)).join(", "))) : null,
       termChips(m.kind === "energy" ? ["Meta", "Energy", "Trigger", "Invocation"] : m.kind === "aura" ? ["Meta", "Curse", "Aura"] : ["Meta"]));
   };
+  // how often a triggered skill goes off and what it deals from that - PoB does not count it (analysis/triggers)
+  const span = ([a, b], f = (x) => fmt(x, 1)) => Math.abs(b - a) <= 0.05 * Math.max(a, b) ? f(a) : `${f(a)}–${f(b)}`;
+  const triggerBlock = (g) => {
+    const xs = (r.triggers || []).filter((x) => x.group === g.index);
+    if (!xs.length) return null;
+    return xs.map((x) => h("div", { class: "sk-trigger", title: t("trgHint") },
+      h("div", {}, h("b", {}, t("trgTitle"))),
+      x.rate ? h("div", { class: "small" }, t("trgRate", span(x.rate.boss), span(x.rate.pack))) : null,
+      ...(x.fed || []).map((f) => h("div", { class: "small muted" }, t("trgFed", t("trgEvent_" + f.event), trName(f.skill), fmt(f.perSecond, 1)))),
+      ...(x.rate ? x.skills : []).map((s) => h("div", { class: "small" }, s.dps
+        ? [t("trgDps", trName(s.name), span(s.dps.boss, (v) => fmt(v)), span(s.dps.pack, (v) => fmt(v))),
+          s.pobDps >= 1 ? h("span", { class: "muted" }, " · ", t("trgPob", fmt(s.pobDps))) : null]
+        : t("trgTimes", trName(s.name), span(s.rate.boss), span(s.rate.pack)))),
+      x.unknown.length ? h("div", { class: "small muted" }, t("trgUnknown", x.unknown.map((k) => t("trgEvent_" + k)).join(", "))) : null));
+  };
   // the main skill's group open, the others folded to their skill's damage (or their supports' count)
   const groupSum = (g) => {
+    const tr = (r.triggers || []).find((x) => x.group === g.index && x.skills.some((s) => s.dps));
+    if (tr) return `≈ DPS ${span(tr.skills.find((s) => s.dps).dps.boss, (v) => fmt(v))}`;
     const n = (r.numbers || []).find((x) => x.group === g.index && x.dps > 0);
     const supports = g.gems.filter((x) => x.support).length;
     return n ? `DPS ${fmt(n.dps)}` : supports ? t("skSupportsN", supports) : null;
@@ -3947,6 +3993,7 @@ function renderSkillsBuild(r) {
         g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
       g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
       metaBlock(g),
+      triggerBlock(g),
       g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
       g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
         g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null);

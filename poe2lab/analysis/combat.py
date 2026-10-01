@@ -21,6 +21,8 @@ AILMENTS = {
 }
 HELD = 0.5  # from this share of the fight on, a yes/no setting is answered "yes"
 _RAGE_TEXT = re.compile(r"\b(gain|gains|grant|grants|generate|generates)\b[^.;]{0,50}?\brage\b", re.I)
+CHARGE_TEXT = re.compile(r"\b(gain|gains|grant|grants|generate|generates)\b[^.;]{0,60}?\b(power|frenzy|endurance) charges?\b",
+                         re.I)
 
 
 def uptime(chance: float, hits_per_second: float, duration: float) -> float:
@@ -50,6 +52,16 @@ def generates_rage(out: dict, lines) -> bool:
     """The build builds Rage itself: it regenerates it, or a gem, passive or item line gains it."""
     return (out.get("MaximumRage") or 0) > 0 and ((out.get("RageRegen") or 0) > 0
                                                   or any(_RAGE_TEXT.search(line) for line in lines))
+
+
+def made_by_lines(lines) -> set[str]:
+    """What passive, item or other lines make: "power", "frenzy", "endurance" charges and "rage"."""
+    out = set()
+    for line in lines:
+        out |= {m.group(2).lower() for m in CHARGE_TEXT.finditer(line)}
+        if _RAGE_TEXT.search(line):
+            out.add("rage")
+    return out
 
 
 def expected_dps(base: float, impacts, uptimes: dict[str, dict]) -> float:

@@ -29,7 +29,7 @@ import re
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
-from .analysis.combat import HELD, ailment_uptimes, generates_rage
+from .analysis.combat import CHARGE_TEXT as _CHARGE_TEXT, HELD, ailment_uptimes, generates_rage
 from .data.moddb import pattern
 from .engine.pob import lua_string
 
@@ -39,8 +39,6 @@ GEM_QUALITY = 20  # a skill gem the file gives no quality for: 20% at the end ga
 END_GAME_LEVEL = 65
 ITEM_QUALITY = 20  # weapons and armour from this level on get 20% quality (the file never says)
 QUALITY_FROM_LEVEL = 35
-_CHARGE_TEXT = re.compile(r"\b(gain|gains|grant|grants|generate|generates)\b[^.;]{0,60}?\b(power|frenzy|endurance) charges?\b",
-                          re.I)
 # charge type -> (its maximum in PoB's output, the Configuration checkbox that counts it)
 CHARGES = {"Power": ("PowerChargesMax", "usePowerCharges"), "Frenzy": ("FrenzyChargesMax", "useFrenzyCharges"),
            "Endurance": ("EnduranceChargesMax", "useEnduranceCharges")}

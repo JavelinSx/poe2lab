@@ -538,6 +538,7 @@ details > summary .ico { margin-left: 2px; }
 .gl-entry b { color: var(--gold); }
 
 .sk-meta { border-left: 2px solid var(--gold-soft); padding: 4px 10px; margin: 6px 0 8px; display: flex; flex-direction: column; gap: 3px; }
+.sk-trigger { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--gold); }
 
 /* passives and ascendancy; the tree view */
 .ps-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
@@ -874,6 +875,7 @@ tr.dense .fit-chips { margin-top: 2px; }
 .lr-part.ssf { opacity: .7; }
 .lr-part-ico { width: 34px; display: flex; justify-content: center; }
 .lr-part-ico .ico, .lr-part-ico .item-ico { width: 30px; height: 30px; margin: 0; }
+.lr-emoji { font-size: 24px; line-height: 30px; }
 .lr-part-body { flex: 1; min-width: 0; }
 .lr-worth { font-weight: 700; white-space: nowrap; }
 .lr-wait { font-size: 12px; color: var(--gold); white-space: nowrap; }
