@@ -25,9 +25,30 @@ def test_every_gem_and_unique_is_labelled(catalog):
     assert {f"gem:{n}" for n in gems} <= set(items), "gems without labels: relabel"
     assert {f"unique:{n}" for n in uniques} <= set(items), "uniques without labels: relabel"
     keys = {m.key for m in MECHANICS}
-    for lab in items.values():
-        assert set(lab) == {"creates", "uses"} and set(lab["creates"]) | set(lab["uses"]) <= keys
+    for k, lab in items.items():
+        if not k.startswith(("gem:", "unique:")):  # tree nodes and what PoB does not count have their own tests
+            continue
+        # each label keeps the fingerprint of the text it answered: a run after a patch asks only about changes
+        assert set(lab) == {"creates", "uses", "text"} and set(lab["creates"]) | set(lab["uses"]) <= keys
     assert data["meta"]["model"].startswith("jev")
+
+
+def test_tree_notables_are_labelled():
+    """The current tree's notables (a build on an older tree keeps the keywords for nodes the tree no longer has)."""
+    from poe2lab.analysis.tree import PACKAGE_MECHANICS, node_mechanics
+    from poe2lab.engine import PobEngine
+    engine = PobEngine()
+    names = {n["name"] for n in engine.tree_graph()["nodes"] if n["type"] in ("Notable", "Keystone") and not n["asc"]}
+    items = json.loads(LABELS_FILE.read_text(encoding="utf-8"))["items"]
+    assert {f"node:{n}" for n in names} <= set(items), "notables without labels: relabel with --tree"
+    keys = {k for k, _ in PACKAGE_MECHANICS}
+    assert all(set(items[f"node:{n}"]["has"]) <= keys for n in names)
+    skills._labels = None
+    nodes = {n["name"]: n for n in engine.tree_graph()["nodes"]}
+    # your own Stun Threshold is not stunning enemies; less Poison on you is not poisoning
+    assert "stun" not in node_mechanics(nodes["Self Mortification"])
+    assert "poison" not in node_mechanics(nodes["The Ancient Serpent"])
+    assert "crit" in node_mechanics(nodes["Critical Exploit"])
 
 
 def gem(catalog, name):
@@ -49,3 +70,21 @@ def test_what_the_regex_got_wrong(catalog):
     assert "freeze" in gc["uses"] and "freeze" not in gc["creates"]
     # the game's rule by damage type is kept: a cold attack builds Freeze whatever its text says
     assert "freeze" in mechanics_of(gem(catalog, "Ice Strike"))["creates"]
+
+
+def test_what_pob_does_not_count_is_sorted_by_what_it_changes():
+    """Stats PoB has no calculation for and unique lines it cannot read: Jev's reading of what each changes."""
+    from poe2lab.knowledge import _impact, gap_key
+    engine, _ = open_build("titan")
+    items = json.loads(LABELS_FILE.read_text(encoding="utf-8"))["items"]
+    stats = {s["stat"] for s in engine.unmapped_stats()}
+    assert {f"stat:{s}" for s in stats} <= set(items), "unmapped stats without labels: relabel with --gaps"
+    for k, lab in items.items():
+        if k.startswith(("stat:", "line:")):
+            assert set(lab["impact"]) <= {"damage", "defence", "resource", "none"}
+    # a rolled item and the unique's own line meet on one key
+    assert gap_key("(20-40)% increased Damage") == gap_key("32% increased Damage") == "#% increased Damage"
+    skills._labels = None
+    # a stat for where the character faces changes nothing; one key without a label keeps the keyword guess
+    assert _impact("stat:action_do_not_face_target", True) is False
+    assert _impact("stat:no_such_stat", True) is True

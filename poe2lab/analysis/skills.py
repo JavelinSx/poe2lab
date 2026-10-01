@@ -160,15 +160,21 @@ LABEL_BOTH = 0.8  # both "creates" and "uses" of one mechanic: each at least thi
 _labels: dict | None = None
 
 
-def _label(gem: dict) -> dict | None:
+def label(key: str) -> dict | None:
+    """One entry of the labels file: "gem:<name>", "unique:<name>" ({"creates", "uses"}) or "node:<name>" (a
+    passive tree notable: {"has"} - the tree packages' mechanics)."""
     global _labels
     if _labels is None:
         try:
             _labels = json.loads(LABELS_FILE.read_text(encoding="utf-8"))["items"]
         except (OSError, ValueError, KeyError):
             _labels = {}
+    return _labels.get(key)
+
+
+def _label(gem: dict) -> dict | None:
     name = gem.get("name") or ""
-    return _labels.get(f"gem:{name}") or _labels.get(f"unique:{name.split(',')[0].strip()}")
+    return label(f"gem:{name}") or label(f"unique:{name.split(',')[0].strip()}")
 
 
 def mechanics_of(gem: dict) -> dict[str, list[str]]:

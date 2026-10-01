@@ -573,10 +573,12 @@ function renderHeader() {
   const b = state.build;
   GEM_INFO = { ...(b.gemColors || {}) };
   GEM_TIPS.clear();  // a gem's lines are at this build's level and quality
+  loadAllGems();
   setBuildNames(b);
   $("#build-header").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
+  document.title = `${b.name} · poe2lab`;
   $("#bh-menu").textContent = t("bhMenu");
   renderChanges();
   renderCtorBar();
@@ -1173,7 +1175,7 @@ TABS.overview = async (view) => {
 
   const worstShare = worst && share(worst[0], worst[1].juiced);
   const broken = r.gates.filter((g) => g.level === "must").length;
-  return h("div", { class: "stack" }, nextCard(r), kpi, levelingCard(), h("div", { class: "grid two" },
+  return h("div", { class: "stack" }, nextCard(r), levelingCard(), kpi, h("div", { class: "grid two" },
     foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null),
     foldedCard(issues, "issues", r.gates.length ? t("issuesSum", r.gates.length, broken) : null)),
   foldedCard(path, "path", r.path.length ? t("firstStep", trMod(r.path[0].mod)) : null));
@@ -1253,7 +1255,7 @@ function nextCard(r) {
       const key = state.mode === "defence" ? "ehp" : "dps";
       const weakest = measured.sort((a, b) => (a.worth[key] || 0) - (b.worth[key] || 0))[0];
       if (weakest && (weakest.worth[key] || 0) < 1) {
-        steps.push([0, row("🔮", t("nextGem"), trName(weakest.name),
+        steps.push([0, row("🔮", t("nextGem"), gemName(weakest.name),
           h("div", { class: "small muted" }, t("nextGemNote", pct(weakest.worth[key] || 0))), () => switchTab("skills"))]);
       }
     }
@@ -2908,8 +2910,16 @@ function lrPart(p, trade) {
 function drawLeveling(card, d) {
   const head = card.querySelector("h3");
   const edit = (label, cls) => h("button", { class: cls, onclick: () => levelingWizard(d, (nd) => { state.cache.leveling = nd; drawLeveling(card, nd); }) }, label);
+  card.classList.toggle("lr-hero", !d.answers || !d.roadmap);
   if (!d.answers || !d.roadmap) {
-    card.replaceChildren(head, h("p", { class: "small" }, t("lrIntro")), h("div", {}, edit(t("lrMake"), "primary")));
+    card.replaceChildren(head, h("div", { class: "lr-hero-body" },
+      h("div", { class: "lr-hero-art", "aria-hidden": "true" }, "🗺"),
+      h("div", { class: "lr-hero-text" },
+        h("div", { class: "lr-hero-title" }, t("lrHeroTitle", d.ways.level)),
+        h("p", { class: "small" }, t("lrIntro")),
+        h("div", { class: "lr-hero-steps" }, [["⚔", "lrStep1"], ["🚩", "lrStep2"], ["🗓", "lrStep3"]].map(([ico, key], i) =>
+          h("span", { class: "lr-hero-step" }, h("b", {}, `${i + 1}`), ico, " ", t(key)))),
+        edit(t("lrMake"), "primary lr-hero-btn"))));
     return;
   }
   const r = d.roadmap, sw = r.switch, a = r.answers;
@@ -3066,7 +3076,7 @@ function levelingWizard(d, done) {
   const screens = [
     () => [h("h3", {}, t("lrQWay", trName(d.ways.class))), h("div", { class: "small muted" }, t("lrQWaySub")),
       h("div", { class: "lr-tiles" }, d.ways.ways.map((w) => tile(a.way === w.id, () => { a.way = w.id; }, lrWayIcon(w), lrWayTitle(w),
-        h("span", { class: "lr-tile-skills" }, w.skills.slice(0, 3).map((s) => h("span", { title: trName(s.name) }, icon(s.name) || trName(s.name)))),
+        h("span", { class: "lr-tile-skills" }, w.skills.slice(0, 3).map((s) => gemHover(h("span", {}, icon(s.name) || trName(s.name)), s.name))),
         h("span", { class: "small muted" }, t("lrFromLevel", w.from)),
         w.id !== "build" && w.likeBuild ? h("span", { class: "chip ok" }, t("lrLike")) : w.id !== "build" && w.sameWeapon ? h("span", { class: "chip tag" }, t("lrSameWeapon")) : null)))],
     () => [h("h3", {}, t("lrQTrade")), choice("trade", [[true, "🛒", t("lrTrade"), t("lrTradeSub")], [false, "🎒", t("lrSsf"), t("lrSsfSub")]])],
@@ -3750,9 +3760,19 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
 // A gem's name; the pointer over it shows the gem as the game describes it (once the build's skills are read), the
 // same card on every tab. Its English name is there too, to search the trade site or a guide.
 const GEM_TIPS = new Map();
-function gemTipCard(name) {
-  const gem = GEM_TIPS.get(name);
-  if (!gem && (LANG === "en" || trName(name) === name)) return null;  // nothing to add to the name
+// every gem of the game (/api/gems, read once): the card of a gem the open build does not have
+const GEM_ALL = new Map();
+let gemAllLoading = null;
+function loadAllGems() {
+  if (!gemAllLoading) {
+    gemAllLoading = api("/api/gems").then((list) => { for (const g of list) if (!GEM_ALL.has(g.name)) GEM_ALL.set(g.name, g); })
+      .catch(() => { gemAllLoading = null; });
+  }
+  return gemAllLoading;
+}
+function gemTipCard(name, note) {
+  const gem = GEM_TIPS.get(name) || GEM_ALL.get(name);
+  if (!gem && !note && (LANG === "en" || trName(name) === name)) return null;  // nothing to add to the name
   const lines = gem ? (LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : (gem.lines || []).map(trMod)) : [];
   const desc = gem && gameText(gem.description);
   return h("div", { class: "stack" },
@@ -3761,8 +3781,11 @@ function gemTipCard(name) {
     LANG !== "en" && trName(name) !== name ? h("div", { class: "muted small" }, name) : null,
     desc ? h("div", { class: "small" }, desc) : null,
     lines.length ? h("ul", { class: "item-lines small" }, lines.map((l) => h("li", {}, l))) : null,
-    gem && gem.mechanics ? mechChips(gem) : null);
+    gem && gem.mechanics ? mechChips(gem) : null,
+    note ? h("div", { class: "hint" }, note) : null);
 }
+// a gem's picture (or any element) that shows the gem's card on hover
+const gemHover = (el, name, note) => (el ? hoverTip(el, () => gemTipCard(name, note)) : el);
 const gemName = (name) => hoverTip(h("span", { class: "named pk-node" }, icon(name), trName(name)), () => gemTipCard(name));
 // an item's card on hover: its picture and name, its lines, a note under them
 function linesTip(pic, name, rows, note) {
@@ -3993,8 +4016,8 @@ function renderSkillsLeveling(r) {
     draw();
   };
 
-  const socketGem = (name, cls, extra, title) => h("div", { class: "lv-socket " + cls, title: title || name },
-    icon(name) || h("div", { class: "lv-hole" }), h("div", { class: "lv-sock-name" }, trName(name)), extra);
+  const socketGem = (name, cls, extra, title) => gemHover(h("div", { class: "lv-socket " + cls },
+    icon(name) || h("div", { class: "lv-hole" }), h("div", { class: "lv-sock-name" }, trName(name)), extra), name, title);
   const draw = () => {
     const plans = [...r.plans].sort((a, b) => b.main - a.main);
     const isOpen = (p) => p.skillAvailable === null || p.skillAvailable === undefined || p.skillAvailable <= level;
@@ -4019,19 +4042,19 @@ function renderSkillsLeveling(r) {
         more = spare.filter((o) => !used.has(o.name));
       }
       return h("div", { class: "lv-skill" + (open ? "" : " locked") },
-        h("div", { class: "lv-skill-head" }, icon(p.skill), h("b", {}, trName(p.skill)),
+        h("div", { class: "lv-skill-head" }, gemHover(icon(p.skill), p.skill), gemHover(h("b", { class: "pk-node" }, trName(p.skill)), p.skill),
           p.main ? chip("tag", t("skMain")) : null,
           open ? (p.skillAvailable ? null : h("span", { class: "muted small" }, t("lvFromItem")))
             : h("span", { class: "muted small" }, t("lvOpensAt", p.skillAvailable))),
         open ? h("div", { class: "stack", style: "gap:6px" }, h("div", { class: "lv-sockets" }, sockets),
           more.length ? h("details", { class: "small" }, h("summary", {}, t("lvMore", more.length)),
-            h("div", { class: "lv-more" }, more.map((o) => h("span", { class: "named", title: t("lvGainTitle") }, icon(o.name), trName(o.name),
-              h("span", { class: "lv-gain" }, " " + pct(o.dps)))))) : null) : null);
+            h("div", { class: "lv-more" }, more.map((o) => gemHover(h("span", { class: "named pk-node" }, icon(o.name), trName(o.name),
+              h("span", { class: "lv-gain" }, " " + pct(o.dps))), o.name, t("lvGainTitle"))))) : null) : null);
     }));
     const ahead = r.timeline.filter((x) => x.level > level).slice(0, 4);
     next.replaceChildren(h("h3", {}, t("lvNext")), ahead.length ? h("div", { class: "lv-next" }, ahead.map((x) => h("div", { class: "lv-mile" },
-      h("b", {}, t("lvAt", x.level)), x.gems.map((g) => h("div", { class: "named", title: g.support ? g.skills.map(trName).join(", ") : "" },
-        icon(g.name), trName(g.name)))))) : h("p", { class: "muted" }, t("lvNothingNext")));
+      h("b", {}, t("lvAt", x.level)), x.gems.map((g) => gemHover(h("div", { class: "named pk-node" }, icon(g.name), trName(g.name)), g.name,
+        g.support ? t("lvForSkills", g.skills.map(trName).join(", ")) : null))))) : h("p", { class: "muted" }, t("lvNothingNext")));
   };
   set(level);
   const target = (state.build.profileRaw || {}).target;

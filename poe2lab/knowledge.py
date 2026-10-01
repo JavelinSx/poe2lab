@@ -19,6 +19,24 @@ _IMPACT = re.compile(r"damage|speed|rage|glory|crit|life|mana|resist|armour|evas
                      r"prowess|charge|duration|cooldown|leech|penetrat|more|less|final", re.I)
 
 
+_NUMBER = re.compile(r"\(-?\d+(?:\.\d+)?-\d+(?:\.\d+)?\)|-?\d+(?:\.\d+)?")
+
+
+def gap_key(line: str) -> str:
+    """An item line with its numbers as # (a rolled item and the unique's template give the same key)."""
+    return _NUMBER.sub("#", " ".join(line.split()))
+
+
+def _impact(key: str, fallback: bool) -> bool:
+    """Whether a thing PoB does not count changes the numbers: Jev's reading (data/mechanics_labels.json) when there
+    is one - damage, defence or resources, not nothing - the keywords otherwise."""
+    from .analysis.skills import label
+    lab = label(key)
+    if not lab or not lab.get("impact"):
+        return fallback
+    return max(lab["impact"].items(), key=lambda x: x[1])[0] != "none"
+
+
 @dataclass
 class Gap:
     source: str  # "skill" or "item"
@@ -53,12 +71,14 @@ def collect(engine, statdesc_dir=None) -> Mechanics:
                     continue
                 text = " / ".join(u["text"]) or f"{u['stat']} = {u['value']:g}"
                 m.gaps.append(Gap("skill", f"{s['name']} (группа {s['group']})", u["stat"], text,
-                                  bool(_IMPACT.search(u["stat"])), " / ".join(u.get("textLocal", []))))
+                                  _impact(f"stat:{u['stat']}", bool(_IMPACT.search(u["stat"]))),
+                                  " / ".join(u.get("textLocal", []))))
     for it in raw["items"]:
         for line in _join_wrapped(it["unparsed"]):
             if _ITEM_NOISE.search(line):
                 continue
-            m.gaps.append(Gap("item", f"{it['name']} ({it['slot']})", line, line, bool(_IMPACT.search(line))))
+            m.gaps.append(Gap("item", f"{it['name']} ({it['slot']})", line, line,
+                              _impact(f"line:{gap_key(line)}", bool(_IMPACT.search(line)))))
         if it["uniqueText"]:
             m.uniques.append({"slot": it["slot"], "name": it["name"], "lines": it["uniqueText"]})
     m.gaps = _dedupe(m.gaps)

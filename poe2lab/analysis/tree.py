@@ -260,6 +260,18 @@ PACKAGE_MECHANICS = [
     ("curse", r"\bcurses?\b"), ("herald", r"\bheralds?\b"), ("block", r"\bblock"),
 ]
 _PACKAGE_PATTERNS = [(k, re.compile(pat)) for k, pat in PACKAGE_MECHANICS]
+
+
+def node_mechanics(node: dict) -> set[str]:
+    """The packages' mechanics a notable is about: Jev's reading of its text (data/mechanics_labels.json - "less
+    Stun Threshold on you" is not stunning enemies, "reduced Poison Duration on you" is not poisoning), the keywords
+    for a node not in it."""
+    from .skills import LABEL_THRESHOLD, label
+    lab = label(f"node:{node['name']}")
+    if lab is not None:
+        return {k for k, p in lab.get("has", {}).items() if p >= LABEL_THRESHOLD}
+    text = " ".join(node["stats"]).lower()
+    return {k for k, pat in _PACKAGE_PATTERNS if pat.search(text)}
 PACKAGE_REACH = 10  # notables up to this many points away
 PACKAGE_POINTS = 16  # a package costs at most this many points
 PACKAGE_NOTABLES = 4  # at most this many notables in one
@@ -313,10 +325,11 @@ def mechanic_packages(engine, profile: MapProfile, mode: str = "balanced", top: 
         return priced[key]
 
     out = []
-    for key, pattern in _PACKAGE_PATTERNS:
+    about = {t["id"]: node_mechanics(t) for t in reach}
+    for key, _ in PACKAGE_MECHANICS:
         singles = []
         for t in reach:
-            if pattern.search(" ".join(t["stats"]).lower()):
+            if key in about[t["id"]]:
                 value = price(t["path"])[0]
                 if value > 0:
                     singles.append((value / len(t["path"]), value, t))

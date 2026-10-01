@@ -2247,6 +2247,20 @@ def save_profile(raw: dict):
         return _json(_summary())
 
 
+# ---------- every gem the game gives, for the hover card of any gem name (not only the open build's) ----------
+_gem_texts: list = []
+
+
+@app.get("/api/gems")
+def gems_all():
+    with session.lock:
+        session.require()
+        if not _gem_texts:  # the game's gems do not change while the server runs
+            _gem_texts.extend({k: g[k] for k in ("name", "support", "description", "lines", "tags")}
+                              for g in session.engine.gem_texts())
+        return _gem_texts
+
+
 # ---------- the campaign's rewards: which to take (poe2lab.analysis.quests) ----------
 @app.get("/api/quests")
 def quests_get(mode: str = "balanced", build: str | None = None):

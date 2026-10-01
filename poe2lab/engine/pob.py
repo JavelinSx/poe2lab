@@ -1471,6 +1471,39 @@ for id, d in pairs(data.gems) do
 end
 return _poe2lab_json(out)""")
 
+    def unmapped_stats(self) -> list[dict]:
+        """Every stat of every gem the game gives that PoB has no calculation for (what "PoB does not count" lists
+        for a build's skills), once each: its id and the game's text for it."""
+        return self._json(self._GEM_HELPERS + """
+local out, seen, ids = arr({}), {}, {}
+for id in pairs(data.gems) do ids[#ids + 1] = id end
+table.sort(ids)  -- a stat of several gems is described by the same one every time
+for _, id in ipairs(ids) do
+  local d = data.gems[id]
+  local ge = d.grantedEffect
+  if ge and not ge.hidden and ((d.Tier or 0) > 0 or ge.isLineage) then
+    local gem = { level = math.min(d.naturalMaxLevel or 1, 10), quality = 0, gemData = d, grantedEffect = ge,
+                  enabled = true }
+    for _, set in ipairs(ge.statSets or {}) do
+      local ok, stats = pcall(calcLib.buildSkillInstanceStats, gem, ge, set, false)
+      local names = {}
+      for stat in pairs(ok and stats or {}) do names[#names + 1] = stat end
+      table.sort(names)
+      for _, stat in ipairs(names) do
+        local value = stats[stat]
+        if not set.statMap[stat] and not seen[stat] then
+          seen[stat] = true
+          local ok2, ls = pcall(data.describeStats, { [stat] = value }, set.statDescriptionScope)
+          local text = {}
+          for _, l in ipairs(ok2 and ls or {}) do text[#text + 1] = StripEscapes(l) end
+          out[#out + 1] = { stat = stat, value = value, text = table.concat(text, " / "), gem = ge.name }
+        end
+      end
+    end
+  end
+end
+return _poe2lab_json(out)""")
+
     def item_levels(self) -> dict[str, int]:
         """The character level each equipped item needs, by slot (0 when PoB does not know it)."""
         rows = self._json("""
