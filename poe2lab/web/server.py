@@ -1862,7 +1862,9 @@ def send_feedback(req: FeedbackRequest):
                 build["planCode"] = e.export_code()
             finally:
                 e.set_custom_mods(CORRECTION_BLOCK, [c.line for c in session.bp.corrections])
+        # "version" (added by feedback.compose) is the code on disk; "running" the code this server started with
         context = {"tab": req.tab[:40], "mode": req.mode[:20], "lang": req.lang[:5], "mainSkill": e.main_skill(),
+                   "running": STARTED_VERSION,
                    "treePlan": session.plan["log"] if session.plan else None,
                    "gameTexts": gamedata.status()["unpacked"]}
         profile = _profile_raw() if _profile_path().exists() else None
