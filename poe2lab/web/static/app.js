@@ -181,9 +181,9 @@ $("#lang").addEventListener("click", async (e) => {
   if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
-const TAB_ORDER = ["overview", "damage", "skills", "gear", "tree", "loot", "profile", "assistant"];
+const TAB_ORDER = ["overview", "skills", "gear", "tree", "loot", "profile", "assistant"];
 // tabs that were folded into others: an old address still lands where their content is now
-const MOVED_TABS = { compare: "gear", mechanics: "profile" };
+const MOVED_TABS = { compare: "gear", mechanics: "profile", damage: "skills" };
 
 // the league for prices and trade searches: the player's choice, or poe.ninja's current league
 async function loadLeagues() {
@@ -963,6 +963,7 @@ function readHash() {
   const q = new URLSearchParams(location.hash.slice(1));
   const tab = MOVED_TABS[q.get("tab")] || q.get("tab");
   if (tab && TABS[tab]) state.tab = tab;
+  if (q.get("tab") === "damage") state.skillsMode = "damage";  // the Damage tab is the Skills tab's mode now
   if (q.get("mode") && ["damage", "balanced", "defence"].includes(q.get("mode"))) {
     state.mode = q.get("mode");
     document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
@@ -1015,12 +1016,6 @@ const SIDE_VIEWS = {
     view.replaceChildren(loading(t("refLoading")));
     const [g, v] = await Promise.all([guideGear(), guideVersus()]);
     return h("div", { class: "card stack" }, h("h3", {}, t("sideOverviewTitle")), guideHead(g), ...versusStats(v, t("sideBuildCol")));
-  },
-  damage: async (view) => {
-    view.replaceChildren(loading(t("refLoading")));
-    const [g, v] = await Promise.all([guideGear(), guideVersus()]);
-    return h("div", { class: "card stack" }, h("h3", {}, t("sideDamageTitle")), guideHead(g),
-      versusStats({ ...v, allGear: null }, t("sideBuildCol"), ["offence", "hits"])[0]);
   },
   // the build's gem groups: which gems the character has, lower, or lacks
   skills: async (view) => {
@@ -1267,9 +1262,9 @@ function nextCard(r) {
 }
 
 // ---------- damage ----------
-TABS.damage = async (view) => {
-  view.replaceChildren(loading(t("calcReport")));
-  const r = await report();
+// what the main skill's damage is made of: its core (charges, rage), the combat conditions, where to invest - the
+// Skills tab's "Damage" mode
+function renderDamage(r) {
   const blocks = [];
   const core = r.core;
   if (core.resources.length || core.exchange.length) {
@@ -1309,8 +1304,8 @@ TABS.damage = async (view) => {
         h("td", { class: "num" }, scoreBar(x.score, max))))))),
   "invest", r.ranking.length ? t("bestIs", trMod(r.ranking[0].mod)) : null));
 
-  return h("div", { class: "grid two" }, blocks);
-};
+  return [h("div", { class: "grid two" }, blocks)];
+}
 
 // ---------- gear ----------
 TABS.gear = async (view) => {
@@ -3151,12 +3146,17 @@ function levelingWizard(d, done) {
 // ---------- mechanics ----------
 // ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
 TABS.skills = async (view) => {
-  const mode = ["build", "leveling", "uniques"].includes(state.skillsMode) ? state.skillsMode : "build";
-  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["leveling", t("skLeveling")], ["uniques", t("skUniquesTab")]]
+  const mode = ["build", "damage", "leveling", "uniques"].includes(state.skillsMode) ? state.skillsMode : "build";
+  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["damage", t("skDamage")], ["leveling", t("skLeveling")], ["uniques", t("skUniquesTab")]]
     .map(([k, label]) => h("button", { class: mode === k ? "active" : "", onclick: () => { state.skillsMode = k; switchTab("skills"); } }, label)));
   const scope = state.uniqueScope || "level";
-  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "uniques" ? "unLoading" : "skLoadingLevel")));
+  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "damage" ? "calcReport"
+    : mode === "uniques" ? "unLoading" : "skLoadingLevel")));
   view.replaceChildren(h("div", { class: "stack" }, h("div", { class: "row" }, seg), body));
+  if (mode === "damage") {
+    try { body.replaceChildren(...renderDamage(await report())); } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+    return;
+  }
   // levelling follows the build's target (the guide the player plays by) unless the player asks for the build
   const of = mode === "leveling" && (state.build.profileRaw || {}).target && state.levelOf !== "build" ? "target" : "";
   try {
