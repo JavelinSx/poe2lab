@@ -1011,6 +1011,17 @@ function errorCard(e) {
     h("div", { class: "row" }, h("button", { class: "primary small", onclick: () => reportError(e) }, "📨 ", t("errReport"))));
 }
 
+// a weapon tried on: each skill's damage now and with it, in a few lines
+function skillsWith(rows) {
+  return h("div", { class: "sk-quick" }, h("b", {}, "⚔ ", t("mkSkillsTitle")),
+    h("table", { class: "ex-table" }, h("tbody", {}, rows.map((x) => {
+      const change = x.now ? (x.with / x.now - 1) * 100 : 0;
+      return h("tr", {}, h("td", {}, gemName(x.name)), h("td", { class: "num muted" }, fmt(x.now)), h("td", { class: "num" }, "→ ", h("b", {}, fmt(x.with))),
+        h("td", { class: "num " + (x.with < 1 ? "neg" : change >= 0.5 ? "pos" : change <= -0.5 ? "neg" : "muted") },
+          x.with < 1 ? t("mkSkillNo") : pct(change)));
+    }))));
+}
+
 // the feedback form opened with the error written in and the log ticked
 function reportError(e) {
   const where = t("tab_" + state.tab) !== "tab_" + state.tab ? t("tab_" + state.tab) : state.tab;
@@ -1489,7 +1500,20 @@ async function itemEditor(slot) {
 
   const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
   const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
-  const close = () => { clearTimeout(timer); hideTip(); back.remove(); document.removeEventListener("keydown", onKey, true); };
+  // an item copied in the game (Ctrl+C on it, or "copy" at the trade market; Russian or English): Ctrl+V anywhere
+  // in the window puts it into "paste text"
+  const onPaste = (e) => {
+    const text = (e.clipboardData && e.clipboardData.getData("text")) || "";
+    if (!/^\s*(Item Class|Класс предмета|Rarity|Редкость):/m.test(text) || e.target.tagName === "TEXTAREA") return;
+    e.preventDefault();
+    ed.tab = "paste";
+    ed.text = text;
+    draw();
+    refresh();
+  };
+  const close = () => { clearTimeout(timer); hideTip(); back.remove(); document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("paste", onPaste, true); };
+  document.addEventListener("paste", onPaste, true);
   const body = h("div", { class: "stack" }), preview = h("div", { class: "stack" });
   const put = h("button", { class: "primary", disabled: true, onclick: () => {
     const s = spec();
@@ -1514,7 +1538,8 @@ async function itemEditor(slot) {
     try {
       const r = await api("/api/gear/try", { method: "POST", body: { slot, ...s } });
       if (my !== seq) return;
-      preview.replaceChildren(itemCard(r.item, now, t("mkResult"), "theirs"), verdictBlock(r, t(now ? "mkVsNow" : "mkVsEmpty")));
+      preview.replaceChildren(itemCard(r.item, now, t("mkResult"), "theirs"), verdictBlock(r, t(now ? "mkVsNow" : "mkVsEmpty")),
+        r.skills && r.skills.length ? skillsWith(r.skills) : null);
       put.disabled = false;
     } catch (e) { if (my === seq) preview.replaceChildren(h("p", { class: "neg" }, e.message)); }
   }

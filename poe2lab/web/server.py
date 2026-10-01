@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
-from ..analysis.explain import explain as explain_build
+from ..analysis.explain import explain as explain_build, main_group
 from ..analysis.items import breakeven, compare
 from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.uniques import suggest as suggest_uniques
@@ -1065,11 +1065,41 @@ def gear_try(req: ItemMake):
         session.require()
         text, exact = _checked_item(req)
         e, cfg = session.engine, session.profile.config()
-        result = asdict(_errors(lambda: compare(e, cfg, req.slot, text, keep_quality=exact)))
+        result = asdict(_errors(lambda: compare(e, cfg, req.slot, text, keep_quality=exact,
+                                                main_socket_group=_damage_group(e, cfg))))
         if req.breakeven and req.breakeven.strip():
             res = _errors(lambda: breakeven(e, cfg, req.slot, text, req.breakeven.strip()))
             result["breakeven"] = None if res is None else {"factor": res[0], "line": res[1]}
+        if req.slot.startswith("Weapon"):  # a weapon: each skill's damage with it, at a glance
+            result["skills"] = _skills_with(e, cfg, req.slot, text, exact)
         return _json(result | {"text": text, "item": _errors(lambda: e.parse_item(text))})
+
+
+def _damage_group(e, cfg: dict) -> int | None:
+    """The skill an item's damage is compared on: the build's main one when PoB gives it damage, else the strongest
+    one the player uses (a main skill triggered by something else - Elemental Expression - has none in PoB)."""
+    rows = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
+    g = main_group(e, e.skill_groups(), rows)
+    return None if g is None or g["main"] else g["index"]
+
+
+WEAPON_SKILLS = 6  # the build's skills with the most damage shown for a weapon tried on
+
+
+def _skills_with(e, cfg: dict, slot: str, text: str, exact: bool) -> list[dict]:
+    """The damage of the build's skills now and with the item in the slot: the ones with the most damage, one per
+    socket group (a skill the weapon cannot use drops to 0)."""
+    rows = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
+    out, groups = [], set()
+    for r in rows:
+        if r["dps"] < 1 or r["group"] in groups:
+            continue
+        groups.add(r["group"])
+        o = e.what_if(config=cfg, main_socket_group=r["group"], replace_item=(slot, text), keep_quality=exact)
+        out.append({"name": r["name"], "now": r["dps"], "with": o.get("CombinedDPS", 0.0)})
+        if len(out) >= WEAPON_SKILLS:
+            break
+    return out
 
 
 @app.post("/api/gear/equip")
@@ -2172,7 +2202,8 @@ def compare_item(req: CompareRequest):
         session.require()
         cfg = session.profile.config()
         text = _english_item(req.text)
-        result = asdict(_errors(lambda: compare(session.engine, cfg, req.slot, text)))
+        result = asdict(_errors(lambda: compare(session.engine, cfg, req.slot, text,
+                                                main_socket_group=_damage_group(session.engine, cfg))))
         result["item"] = _errors(lambda: session.engine.parse_item(text))  # the candidate as the page shows it
         if req.breakeven:
             res = _errors(lambda: breakeven(session.engine, cfg, req.slot, text, req.breakeven))

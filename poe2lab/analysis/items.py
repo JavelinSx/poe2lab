@@ -34,11 +34,14 @@ def _pct(new: float, old: float) -> float:
     return (new - old) / old * 100 if old else 0.0
 
 
-def compare(engine, config: dict, slot: str, item_text: str, keep_quality: bool = False) -> Comparison:
+def compare(engine, config: dict, slot: str, item_text: str, keep_quality: bool = False,
+            main_socket_group: int | None = None) -> Comparison:
     """The item in place of the slot's. keep_quality: its quality as written (one set on purpose); otherwise below
-    20% counts as 20%, as PoB takes a pasted item."""
-    base = engine.what_if(config=config)
-    new = engine.what_if(config=config, replace_item=(slot, item_text), keep_quality=keep_quality)
+    20% counts as 20%, as PoB takes a pasted item. `main_socket_group`: the skill whose damage is compared (the
+    build's main one by default)."""
+    base = engine.what_if(config=config, main_socket_group=main_socket_group)
+    new = engine.what_if(config=config, replace_item=(slot, item_text), keep_quality=keep_quality,
+                         main_socket_group=main_socket_group)
     return Comparison(
         slot,
         dps_pct=_pct(new["CombinedDPS"], base["CombinedDPS"]),

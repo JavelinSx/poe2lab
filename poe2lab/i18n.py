@@ -136,10 +136,12 @@ def dictionary(lang: str) -> dict:
         stats.setdefault(stat_key(src), _numbers_as_slots(src, dst))
     for key, dst in load_templates(lang).items():  # the game's own descriptions: "reduced" wordings, unparsed lines
         stats.setdefault(key, dst)
-    names = dict(_static_pairs(lang))
-    for src, dst in _item_pairs(lang):
+    # the installed game's own names first: the trade site's item pairs are matched by their order in two lists
+    # and can slip by one (Guardian Quarterstaff named as Barrier Quarterstaff); they fill what the game lacks
+    names = dict(load_names(lang))
+    for src, dst in _static_pairs(lang):
         names.setdefault(src, dst)
-    for src, dst in load_names(lang).items():  # skills from items, areas, buffs: from the installed game
+    for src, dst in _item_pairs(lang):
         names.setdefault(src, dst)
     return {"stats": stats, "names": names}
 
