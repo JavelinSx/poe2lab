@@ -2,6 +2,7 @@
 import json
 import re
 import threading
+import uuid
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,6 +48,7 @@ from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
+from ..logs import log, log_file, setup as setup_log, tail as log_tail
 from ..pobfiles import PROJECT_BUILDS, resolve_build
 from ..profile import CORRECTION_BLOCK, BuildProfile, describe as describe_profile, open_build
 
@@ -132,6 +134,16 @@ RECORDED = "@build"  # the reference name of the open build as its file records 
 session = Session()
 app = FastAPI(title="poe2lab")
 app.add_middleware(GZipMiddleware, minimum_size=4096)  # the RU dictionary is several MB
+setup_log()
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    """An error nothing expected: into the log with its traceback under a short code; the page gets the code and the
+    error in one line, to show it and to send it with a report."""
+    code = uuid.uuid4().hex[:6]
+    log.error("%s %s?%s failed [%s]", request.method, request.url.path, request.url.query, code, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}", "errorId": code})
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost", "testserver"}
 CSRF_HEADER = "x-poe2lab"
@@ -164,6 +176,7 @@ def _errors(fn):
     try:
         return fn()
     except (PobError, FileNotFoundError, ValueError) as err:
+        log.warning("refused: %s", err)
         raise HTTPException(400, str(err))
 
 
@@ -644,6 +657,7 @@ def _summary():
 @app.post("/api/load")
 def load(req: LoadRequest):
     with session.lock:
+        log.info("open build %r", req.name)
         _errors(lambda: session.load(req.name, req.group, req.skill))
         return _json(_summary())
 
@@ -1777,6 +1791,32 @@ class FeedbackRequest(BaseModel):
     tab: str = ""
     mode: str = ""
     lang: str = ""
+    attachLog: bool = False  # the end of poe2lab's log goes with it (the player ticks it, and can see it first)
+
+
+class ClientError(BaseModel):
+    message: str = Field("", max_length=2000)
+    stack: str = Field("", max_length=4000)
+    tab: str = Field("", max_length=40)
+
+
+_client_errors = {"n": 0}
+CLIENT_ERRORS = 50  # the page's errors logged per run (a broken loop must not fill the log)
+
+
+@app.post("/api/log")
+def client_error(req: ClientError):
+    """An error in the page itself (a script error the player saw as a broken tab): into the log."""
+    if _client_errors["n"] < CLIENT_ERRORS:
+        _client_errors["n"] += 1
+        log.error("page error on %s: %s\n%s", req.tab or "?", req.message, req.stack)
+    return {"ok": True}
+
+
+@app.get("/api/log")
+def read_log():
+    """The end of the log as it would go with a report, and where the log is."""
+    return {"path": str(log_file()), "text": log_tail()}
 
 
 @app.get("/api/feedback")
@@ -1802,6 +1842,8 @@ def send_feedback(req: FeedbackRequest):
                    "treePlan": session.plan["log"] if session.plan else None,
                    "gameTexts": gamedata.status()["unpacked"]}
         profile = _profile_raw() if _profile_path().exists() else None
+    if req.attachLog:
+        context["log"] = log_tail()
     try:
         feedback.send(feedback.compose(req.message, req.contact, req.images, build, profile, context))
     except feedback.FeedbackError as err:

@@ -3,6 +3,7 @@ import math
 from dataclasses import asdict, dataclass
 
 from ..knowledge import collect as collect_mechanics
+from ..logs import log
 from . import attributes as attrs
 from .conditions import audit as audit_conditions
 from .conditions import damage_range
@@ -347,23 +348,36 @@ def core_damage(engine, profile: MapProfile, grads: list[Gradient]) -> dict:
 
 def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int = 6, top: int = 10,
                  statdesc_dir=None) -> dict:
+    """The Overview's report. Its main numbers must be there; a part past them that fails (a build PoB answers in a
+    way no analysis expected) is logged and left empty, named in `failed` - the rest of the page still shows."""
+    failed = []
+
+    def part(name, fn, default):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 - any failure of an optional part
+            log.exception("report part %s failed", name)
+            failed.append(name)
+            return default
+
     stats = engine.what_if(config=profile.config())
     hits = survivable_hits(engine, profile)
     ref = reference_hits(engine, profile.enemy_level)
     rec = recovery(engine, profile)
     weights = defence_weights(hits)
-    _, grads = compute(engine, config=profile.config())
+    _, grads = part("ranking", lambda: compute(engine, config=profile.config()), (None, []))
     ranked = sorted(grads, key=lambda g: -score(g, mode, weights))
 
-    conditions = audit_conditions(engine, profile.config())
+    conditions = part("conditions", lambda: audit_conditions(engine, profile.config()), [])
     sources = engine.requirement_sources()
     statuses = attrs.status(stats, sources, engine.attribute_node_counts())
-    swaps = attrs.node_swaps(engine, profile.config(), statuses)
-    deps = attrs.item_dependencies(engine, profile.config(), sources)
-    at_risk = {
+    swaps = part("nodeSwaps", lambda: attrs.node_swaps(engine, profile.config(), statuses), [])
+    deps = part("itemDependencies", lambda: attrs.item_dependencies(engine, profile.config(), sources), [])
+    at_risk = part("supportsAtRisk", lambda: {
         s.attr: attrs.supports_at_risk(engine, profile.config(), s.attr)
         for s in statuses if s.margin < 0 and any("Support Gems" in n for n in s.needed_by)
-    }
+    }, {})
+    base_dps = stats["CombinedDPS"]
     return {
         "build": {**engine.info(), "mainSkill": engine.main_skill()},
         "profile": asdict(profile),
@@ -384,10 +398,12 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
         "gates": [asdict(g) for g in unread_gates(engine) + zero_damage_gates(engine, stats, profile.config())
                   + attribute_gates(statuses, swaps, deps)
                   + gates(stats, hits, rec, profile.mana_sustained, ref, profile.leveling)],
-        "notModelled": [asdict(g) for g in collect_mechanics(engine, statdesc_dir).gaps if g.likely_impact],
+        "notModelled": part("notModelled", lambda: [asdict(g) for g in collect_mechanics(engine, statdesc_dir).gaps
+                                                    if g.likely_impact], []),
         "conditions": [asdict(c) for c in conditions],
-        "damageRange": damage_range(engine, profile.config(), conditions),
-        "core": core_damage(engine, profile, grads),
+        "damageRange": part("damageRange", lambda: damage_range(engine, profile.config(), conditions),
+                            {"low": base_dps, "high": base_dps, "conditions": [], "expected": base_dps, "uptimes": []}),
+        "core": part("core", lambda: core_damage(engine, profile, grads), {"resources": [], "exchange": [], "unit": None}),
         "attributes": {
             "status": [asdict(s) | {"margin": s.margin} for s in statuses],
             "nodeSwaps": [asdict(s) for s in swaps],
@@ -400,5 +416,6 @@ def build_report(engine, profile: MapProfile, mode: str = "balanced", steps: int
              "physHit": g.one["phys_hit"], "chaosHit": g.one["chaos_hit"], "recovery": g.one["recovery"]}
             for g in ranked[:top] if score(g, mode, weights) > 0
         ],
-        "path": [asdict(s) for s in upgrade_path(engine, profile, mode, steps, weights)],
+        "path": part("path", lambda: [asdict(s) for s in upgrade_path(engine, profile, mode, steps, weights)], []),
+        "failed": failed,
     }

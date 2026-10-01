@@ -56,6 +56,11 @@ def status(stats: dict, sources: list[dict], counts: dict[str, int]) -> list[Att
     return out
 
 
+def _pct(new: float, old: float) -> float:
+    """The change in %; 0 when there was nothing (a main skill PoB gives no damage per second: a triggered one)."""
+    return (new - old) / old * 100 if old else 0.0
+
+
 def _requirements_met(out: dict) -> bool:
     return all(out.get(a, 0) >= out.get(f"Req{a}", 0) for a in ATTRS)
 
@@ -74,8 +79,8 @@ def node_swaps(engine, config: dict, statuses: list[AttributeStatus]) -> list[No
             r = engine.what_if(config=config, mods=[f"-{amount} to {_full(donor)}", f"+{amount} to {_full(target.attr)}"])
             swaps.append(NodeSwap(
                 donor, target.attr, nodes,
-                dps_pct=(r["CombinedDPS"] - base["CombinedDPS"]) / base["CombinedDPS"] * 100,
-                life_pct=(r["Life"] - base["Life"]) / base["Life"] * 100,
+                dps_pct=_pct(r["CombinedDPS"], base["CombinedDPS"]),
+                life_pct=_pct(r["Life"], base["Life"]),
                 all_met=_requirements_met(r),
             ))
     return sorted(swaps, key=lambda s: (not s.all_met, -(s.dps_pct + s.life_pct)))

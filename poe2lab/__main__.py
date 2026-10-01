@@ -85,6 +85,9 @@ def ui(argv: list[str]):
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"poe2lab UI: {url}  (Ctrl+C or the Stop button in the interface to stop)")
     from .web import server as web
+    from .feedback import version
+    from .logs import log
+    log.info("poe2lab %s started on port %d", version(), args.port)
     server = uvicorn.Server(uvicorn.Config(web.app, host="127.0.0.1", port=args.port, log_level="warning"))
     web.stop_hook = lambda: setattr(server, "should_exit", True)  # the interface's Stop button
     server.run()

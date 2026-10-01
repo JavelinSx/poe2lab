@@ -6,7 +6,10 @@ POE2LAB_BUILDS points the build list (poe2lab.pobfiles.PROJECT_BUILDS) there bef
 - lich-minions: https://pobb.in/aWwyL0IiA1H- (a minion army);
 - elemental-storm: https://pobb.in/cz7wG_YwPE4x (a main skill PoB computes 0 DPS for)."""
 import os
+import tempfile
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 os.environ["POE2LAB_BUILDS"] = str(FIXTURES)
+# poe2lab's log goes to a folder of the test run, not the player's
+os.environ["POE2LAB_LOG_DIR"] = tempfile.mkdtemp(prefix="poe2lab-logs-")

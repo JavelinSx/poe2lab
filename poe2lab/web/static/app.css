@@ -961,3 +961,5 @@ tr.dense .fit-chips { margin-top: 2px; }
 .pr-description { white-space: pre-line; color: var(--muted); }
 .planner-report a { color: var(--gold); word-break: break-all; }
 .bh-title .bh-menu-wrap { margin-left: 6px; }
+
+.fb-log { max-height: 240px; overflow: auto; font-size: 11px; background: var(--panel-2); border-radius: 8px; padding: 8px; white-space: pre-wrap; }

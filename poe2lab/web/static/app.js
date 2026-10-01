@@ -30,12 +30,15 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
-    let msg = res.statusText;
-    try { msg = (await res.json()).detail || msg; } catch (_) { /* not json */ }
+    let msg = res.statusText, body = null;
+    try { body = await res.json(); msg = body.detail || msg; } catch (_) { /* not json */ }
     // FastAPI's own 404 for an unknown path: the page is newer than the server that serves it
     if (res.status === 404 && msg === "Not Found") msg = t("serverOutdated");
+    // an error nothing expected: written to poe2lab's log under this code (see errorCard)
+    if (res.status >= 500) msg = t("errInternal", msg);
     const err = new Error(msg);
     err.status = res.status;
+    err.errorId = body && body.errorId;
     throw err;
   }
   return res.json();
@@ -993,9 +996,40 @@ async function switchTab(tab) {
     if (switchTab.token === token && content) host.replaceChildren(content);
     if (switchTab.token === token) renderPlanStrip();
   } catch (e) {
-    if (switchTab.token === token) view.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("error")), h("p", { class: "muted" }, e.message)));
+    if (switchTab.token === token) view.replaceChildren(errorCard(e));
   }
 }
+
+// What went wrong, in the page: the message, the code it is logged under, and a report with the log in one click
+function errorCard(e) {
+  return h("div", { class: "card stack" }, h("h3", {}, "⚠ ", t("error")), h("p", { class: "muted" }, e.message),
+    e.errorId ? h("div", { class: "small muted" }, t("errLogged", e.errorId)) : null,
+    h("div", { class: "row" }, h("button", { class: "primary small", onclick: () => reportError(e) }, "📨 ", t("errReport"))));
+}
+
+// the feedback form opened with the error written in and the log ticked
+function reportError(e) {
+  const where = t("tab_" + state.tab) !== "tab_" + state.tab ? t("tab_" + state.tab) : state.tab;
+  const line = t("errReportText", where, e.message) + (e.errorId ? ` [${e.errorId}]` : "");
+  if (!fbDraft.message.includes(line)) fbDraft.message = (fbDraft.message ? fbDraft.message + "\n" : "") + line;
+  fbDraft.attachLog = true;
+  renderFeedback();
+}
+
+// the page's own errors go into poe2lab's log too (each once, a few per page at most)
+const loggedPageErrors = new Set();
+function logPageError(message, stack) {
+  if (!message || loggedPageErrors.has(message) || loggedPageErrors.size >= 20) return;
+  loggedPageErrors.add(message);
+  api("/api/log", { method: "POST", body: { message: String(message).slice(0, 2000), stack: String(stack || "").slice(0, 4000),
+    tab: state.tab || "" } }).catch(() => {});
+}
+window.addEventListener("error", (ev) => logPageError(ev.message, ev.error && ev.error.stack));
+window.addEventListener("unhandledrejection", (ev) => {
+  const r = ev.reason;
+  if (r && r.status) return;  // the server's own answer: already in the log when it is an error there
+  logPageError(r && r.message ? r.message : String(r), r && r.stack);
+});
 
 const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}&${buildQuery()}`));
 
@@ -1150,7 +1184,10 @@ TABS.overview = async (view) => {
     h("div", { class: "note small muted", style: "margin-top:8px" }, t("hitsNote")));
 
   const worstShare = worst && share(worst[0], worst[1].juiced);
-  return h("div", { class: "stack" }, nextCard(r), levelingCard(), kpi,
+  // a part of the report that failed: the rest shows, and the player can send it
+  const failed = (r.failed || []).length ? h("div", { class: "action" }, t("ovFailed", r.failed.join(", ")), " ",
+    h("button", { class: "ghost small", onclick: () => reportError({ message: t("ovFailed", r.failed.join(", ")) }) }, "📨 ", t("errReport"))) : null;
+  return h("div", { class: "stack" }, failed, nextCard(r), levelingCard(), kpi,
     foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null));
 };
 
@@ -4856,7 +4893,7 @@ const ATTR_RU = { Str: "силы", Dex: "ловкости", Int: "интелле
 const attrName = (a) => (LANG === "ru" ? ATTR_RU[a] || a : a);
 
 // ---------- feedback: the player's report with the open build, mailed to the author (poe2lab/feedback.py) ----------
-const fbDraft = { message: "", contact: "", images: [] };  // kept while the page is open, so leaving the form loses nothing
+const fbDraft = { message: "", contact: "", images: [], attachLog: false };  // kept while the page is open, so leaving the form loses nothing
 const FB_MAX_IMAGE = 2.5 * 1024 * 1024;
 
 function readDataUrl(file) {
@@ -4928,6 +4965,21 @@ async function renderFeedback() {
     ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); fbAddFiles([...e.dataTransfer.files]); } },
   h("b", {}, t("fbDrop")), h("div", { class: "hint" }, t("fbDropHint", status.maxImages)));
 
+  // the end of poe2lab's log: goes when ticked; what it holds can be read first
+  const logBox = h("pre", { class: "fb-log hidden" });
+  const logTick = h("input", { type: "checkbox", onchange: () => { fbDraft.attachLog = logTick.checked; } });
+  logTick.checked = fbDraft.attachLog;
+  const logRow = h("div", { class: "small fb-log-row" }, h("label", {}, logTick, " ", t("fbLog")), " ",
+    h("button", { class: "link small", onclick: async () => {
+      if (!logBox.classList.contains("hidden")) { logBox.classList.add("hidden"); return; }
+      try {
+        const r = await api("/api/log");
+        logBox.textContent = r.text || t("fbLogEmpty");
+        logBox.title = r.path;
+      } catch (e) { logBox.textContent = e.message; }
+      logBox.classList.remove("hidden");
+    } }, t("fbLogShow")));
+
   const blocked = status.outdated ? t("fbRestart") : !state.build ? t("fbNeedBuild") : !status.configured ? t("fbOff") : null;
   const send = h("button", { class: "primary", disabled: Boolean(blocked), onclick: async () => {
     if (fbDraft.message.trim().length < 5) { message.focus(); toast(t("fbEmpty")); return; }
@@ -4935,9 +4987,10 @@ async function renderFeedback() {
     send.textContent = t("fbSending");
     try {
       await api("/api/feedback", { method: "POST", body: { message: fbDraft.message, contact: fbDraft.contact,
-        images: fbDraft.images, tab: state.tab, mode: state.mode, lang: LANG } });
+        images: fbDraft.images, tab: state.tab, mode: state.mode, lang: LANG, attachLog: fbDraft.attachLog } });
       fbDraft.message = "";
       fbDraft.images = [];
+      fbDraft.attachLog = false;
       fbAddFiles = null;
       toast(t("fbSent"), true);
       back();
@@ -4951,7 +5004,7 @@ async function renderFeedback() {
   $("#view").replaceChildren(h("div", { class: "card stack fb" },
     h("h3", {}, t("fbTitle")), h("div", { class: "sub" }, t("fbSub")),
     blocked ? h("div", { class: "action" }, blocked) : null,
-    message, drop, picker, thumbs, contact,
+    message, drop, picker, thumbs, contact, logRow, logBox,
     h("div", { class: "small" }, h("b", {}, t("fbWhat")),
       h("ul", { class: "fb-what" },
         h("li", {}, state.build ? t("fbWhatBuild", state.build.name) : t("fbWhatNoBuild")),
