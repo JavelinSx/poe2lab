@@ -963,3 +963,6 @@ tr.dense .fit-chips { margin-top: 2px; }
 .bh-title .bh-menu-wrap { margin-left: 6px; }
 
 .fb-log { max-height: 240px; overflow: auto; font-size: 11px; background: var(--panel-2); border-radius: 8px; padding: 8px; white-space: pre-wrap; }
+.ex-card .ex-formula { font-weight: 700; margin: 4px 0 6px; }
+.ex-table td { padding: 2px 6px; }
+.ex-card .chip { margin-left: 4px; }

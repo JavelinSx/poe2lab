@@ -29,7 +29,11 @@ function _poe2lab_numbers(t)
   -- active limit. The player's own number stays as PlayerCombinedDPS.
   -- an attack's hit lives in its weapon's table (the top-level AverageHit is 0)
   for _, hand in ipairs({ "MainHand", "OffHand" }) do
-    if type(t[hand]) == "table" and _poe2lab_finite(t[hand].AverageHit) then res[hand .. ".AverageHit"] = t[hand].AverageHit end
+    if type(t[hand]) == "table" then
+      for k, v in pairs(t[hand]) do
+        if (k == "AverageHit" or k:match("HitAverage$")) and _poe2lab_finite(v) then res[hand .. "." .. k] = v end
+      end
+    end
   end
   local m = t.Minion
   if type(m) == "table" then
@@ -337,6 +341,111 @@ return _poe2lab_json(out)""")
                       f"if g then g.mainActiveSkill = {active} end")
             self.recalc()
         return sorted(out, key=lambda x: -x["dps"])
+
+    @contextmanager
+    def main_skill_of(self, group: int):
+        """Calculations inside take the group's first active skill as the main one; the build's choice is back on
+        exit."""
+        before = int(self._lua("return build.mainSocketGroup"))
+        g = f"build.skillsTab.socketGroupList[{before}]"
+        active = int(self._lua(f"return {g} and {g}.mainActiveSkill or 1"))
+        if group != before:
+            self.set_main_skill(group, 1)
+        try:
+            yield
+        finally:
+            if group != before:
+                self._lua(f"build.mainSocketGroup = {before}\n"
+                          f"local g = build.skillsTab.socketGroupList[{before}]\n"
+                          f"if g then g.mainActiveSkill = {active} end")
+                self.recalc()
+
+    def stat_sources(self, names: list[str], player: bool = False, flags: tuple[str, ...] = ()) -> dict:
+        """PoB's modifiers to each stat as the main skill sees them (`player`: the character's own, for defences), by
+        type (BASE, INC, MORE): each with its value, where it comes from by name (a passive and its kind, an item, a
+        gem, a jewel in its socket) and the conditions it waits for - with the Configuration box that is each one's.
+        Also the main skill's base critical chance (its weapon's for an attack) and the `flags` it has."""
+        stats = ", ".join(lua_string(n) for n in names)
+        flag_list = ", ".join(lua_string(f) for f in flags)
+        return self._json(f"""
+local env = build.calcsTab.mainEnv
+local skill = env and env.player.mainSkill
+local db = {'env and env.player.modDB' if player else 'skill and skill.skillModList'}
+local cfg = {'nil' if player else 'skill and skill.skillCfg'}
+local boxes = {{}}
+for _, opt in ipairs(require("Modules.ConfigOptions")) do
+  if opt.type == "check" and opt.var then
+    local box = {{ var = opt.var, label = StripEscapes(opt.label or opt.var) }}
+    for _, key in ipairs({{ "ifCond", "ifEnemyCond" }}) do
+      local c = opt[key]
+      for _, v in ipairs(type(c) == "table" and c or {{ c }}) do
+        local k = (key == "ifEnemyCond" and "enemy:" or "") .. v
+        if not boxes[k] then boxes[k] = box end
+      end
+    end
+    -- a box that names no condition is named after it: conditionEnemyBlinded is the enemy's Blinded
+    local enemy, own = opt.var:match("^conditionEnemy(.+)$"), opt.var:match("^condition(.+)$")
+    if enemy and not boxes["enemy:" .. enemy] then boxes["enemy:" .. enemy] = box
+    elseif own and not enemy and not boxes[own] then boxes[own] = box end
+  end
+end
+local function sourceOf(src)
+  local kind, rest = src:match("^([^:]+):?(.*)$")
+  local o = {{ kind = kind or src, name = rest ~= "" and rest or (kind or src) }}
+  if kind == "Tree" then
+    local id = tonumber(rest:match("^(%d+)"))
+    local node = id and build.spec.nodes[id]
+    if node then
+      o.name, o.nodeType, o.asc = node.dn or node.name, node.type, node.ascendancyName ~= nil
+      local socket = build.itemsTab.sockets[id]
+      local jewel = socket and build.itemsTab.items[socket.selItemId]
+      if jewel then o.name, o.jewel = jewel.name, true end
+    end
+  elseif kind == "Item" then
+    o.name = rest:match("^%d+:(.+)$") or rest
+  elseif kind == "Skill" then
+    local ge = data.skills[rest]
+    o.name = ge and ge.name or rest
+  end
+  return o
+end
+local function condsOf(mod)
+  local c = _poe2lab_array({{}})
+  for _, tag in ipairs(mod) do
+    if type(tag) == "table" and (tag.type == "Condition" or tag.type == "ActorCondition") then
+      local enemy = tag.type == "ActorCondition" and tag.actor == "enemy"
+      for _, v in ipairs(tag.varList or {{ tag.var }}) do
+        local box = boxes[(enemy and "enemy:" or "") .. v]
+        c[#c + 1] = {{ var = v, enemy = enemy, neg = tag.neg and true or false, box = box and box.var or nil,
+                       label = box and box.label or nil }}
+      end
+    end
+  end
+  return c
+end
+local out = {{ stats = {{}}, flags = {{}} }}
+if db then
+  for _, name in ipairs({{ {stats} }}) do
+    local per = {{}}
+    for _, t in ipairs({{ "BASE", "INC", "MORE" }}) do
+      local rows = _poe2lab_array({{}})
+      for _, r in ipairs(db:Tabulate(t, cfg, name)) do
+        rows[#rows + 1] = {{ value = r.value, source = sourceOf(r.mod.source or "?"), conds = condsOf(r.mod) }}
+      end
+      per[t] = rows
+    end
+    out.stats[name] = per
+  end
+  for _, f in ipairs({{ {flag_list} }}) do out.flags[f] = db:Flag(cfg, f) and true or false end
+end
+if skill then
+  local w = env.player.weaponData1
+  out.skill = skill.activeEffect.grantedEffect.name
+  out.weaponCrit = w and w.CritChance or nil
+  out.weapon = w and w.name or nil
+  out.skillCrit = skill.skillData and skill.skillData.CritChance or nil
+end
+return _poe2lab_json(out)""")
 
     def _stat_set(self, group: int, name: str, index: int | None) -> list[dict]:
         """Show stat set `index` of a skill (its other parts: Elemental Expression's explosion, bolt and wave) in
@@ -1531,7 +1640,8 @@ end
 return _poe2lab_json(out)""")
 
     def support_gains(self, group: int, gem_ids: list[str], config=None, measure_group: int | None = None) -> dict:
-        """DPS, one hit and EHP with each support gem added to the group on its own, in one pass: {"base": {...},
+        """DPS, one hit, EHP and the mana balance (regenerated and leeched less spent per second) with each support gem
+        added to the group on its own, in one pass: {"base": {...},
         id: {...}}. Offence is read for `measure_group` (default: the build's main skill)."""
         ids = ", ".join(lua_string(i) for i in gem_ids)
         cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
@@ -1543,7 +1653,8 @@ _poe2lab_with_setup({{ {cfg} }}, {{}}, {{}}, function()
   local function measure()
     wipeGlobalCache()
     local out = build.calcsTab:GetMiscCalculator()({{ {override} }}, false)
-    return {{ dps = out.CombinedDPS or 0, ehp = out.TotalEHP or 0, hit = out.AverageHit or 0 }}
+    return {{ dps = out.CombinedDPS or 0, ehp = out.TotalEHP or 0, hit = out.AverageHit or 0,
+             mana = (out.ManaRegenRecovery or 0) + (out.ManaLeechRate or 0) - (out.ManaPerSecondCost or 0) }}
   end
   res.base = measure()
   for _, id in ipairs({{ {ids} }}) do

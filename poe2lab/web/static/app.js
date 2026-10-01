@@ -1076,7 +1076,14 @@ const SIDE_VIEWS = {
       return m || l || g.main ? card : foldedCard(card, "vs" + g.index, "✓");
     });
     const extra = [...have.keys()].filter((n) => !theirs.has(n));
+    // how the guide works: its crit, mana and meta gems (the character's are on the Main side)
+    const explained = h("div", { class: "grid two" }, loading(t("exLoading")));
+    cached("skills:explain:guide", () => api(`/api/skills?view=explain&of=guide&${buildQuery()}`))
+      .then((d) => explained.replaceChildren(...[d.crit ? critCard(d.crit, null) : null, d.mana ? manaCard(d.mana) : null,
+        ...d.metas.map(metaCard)].filter(Boolean)))
+      .catch((e) => explained.replaceChildren(errorCard(e)));
     return h("div", { class: "stack" }, h("div", { class: "card" }, h("h3", {}, t("vsSkillsTitle")), h("div", { class: "sub" }, t("vsSkillsSum", missing, lower))),
+      h("div", { class: "section-title" }, "🔍 ", t("exTitleGuide")), explained,
       h("div", { class: "grid two" }, cards),
       extra.length ? h("div", { class: "card" }, h("h3", {}, t("vsSkillsExtra")), h("div", { class: "vs-gems" }, extra.map((n) => h("div", { class: "vs-gem" }, gemName(n))))) : null);
   },
@@ -3215,9 +3222,85 @@ TABS.skills = async (view) => {
   const damage = h("div", { class: "stack" }, loading(t("calcReport")));
   report().then((rep) => damage.replaceChildren(...renderDamage(rep)))
     .catch((e) => damage.replaceChildren(h("p", { class: "muted" }, e.message)));
-  body.replaceChildren(...renderSkillsBuild(r), h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
+  const explained = h("div", { class: "grid two" }, loading(t("exLoading")));
+  body.replaceChildren(...renderSkillsBuild(r), h("div", { class: "section-title" }, "🔍 ", t("exTitle")), explained,
+    h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
   betterSupports(body);
+  cached("skills:explain", () => api(`/api/skills?view=explain&${buildQuery()}`))
+    .then((d) => explained.replaceChildren(...[d.crit ? critCard(d.crit, d.guide) : null, d.mana ? manaCard(d.mana) : null,
+      ...d.metas.map(metaCard)].filter(Boolean)))
+    .catch((e) => explained.replaceChildren(errorCard(e)));
 };
+
+// ---------- how the build works (poe2lab.analysis.explain) ----------
+const pctOf = (v) => `${fmt(v, 1)}%`;
+// where a modifier comes from, by name: a passive, the ascendancy, a jewel, an item, a gem
+function exSource(x) {
+  const name = x.kind === "item" || x.kind === "jewel" ? trItem(x.name.split(",")[0]) : x.kind === "gem" ? gemName(x.name) : trName(x.name);
+  return h("span", {}, name, x.count > 1 ? h("span", { class: "muted" }, ` ×${x.count}`) : "",
+    h("span", { class: "muted small" }, " · ", t("exKind_" + (x.kind === "tree" && x.small ? "small" : x.kind))));
+}
+const exConds = (x) => x.conds.map((c) => h("span", { class: "chip warn", title: c }, t("exIf", conditionLabel(c).replace(/\?\s*$/, ""))));
+
+// the main skill's crit chance: base, "increased" by source, "more", and what it stands on
+function critCard(c, guide) {
+  const adds = c.adds.reduce((a, x) => a + x.value, 0);
+  return foldedCard(h("div", { class: "card ex-card" }, h("h3", {}, "🎯 ", t("exCritTitle", trName(c.skill), pctOf(c.value))),
+    h("div", { class: "ex-formula" }, t("exCritFormula", pctOf(c.base + adds), fmt(c.incTotal), fmt(c.moreTotal, 2), pctOf(c.value))),
+    h("div", { class: "small muted" }, c.weapon ? t("exCritBaseWeapon", pctOf(c.base), trItem(c.weapon.split(",")[0])) : t("exCritBaseSkill", pctOf(c.base)),
+      adds ? " " + t("exCritAdds", pctOf(adds), c.adds.map((x) => trName(x.name)).join(", ")) : ""),
+    h("table", { class: "ex-table" }, h("tbody", {}, c.inc.map((x) => h("tr", {}, h("td", {}, exSource(x), " ", exConds(x)),
+      h("td", { class: "num" }, `${x.value > 0 ? "+" : ""}${fmt(x.value)}%`))),
+      c.incRest ? h("tr", {}, h("td", { class: "muted small" }, t("exMore", c.incRest)), h("td", {})) : null)),
+    c.more.length ? h("div", { class: "small" }, h("b", {}, t("exMoreTitle")), " ",
+      c.more.map((x, i) => [i ? " · " : "", exSource(x), ` ×${fmt(1 + x.value / 100, 2)}`, " ", exConds(x)])) : null,
+    ...c.without.map((w) => h("div", { class: "hint" }, "⚠ ", t("exWithout", conditionLabel(w.label).replace(/\?\s*$/, ""), pctOf(w.crit), pct(w.dps)))),
+    guide && guide.crit ? h("div", { class: "small muted" }, t("exGuideCrit", trName(guide.skill), pctOf(guide.crit))) : null),
+  "ex-crit", pctOf(c.value));
+}
+
+// how the main skill's mana comes and goes, why leech takes little, and what fixes it
+function manaCard(m) {
+  const leechTypes = [...new Set(m.leechFrom.map((x) => x.type))];
+  const shares = Object.entries(m.shares).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${t("dmgFull_" + k).toLowerCase()} ${fmt(v)}%`).join(", ");
+  const leechShare = leechTypes.reduce((a, k) => a + (k === "All" ? 100 : k === "Elemental" ? (m.shares.Fire || 0) + (m.shares.Cold || 0) + (m.shares.Lightning || 0) : m.shares[k] || 0), 0);
+  const viaElemental = m.flags.includes("ManaLeechBasedOnElementalDamage");
+  return foldedCard(h("div", { class: "card ex-card" }, h("h3", {}, "💧 ", t("exManaTitle", trName(m.skill), `${m.net >= 0 ? "+" : ""}${fmt(m.net)}`)),
+    h("div", { class: "ex-formula" }, t("exManaFlow", fmt(m.spent), fmt(m.cost), fmt(m.regen), fmt(m.leech), fmt(m.leechMax))),
+    m.net < 0 && m.lasts ? h("div", { class: "small" }, t("exManaLasts", fmt(m.lasts, m.lasts < 10 ? 1 : 0), fmt(m.pool))) : null,
+    m.bursts ? h("div", { class: "hint" }, t("exManaBursts")) : null,
+    m.leechFrom.length ? h("div", { class: "small" }, t("exLeechFrom", m.leechFrom.map((x) => `${trItem(x.from.split(",")[0])} ${fmt(x.value, 1)}%`).join(", "),
+      leechTypes.map((k) => t("exLeechType_" + k)).join(", ")),
+      shares ? " " + t("exHitMade", shares) : "",
+      !viaElemental && leechShare < 50 && m.leech < m.leechMax * 0.9 ? h("b", {}, " " + t("exLeechLow", fmt(leechShare))) : "",
+      viaElemental ? " " + t("exLeechElemental") : "") : h("div", { class: "small" }, t("exNoLeech")),
+    m.fixes.length ? h("div", { class: "stack" }, h("b", { class: "small" }, t("exFixes")),
+      ...m.fixes.map((f) => h("div", { class: "row small" }, gemName(f.name), h("b", { class: "pos" }, t("exFixMana", `+${fmt(f.mana)}`)),
+        h("span", { class: "muted" }, t("exFixNet", `${f.net >= 0 ? "+" : ""}${fmt(f.net)}`)),
+        Math.abs(f.dps) >= 0.5 ? deltas({ dps: f.dps }, METRIC, 0.5) : null,
+        f.lineage ? chip("warn", t("exLineage")) : null, f.life ? chip("tag", t("exLifeCost")) : null))) : null),
+  "ex-mana", `${m.net >= 0 ? "+" : ""}${fmt(m.net)}/${t("exSec")}`);
+}
+
+// a meta gem (or a skill triggered on crit): what fills it, how often it goes off, what it gives the main skill
+function metaCard(x) {
+  const range = ([a, b]) => (Math.abs(b - a) <= 0.05 * Math.max(a, b) ? fmt(a, 1) : `${fmt(a, 1)}–${fmt(b, 1)}`);
+  const rangeInt = ([a, b]) => (Math.abs(b - a) <= 0.05 * Math.max(a, b) ? fmt(a) : `${fmt(a)}–${fmt(b)}`);
+  const e = x.energy;
+  return foldedCard(h("div", { class: "card ex-card" }, h("h3", {}, "⚡ ", gemName(x.gem)),
+    ...(x.fed || []).map((f) => h("div", { class: "small" }, t("exMetaFed", t("trgEvent_" + f.event), trName(f.skill), fmt(f.perSecond, 1)))),
+    e ? h("div", { class: "small" }, t("exMetaEnergy", Object.entries(e.gains).map(([k, v]) => `${t("trgEvent_" + k).toLowerCase()} ${fmt(v, 2)}`).join(", "),
+      fmt(e.gem), fmt(e.supports), fmt(e.passives), fmt(e.more, 2), fmt(x.multiplier, 2))) : null,
+    x.cost ? h("div", { class: "small" }, t("exMetaCost", fmt(x.cost))) : null,
+    x.rate ? h("div", {}, h("b", {}, t("trgRate", range(x.rate.boss), range(x.rate.pack)))) : null,
+    ...x.gives.map((g) => h("div", { class: "small" }, "→ ", t("exMetaGives", trName(g.skill), t("lrMech_" + g.mechanic)),
+      g.dps != null ? h("b", {}, " " + t("exMetaWithout", pct(g.dps))) : "")),
+    ...x.skills.filter((s) => s.dps).map((s) => h("div", { class: "small" }, t("trgDps", trName(s.name), rangeInt(s.dps.boss), rangeInt(s.dps.pack)))),
+    x.spirit ? h("div", { class: "small muted" }, t("exMetaSpirit", x.spirit)) : null,
+    x.unknown && x.unknown.length ? h("div", { class: "small muted" }, t("trgUnknown", x.unknown.map((k) => t("trgEvent_" + k)).join(", "))) : null,
+    h("div", { class: "hint" }, t("trgHint"))),
+  "ex-meta-" + x.gem, x.rate ? `${range(x.rate.boss)}/${t("exSec")}` : null);
+}
 
 // Supports worth more than each skill's weakest one, among those the character can have now (loaded after the
 // page is shown: PoB tries every support on every skill): a line in each skill's card.

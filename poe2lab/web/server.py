@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
+from ..analysis.explain import explain as explain_build
 from ..analysis.items import breakeven, compare
 from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.uniques import suggest as suggest_uniques
@@ -1118,7 +1119,7 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
     """The build's skills: each with its support gems and the links between skills ("build"), or when each gem can
     be had and what to socket meanwhile while levelling ("leveling"; of="target": the levelling of the build's
     target - the guide the player follows)."""
-    if view not in ("build", "leveling", "uniques", "supports"):
+    if view not in ("build", "leveling", "uniques", "supports", "explain"):
         raise HTTPException(400, f"неизвестный вид {view!r}")
     with session.lock:
         session.require(build)
@@ -1134,6 +1135,25 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
                 view_data = data
                 data = session.cached(("skills", "uniques", cap), lambda: suggest_uniques(e, cfg, view_data, cap))
                 data = data | {"level": session.level, "prices": _unique_prices()}
+        elif view == "explain":
+            # how the build works: the main skill's crit, its mana, the meta gems (poe2lab.analysis.explain); next to
+            # the guide's crit when the player's character is in the build
+            if of == "guide" and session.main is not None:  # the guide the player's character follows
+                def guide_explained():
+                    _, ref, rbp = _reference(RECORDED)
+                    rcfg = MapProfile(rage=rbp.rage, mana_sustained=rbp.mana_sustained).config()
+                    return explain_build(ref, rcfg, ref.skill_damage(rcfg))
+                return _json(session.cached(("explain", "guide"), guide_explained) | {"guide": None})
+            numbers = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
+            data = session.cached(("explain",), lambda: explain_build(e, cfg, numbers, session.level))
+            guide = None
+            if session.main is not None:
+                def guide_crit():
+                    _, ref, rbp = _reference(RECORDED)
+                    rcfg = MapProfile(rage=rbp.rage, mana_sustained=rbp.mana_sustained).config()
+                    return {"skill": ref.main_skill(), "crit": ref.what_if(config=rcfg).get("CritChance", 0.0)}
+                guide = session.cached(("explain-guide",), guide_crit)
+            return _json(data | {"guide": guide})
         elif view == "supports":
             # supports worth more than each skill's weakest, among those the character can have at its level
             data = session.cached(("skills", "supports"), lambda: better_supports(e, cfg, session.level))

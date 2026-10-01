@@ -177,8 +177,11 @@ def trigger_view(engine, config: dict, rows: list[dict] | None = None) -> list[d
         fed = [{"event": e, "skill": r["name"], "perSecond": _events(r, e)} for e, r in feeders.items() if r]
         skills = [_skill(a["name"], by_skill.get((gi, a["name"])) or {}, (by_skill.get((gi, a["name"])) or {}).get("hit") or 0.0, rate)
                   for a in socketed]
+        # what the Energy is made of: per event, and the modifiers - the gem's, its supports', the passives' and items'
+        energy = {"gains": {e: v / 100 for e, v in gains.items()}, "gem": st.get("energy_generated_+%", 0),
+                  "supports": support, "passives": inc_lines, "more": more_lines}
         out.append({"group": gi, "kind": "energy", "gem": meta["name"], "cost": cost, "multiplier": multiplier,
-                    "rate": rate, "fed": fed, "unknown": unknown, "skills": skills})
+                    "rate": rate, "fed": fed, "unknown": unknown, "skills": skills, "energy": energy})
     # a skill a passive or an item triggers on crit
     seen = set()
     for line in lines:
