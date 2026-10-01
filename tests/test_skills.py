@@ -111,3 +111,50 @@ def test_meta_gems_say_what_feeds_their_energy():
     assert "Frost Bomb" in fed and not fed & {"Firestorm", "Living Bomb", "Elemental Invocation", "Elemental Weakness"}
     assert metas["Blasphemy"]["kind"] == "aura" and metas["Blasphemy"]["socketed"] == ["Temporal Chains"]
     assert metas["Spellslinger"]["sources"] == ["spell_cast"]
+
+
+EE_TEXT = ("Create a fiery explosion, an arcing bolt of lightning, or an icy wave of projectiles. The chance for an "
+           "explosion is proportional to your Strength, for a bolt proportional to your Dexterity, and for a wave "
+           "proportional to your Intelligence.")
+
+
+class PartsStub:
+    """Elemental Expression as PoB shows it: its first stat set (the skill itself) has a small hit no support moves;
+    the explosion, wave and bolt the game picks between are the others."""
+    def what_if(self, config=None, main_socket_group=None, disable_gems=()):
+        return {"CombinedDPS": 0.2, "AverageHit": 331, "Str": 41, "Dex": 69, "Int": 83}
+
+    def stat_set_hits(self, group, name, config=None, disable_gems=()):
+        return [{"index": 1, "label": "Elemental Expression", "hit": 331}, {"index": 2, "label": "Fiery Explosion", "hit": 225},
+                {"index": 3, "label": "Icy Wave", "hit": 214}, {"index": 4, "label": "Arcing Bolt", "hit": 219}]
+
+
+def test_a_skill_of_parts_is_read_by_its_parts():
+    g = {"index": 1, "enabled": True, "mainActive": 1, "actives": [{"name": "Elemental Expression"}],
+         "gems": [{"name": "Elemental Expression", "support": False, "description": EE_TEXT}]}
+    m = sk._measure_group(PartsStub(), {}, g)
+    assert m["how"] == "hit" and set(m["sets"]) == {2, 3, 4}  # not the first set, which none of them is
+    assert m["sets"][3] == pytest.approx(83 / 193) and m["sets"][2] == pytest.approx(41 / 193)
+    assert sk._part_weights("A storm of fire.", PartsStub().stat_set_hits(1, ""), {}) == {}
+
+
+def test_stat_sets_shown_one_by_one_and_put_back():
+    from poe2lab.profile import open_build
+    engine, _ = open_build(FIXTURES / "elemental-storm.txt")
+    before = engine.what_if(main_socket_group=1)["AverageHit"]
+    sets = engine.stat_set_hits(1, "Elemental Storm")
+    assert [s["label"] for s in sets] == ["Elemental Storm", "Fire", "Lightning", "Cold"]
+    assert sets[0]["hit"] == 0 and all(s["hit"] > 0 for s in sets[1:])
+    assert engine.what_if(main_socket_group=1)["AverageHit"] == before  # the build's own choice is back
+    assert engine.stat_set_hits(1, "Frost Bomb") == []  # a skill of one set
+
+
+def test_a_support_waiting_for_a_configuration_box():
+    """Blazing Critical's damage is "if you've crit recently": the box PoB leaves unticked until told."""
+    from poe2lab.profile import open_build
+    engine, _ = open_build(FIXTURES / "monk.txt")
+    group = next(g for g in engine.skill_groups() if g["actives"] and g["actives"][0]["name"] == "Devour")
+    blazing = next(x for x in group["gems"] if x["name"] == "Blazing Critical")
+    assert [c["var"] for c in engine.gem_conditions(group["index"], blazing["index"])] == ["conditionCritRecently"]
+    rend = next(g for g in engine.skill_groups() if g["actives"] and g["actives"][0]["name"] == "Rend")
+    assert all(not engine.gem_conditions(rend["index"], x["index"]) for x in rend["gems"] if x["name"] == "Rapid Attacks II")

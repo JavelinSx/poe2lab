@@ -255,13 +255,100 @@ def available_level(gem: dict) -> int | None:
     return max(gem.get("reqLevel") or 0, UNCUT_SKILL_AREA.get(tier, 62))
 
 
-def _own_dps(engine, config, group: int) -> float:
-    return engine.what_if(config=config, main_socket_group=group).get("CombinedDPS", 0.0)
+# a skill made of parts the game picks between: "the chance for an explosion is proportional to your Strength"
+_PART_ATTRIBUTE = re.compile(r"for an? (\w+)\b[^.;]*?proportional to your (strength|dexterity|intelligence)", re.I)
+ATTRIBUTES = {"strength": "Str", "dexterity": "Dex", "intelligence": "Int"}
+NOISE_PCT = 0.5  # a support's worth below this is "no effect"
 
 
-def _measure_group(engine, config, g: dict) -> int | None:
-    """Whose DPS a support in this group moves: the group's own skill if it deals damage, else the main skill."""
-    return g["index"] if g["enabled"] and _own_dps(engine, config, g["index"]) > 0 else None
+def _part_weights(description: str, sets: list[dict], attributes: dict) -> dict[int, float]:
+    """How often each part of a skill the game picks between comes up, by stat set index: Elemental Expression's
+    explosion, bolt and wave in proportion to Strength, Dexterity and Intelligence. Only the parts its text names
+    (its first stat set is the skill itself, not one of them); empty when the text names none."""
+    named = {part.lower(): ATTRIBUTES[attr.lower()] for part, attr in _PART_ATTRIBUTE.findall(description)}
+    raw = {}
+    for s in sets:
+        attr = next((a for part, a in named.items() if part in s["label"].lower()), None)
+        if attr:
+            raw[s["index"]] = attributes.get(attr, 0.0)
+    total = sum(raw.values())
+    if not raw:
+        return {}
+    if total <= 0:
+        return {i: 1 / len(raw) for i in raw}
+    return {i: w / total for i, w in raw.items() if w > 0}
+
+
+def _measure_group(engine, config, g: dict) -> dict:
+    """Whose damage a support in this group moves, and how it is read: the group's own skill by its damage per
+    second ("own"); a skill PoB cannot rate - triggered on crit, by a meta gem: DPS ~0 - by the damage of one hit,
+    which PoB does count ("hit"); a group that deals no damage by the main skill ("main"). A skill made of parts the
+    game picks between (Elemental Expression: explosion, bolt or wave) is read by those parts, `sets` weighted by how
+    often each comes up - PoB shows its first stat set, which is none of them; so is a skill whose shown stat set
+    deals no damage, its damaging ones evenly."""
+    m = {"group": None, "how": "main", "skill": None, "sets": {}}
+    if not g["enabled"]:
+        return m
+    out = engine.what_if(config=config, main_socket_group=g["index"])
+    actives = g.get("actives") or []
+    skill = actives[min(g.get("mainActive", 1), len(actives)) - 1]["name"] if actives else None
+    gem = next((x for x in g["gems"] if x["name"] == skill), {})
+    description = gem.get("description", "")
+    if skill and _PART_ATTRIBUTE.search(description):
+        parts = [s for s in engine.stat_set_hits(g["index"], skill, config) if s["hit"] > 0]
+        weights = _part_weights(description, parts, {a: out.get(a, 0.0) for a in ATTRIBUTES.values()})
+        if weights:
+            return m | {"group": g["index"], "how": "hit", "skill": skill, "sets": weights}
+    if out.get("CombinedDPS", 0.0) >= 1:
+        return m | {"group": g["index"], "how": "own"}
+    if out.get("AverageHit", 0.0) > 0:
+        return m | {"group": g["index"], "how": "hit"}
+    parts = [s for s in engine.stat_set_hits(g["index"], skill, config) if s["hit"] > 0] if skill else []
+    if not parts:
+        return m
+    return m | {"group": g["index"], "how": "hit", "skill": skill, "sets": {s["index"]: 1 / len(parts) for s in parts}}
+
+
+def _hit(engine, config, m: dict, disable_gems=()) -> float:
+    """One hit of the measured skill (its parts weighted, for a skill made of several)."""
+    if not m["sets"]:
+        return engine.what_if(config=config, main_socket_group=m["group"], disable_gems=disable_gems).get("AverageHit", 0.0)
+    total = 0.0
+    for index, w in m["sets"].items():
+        with engine.shown_stat_set(m["group"], m["skill"], index):
+            out = engine.what_if(config=config, main_socket_group=m["group"], disable_gems=disable_gems)
+        total += w * out.get("AverageHit", 0.0)
+    return total
+
+
+def _gains(engine, config, g: dict, m: dict, ids: list[str]) -> dict:
+    """engine.support_gains for the measured skill, its parts weighted for a skill made of several."""
+    if not m["sets"]:
+        return engine.support_gains(g["index"], ids, config, measure_group=m["group"])
+    out = {}
+    for index, w in m["sets"].items():
+        with engine.shown_stat_set(m["group"], m["skill"], index):
+            part = engine.support_gains(g["index"], ids, config, measure_group=m["group"])
+        for key, v in part.items():
+            acc = out.setdefault(key, {"dps": 0.0, "ehp": v["ehp"], "hit": 0.0})
+            acc["dps"] += w * v["dps"]
+            acc["hit"] += w * v["hit"]
+    return out
+
+
+def _worth(engine, config, g: dict, m: dict, gem: dict, base: dict, base_hit: float, more=None) -> dict:
+    """What a support carries: the change of the measured skill's DPS and defences without it, or, for a skill
+    read by its hit, the share of one hit's damage (as its DPS is that hit times how often it is triggered, the
+    same share of its DPS). `more`: Configuration boxes to tick for this measure."""
+    cfg = config | (more or {})
+    off = [(g["index"], gem["index"])]
+    if m["how"] == "hit":
+        hit = _hit(engine, cfg, m) if more else base_hit
+        rest = _hit(engine, cfg, m, off)
+        return {"dps": (hit / rest - 1) * 100 if rest > 0 else 0.0}
+    with_it = engine.what_if(config=cfg, main_socket_group=m["group"]) if more else base
+    without = engine.what_if(config=cfg, disable_gems=off, main_socket_group=m["group"])
+    return {k: -v for k, v in metric_changes(without, with_it).items()}
 
 
 # what fills a meta gem's energy, by its stat ids and description: (key, pattern, mechanic the build must create)
@@ -334,9 +421,10 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
                        for u in st["unmapped"] if u["value"]],
             "unseenEn": [u.get("text") or [u["stat"]] for st in s["statSets"] for u in st["unmapped"] if u["value"]]}
     for g in groups:
-        measure = _measure_group(engine, config, g)
-        g["measured"] = "own" if measure else "main"
-        base = engine.what_if(config=config, main_socket_group=measure) if measure else engine.what_if(config=config)
+        m = _measure_group(engine, config, g)
+        g["measured"] = m["how"]
+        base = engine.what_if(config=config, main_socket_group=m["group"])
+        base_hit = _hit(engine, config, m) if m["how"] == "hit" else 0.0
         for gem in g["gems"]:
             gem["mechanics"] = mechanics_of(gem)
             gem["available"] = available_level(gem)
@@ -346,12 +434,17 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             for key in ("unseen", "unseenEn"):
                 gem[key] = [" / ".join(u) if isinstance(u, list) else u for u in gem[key]][:4]
             gem["terms"] = kw.find([gem["description"], *gem["lines"]])
+            gem["worth"] = gem["worthIf"] = None
             if gem["support"] and gem["enabled"] and g["enabled"]:
-                without = engine.what_if(config=config, disable_gems=[(g["index"], gem["index"])],
-                                         main_socket_group=measure)
-                gem["worth"] = {k: -v for k, v in metric_changes(without, base).items()}
-            else:
-                gem["worth"] = None
+                gem["worth"] = _worth(engine, config, g, m, gem, base, base_hit)
+                # a support waiting for a Configuration box (Retreat: "Have you Melee Hit Recently?") is worth
+                # nothing until it is ticked: what it gives when it holds
+                if max(map(abs, gem["worth"].values()), default=0.0) < NOISE_PCT:
+                    conditions = engine.gem_conditions(g["index"], gem["index"])
+                    if conditions:
+                        worth = _worth(engine, config, g, m, gem, base, base_hit, {c["var"]: True for c in conditions})
+                        if max(map(abs, worth.values()), default=0.0) >= NOISE_PCT:
+                            gem["worthIf"] = {"worth": worth, "conditions": [c["label"] for c in conditions]}
         for a in g["actives"]:
             a["typesRu"] = [TYPE_RU[t] for t in a["types"] if t in TYPE_RU]
             a["typeTags"] = [{"key": t, "ru": TYPE_RU[t]} for t in a["types"] if t in TYPE_RU]
@@ -399,17 +492,18 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None, levels
                                                     "guide": gem["name"] in levels})
                 if g["actives"][0]["name"] not in entry["skills"]:
                     entry["skills"].append(g["actives"][0]["name"])
-        measure = _measure_group(engine, config, g)
-        if not measure:
+        m = _measure_group(engine, config, g)
+        if m["how"] == "main":
             continue  # a buff or utility group: its supports are listed in the timeline, nothing to rank
         candidates = engine.support_candidates(g["index"])
-        gains = engine.support_gains(g["index"], [c["id"] for c in candidates], config, measure_group=measure)
-        base = gains["base"]["dps"] or 1
+        gains = _gains(engine, config, g, m, [c["id"] for c in candidates])
+        key = "hit" if m["how"] == "hit" else "dps"  # a triggered skill: ranked by the damage of one hit
+        base = gains["base"][key] or 1
         ranked = []
         for c in candidates:
-            m = gains.get(c["id"])
-            if m and m["dps"] > base * 1.005:
-                ranked.append(c | {"dps": (m["dps"] / base - 1) * 100, "available": UNCUT_SUPPORT_AREA.get(c["tier"])})
+            got = gains.get(c["id"])
+            if got and got[key] > base * 1.005:
+                ranked.append(c | {"dps": (got[key] / base - 1) * 100, "available": UNCUT_SUPPORT_AREA.get(c["tier"])})
         ranked.sort(key=lambda c: -c["dps"])
         own = [x for x in g["gems"] if x["support"]]
         stages = []

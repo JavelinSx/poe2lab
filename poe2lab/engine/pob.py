@@ -188,6 +188,14 @@ def _lua_value(v) -> str:
     return lua_string(str(v))
 
 
+# PoB outputs a skill's triggers are made of (skill_damage): our key -> PoB's output
+TRIGGER_OUTPUTS = {"hit": "AverageHit", "hitSpeed": "HitSpeed", "cooldown": "Cooldown", "manaCost": "ManaCost",
+                   "igniteOnHit": "IgniteChanceOnHit", "igniteOnCrit": "IgniteChanceOnCrit",
+                   "shockOnHit": "ShockChanceOnHit", "shockOnCrit": "ShockChanceOnCrit",
+                   "freezeBuildup": "FreezeBuildupAvg", "igniteDps": "IgniteDPS", "igniteDuration": "IgniteDuration",
+                   "threshold": "EnemyAilmentThreshold"}
+
+
 class PobEngine:
     """One headless Path of Building instance holding one loaded build."""
 
@@ -310,9 +318,12 @@ return _poe2lab_json(out)""")
                 for i, name in enumerate(g["skills"], 1):
                     self.set_main_skill(g["index"], i)
                     o = self.what_if(config=config)
+                    # what a triggered skill's own numbers are made of (poe2lab.analysis.triggers): the hit it
+                    # deals, how often the skill hits, its ailments, and the enemy's ailment threshold
+                    extra = {k: o.get(src) or 0.0 for k, src in TRIGGER_OUTPUTS.items()}
                     out.append({"group": g["index"], "skill": i, "name": name, "dps": o["CombinedDPS"],
                                 "crit": o.get("CritChance") or 0.0, "critMulti": o.get("CritMultiplier") or 0.0,
-                                "speed": o.get("Speed") or 0.0, "hitChance": o.get("HitChance") or 0.0})
+                                "speed": o.get("Speed") or 0.0, "hitChance": o.get("HitChance") or 0.0} | extra)
         finally:
             # back to the build's own choice as it was, even a group with no active skill left (a skill its item
             # grants, missing from a planner file): no range check here
@@ -321,6 +332,137 @@ return _poe2lab_json(out)""")
                       f"if g then g.mainActiveSkill = {active} end")
             self.recalc()
         return sorted(out, key=lambda x: -x["dps"])
+
+    def _stat_set(self, group: int, name: str, index: int | None) -> list[dict]:
+        """Show stat set `index` of a skill (its other parts: Elemental Expression's explosion, bolt and wave) in
+        every later calculation; None puts back what the build had. Returns the skill's stat sets."""
+        return self._json(f"""
+_poe2lab_saved_sets = _poe2lab_saved_sets or {{}}
+local g = build.skillsTab.socketGroupList[{int(group)}]
+local key, out = "{int(group)}:" .. {lua_string(name)}, _poe2lab_array({{}})
+for _, gem in ipairs(g and g.gemList or {{}}) do
+  local ge = gem.gemData and gem.gemData.grantedEffect
+  if ge and ge.name == {lua_string(name)} then
+    for i, set in ipairs(ge.statSets or {{}}) do out[#out + 1] = {{ index = i, label = set.label or "" }} end
+    local index = {'nil' if index is None else int(index)}
+    if index == nil then
+      local saved = _poe2lab_saved_sets[key]
+      if saved then gem.statSet, gem.statSetCalcs = saved[1], saved[2] end
+      _poe2lab_saved_sets[key] = nil
+    else
+      if not _poe2lab_saved_sets[key] then _poe2lab_saved_sets[key] = {{ gem.statSet, gem.statSetCalcs }} end
+      gem.statSet = {{ [ge.id] = index, index = index }}
+      gem.statSetCalcs = {{ [ge.id] = index, index = index }}
+    end
+    break
+  end
+end
+return _poe2lab_json(out)""")
+
+    @contextmanager
+    def shown_stat_set(self, group: int, name: str, index: int):
+        """Calculations inside show stat set `index` of the skill; the build's own choice is back on exit."""
+        self._stat_set(group, name, index)
+        try:
+            yield
+        finally:
+            self._stat_set(group, name, None)
+
+    def stat_set_hits(self, group: int, name: str, config: dict | None = None, disable_gems=()) -> list[dict]:
+        """A skill made of several stat sets priced set by set - each one's hit and DPS as PoB computes them when
+        that set is shown. Empty for a skill of one set. PoB shows the first set unless told otherwise, and the
+        first set of Elemental Expression deals no damage: its explosion, bolt and wave are the others."""
+        sets = self._stat_set(group, name, None)
+        if len(sets) < 2:
+            return []
+        out = []
+        for s in sets:
+            with self.shown_stat_set(group, name, s["index"]):
+                o = self.what_if(config=config, main_socket_group=group, disable_gems=disable_gems)
+            out.append(s | {"hit": o.get("AverageHit") or 0.0, "dps": o.get("CombinedDPS") or 0.0})
+        return out
+
+    def gem_conditions(self, group: int, gem_index: int) -> list[dict]:
+        """The Configuration boxes a gem's own modifiers wait for and this build leaves unticked: Retreat's "if
+        you've dealt a melee hit in the past two seconds" is "Have you Melee Hit Recently?" - until it is ticked,
+        PoB gives the gem nothing. Conditions on the enemy too ("Is the enemy Blinded?")."""
+        return self._json(f"""
+local g = build.skillsTab.socketGroupList[{int(group)}]
+local gem = g and g.gemList[{int(gem_index)}]
+local ge = gem and gem.gemData and gem.gemData.grantedEffect
+local own, enemy = {{}}, {{}}
+local function tag(t)
+  if t.neg then return end
+  for _, v in ipairs(t.varList or {{ t.var }}) do
+    if t.type == "Condition" and not t.actor then own[v] = true
+    elseif t.type == "ActorCondition" and t.actor == "enemy" then enemy[v] = true end
+  end
+end
+local function scan(statMap)
+  for _, mods in pairs(statMap or {{}}) do
+    for _, m in ipairs(type(mods) == "table" and mods or {{}}) do
+      for _, t in ipairs(type(m) == "table" and m or {{}}) do if type(t) == "table" then tag(t) end end
+    end
+  end
+end
+if ge then
+  scan(ge.statMap)
+  for _, set in ipairs(ge.statSets or {{}}) do scan(set.statMap) end
+end
+local function wanted(cond, set)
+  if type(cond) == "table" then
+    for _, c in ipairs(cond) do if set[c] then return true end end
+    return false
+  end
+  return cond ~= nil and set[cond] == true
+end
+local out, seen = _poe2lab_array({{}}), {{}}
+for _, opt in ipairs(require("Modules.ConfigOptions")) do
+  if opt.type == "check" and opt.var and not seen[opt.var] and not build.configTab.input[opt.var]
+     and (wanted(opt.ifCond, own) or wanted(opt.ifEnemyCond, enemy)) then
+    seen[opt.var] = true
+    out[#out + 1] = {{ var = opt.var, label = StripEscapes(opt.label or opt.var) }}
+  end
+end
+return _poe2lab_json(out)""")
+
+    def trigger_inputs(self) -> list[dict]:
+        """For each enabled socket group: its active skills with their base cast time, and the numbers of
+        triggers PoB has no calculation for - the energy and trigger stats of its active gems (at their level and
+        quality) and the energy gained the group's supports add (poe2lab.analysis.triggers)."""
+        return self._json(self._GEM_HELPERS + """
+local out = arr({})
+local function instanceStats(gem, ge)
+  local all = {}
+  for _, set in ipairs(ge.statSets or {}) do
+    local ok, stats = pcall(calcLib.buildSkillInstanceStats, gem, ge, set, false)
+    for k, v in pairs(ok and stats or {}) do all[k] = (all[k] or 0) + v end
+  end
+  return all
+end
+for gi, g in ipairs(build.skillsTab.socketGroupList) do
+  if g.enabled ~= false then
+    local actives, supportGain = arr({}), 0
+    for _, gem in ipairs(g.gemList) do
+      local ge = gem.gemData and gem.gemData.grantedEffect
+      if ge and gem.enabled ~= false then
+        local stats = instanceStats(gem, ge)
+        if ge.support then
+          supportGain = supportGain + (stats["energy_generated_+%"] or 0)
+        else
+          local energy = {}
+          for k, v in pairs(stats) do
+            if k:find("energy") or k:find("trigger") then energy[k] = v end
+          end
+          actives[#actives + 1] = { name = ge.name, castTime = ge.castTime or 0, stats = energy,
+                                    description = ge.description or "" }
+        end
+      end
+    end
+    out[#out + 1] = { group = gi, actives = actives, supportEnergy = supportGain }
+  end
+end
+return _poe2lab_json(out)""")
 
     def monster_damage(self, level: int) -> float:
         """PoB's base monster damage for an area level (data.monsterDamageTable)."""
@@ -1242,7 +1384,7 @@ for gi, g in ipairs(build.skillsTab.socketGroupList) do
     end
   end
   out[#out + 1] = { index = gi, label = g.label or "", slot = g.slot or "", enabled = g.enabled and true or false,
-    main = gi == build.mainSocketGroup, actives = actives, gems = gems }
+    main = gi == build.mainSocketGroup, mainActive = g.mainActiveSkill or 1, actives = actives, gems = gems }
 end
 return _poe2lab_json(out)""")
 
@@ -1296,7 +1438,7 @@ end
 return _poe2lab_json(out)""")
 
     def support_gains(self, group: int, gem_ids: list[str], config=None, measure_group: int | None = None) -> dict:
-        """DPS and EHP with each support gem added to the group on its own, in one pass: {"base": {...},
+        """DPS, one hit and EHP with each support gem added to the group on its own, in one pass: {"base": {...},
         id: {...}}. Offence is read for `measure_group` (default: the build's main skill)."""
         ids = ", ".join(lua_string(i) for i in gem_ids)
         cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
@@ -1308,7 +1450,7 @@ _poe2lab_with_setup({{ {cfg} }}, {{}}, {{}}, function()
   local function measure()
     wipeGlobalCache()
     local out = build.calcsTab:GetMiscCalculator()({{ {override} }}, false)
-    return {{ dps = out.CombinedDPS or 0, ehp = out.TotalEHP or 0 }}
+    return {{ dps = out.CombinedDPS or 0, ehp = out.TotalEHP or 0, hit = out.AverageHit or 0 }}
   end
   res.base = measure()
   for _, id in ipairs({{ {ids} }}) do

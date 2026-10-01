@@ -1251,8 +1251,9 @@ function nextCard(r) {
     // the main skill's support that gives it least: a place for a better one (not a gain of its own - last)
     if (skills.status === "fulfilled") {
       const main = skills.value.groups.find((x) => x.main);
-      const measured = main ? main.gems.filter((x) => x.support && x.enabled && x.worth) : [];
       const key = state.mode === "defence" ? "ehp" : "dps";
+      // a support that waits for a Configuration box is not a weak one; one hit of a triggered skill has no EHP
+      const measured = main ? main.gems.filter((x) => x.support && x.enabled && x.worth && !x.worthIf && key in x.worth) : [];
       const weakest = measured.sort((a, b) => (a.worth[key] || 0) - (b.worth[key] || 0))[0];
       if (weakest && (weakest.worth[key] || 0) < 1) {
         steps.push([0, row("🔮", t("nextGem"), gemName(weakest.name),
@@ -3909,7 +3910,11 @@ function renderSkillsBuild(r) {
     return h("div", { class: "sk-support" + (gem.enabled ? "" : " off") },
       h("div", { class: "row" }, gemName(gem.name), gem.enabled ? null : chip("warn", t("skDisabled")),
         gem.because.length ? h("span", { class: "muted small" }, t("skFits", (LANG === "en" && gem.becauseEn ? gem.becauseEn : gem.because).join(", "))) : null),
-      worth ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : "skWorthMain")), " ", worth) : null,
+      worth && !gem.worthIf ? h("div", { class: "small" }, h("span", { class: "muted" }, t(g.measured === "own" ? "skWorthOwn" : g.measured === "hit" ? "skWorthHit" : "skWorthMain")), " ", worth) : null,
+      // PoB gives it nothing until a Configuration box is ticked (Retreat: a melee hit recently): what it gives then
+      gem.worthIf ? h("div", { class: "small", title: t("skWorthIfHint") }, h("span", { class: "muted" },
+        t("skWorthIf", gem.worthIf.conditions.map((c) => `«${conditionLabel(c)}»`).join(", "))), " ",
+        deltas(gem.worthIf.worth, METRIC, 0.5)) : null,
       // raw stat ids ("support_momentum_...") mean nothing to a player; the English view keeps them
       (() => { const shown = (LANG === "en" && gem.unseenEn ? gem.unseenEn : gem.unseen).filter((u) => LANG === "en" || !/^[A-Za-z0-9%+]+(_[A-Za-z0-9%+]+)+$/.test(u));
         return shown.length ? h("div", { class: "hint" }, t("skUnseen"), " ", shown.join("; ")) : null; })(),
