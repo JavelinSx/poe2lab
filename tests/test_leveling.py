@@ -122,3 +122,34 @@ def test_spirit_from_body_armour():
     assert m and m.group(1) == "8" and m.group(2) == "Energy Shield"
     assert leveling._ARMOUR_SPIRIT.search("+1 to Spirit for every 20 Evasion Rating on Equipped Body Armour").group(2) == "Evasion Rating"
     assert leveling._NO_GEAR_SPIRIT.search("Cannot gain Spirit from Equipment")
+
+
+def test_the_build_as_a_character_of_a_level_has_it(monk):
+    """A snapshot: PoB calculates the build with the passive points, gems, gear and quests of a level, and puts the
+    build back as it was."""
+    engine, bp = monk
+    config = leveling.MapProfile(rage=bp.rage).config()
+    before = engine.what_if(config=config)
+    graph = engine.tree_graph()
+    asc = leveling.ascendancy_order(engine, config, "damage")
+    quests = engine.quest_rewards()
+    gone = set(leveling._not_taken_yet(graph, 45, asc, quests))
+    main_tree = [n for n in graph["nodes"] if n["alloc"] and not n["asc"] and n["type"] != "ClassStart" and not n.get("mode")]
+    assert len([n for n in main_tree if n["id"] not in gone]) <= 44  # level 45: 44 points
+    # the ascendancy: the first trial (act 2) gives 2 points by level 45; none by level 10
+    asc_nodes = [n for n in graph["nodes"] if n["alloc"] and n["asc"] and n["type"] != "AscendClassStart"]
+    assert 0 < len([n for n in asc_nodes if n["id"] not in gone]) <= 2
+    early = set(leveling._not_taken_yet(graph, 10, asc, quests))
+    assert all(n["id"] in early for n in asc_nodes)
+    levels, equipped = engine.item_levels(), engine.equipped_bases()
+    gear = leveling._gear_at(45, levels, equipped, engine.item_bases(), trade=True)
+    assert gear and all(levels[slot] > 45 for slot in gear)
+    for slot, text in gear.items():
+        assert text is None or text.startswith("Rarity: Normal")
+    low = engine.at_level(45, leveling._gems_not_yet(engine.skill_groups(), engine.gem_catalog(), 45), gone, gear, config)
+    assert 0 < low["CombinedDPS"] < before["CombinedDPS"] and low["Life"] < before["Life"]
+    assert engine.what_if(config=config)["CombinedDPS"] == before["CombinedDPS"]  # put back
+    # the switch is checked as a character of its level would have it: Spirit and mana work there
+    sw = leveling.switch(engine, config, trade=True, rage=bp.rage)
+    assert sw["snapshot"]["level"] == sw["level"] and sw["snapshot"]["ok"]
+    assert all(set(a) == {"attr", "need", "have"} for a in sw["snapshot"]["attributes"])

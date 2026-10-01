@@ -667,6 +667,18 @@ tr.dense .fit-chips { margin-top: 2px; }
 .next-ico { font-size: 18px; line-height: 1.2; width: 22px; text-align: center; }
 .next-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .next-go { align-self: center; }
+.next-gate { padding: 5px 10px; align-items: center; }
+.next-steps details { border: 0; padding: 0; margin: 0; background: none; }
+.next-steps details summary { font-weight: 400; }
+.next-gate.must { outline: 1px solid var(--bad); }
+.next-gate summary { cursor: pointer; list-style: none; }
+.next-gate summary::-webkit-details-marker { display: none; }
+.next-gate details[open] summary { margin-bottom: 3px; }
+.next-path { margin-top: 10px; }
+.next-minor { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 3px 0; border-top: 1px solid var(--line); }
+.next-minor summary { cursor: pointer; }
+.next-path summary { cursor: pointer; }
+.path-compact { margin: 6px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; }
 .plan-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: -6px 0 14px; padding: 8px 12px;
   border-radius: 8px; border: 1px solid var(--gold); background: var(--gold-soft); }
 .plan-strip-log summary { cursor: pointer; color: var(--muted); font-size: 13px; }

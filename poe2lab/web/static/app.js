@@ -1155,30 +1155,9 @@ TABS.overview = async (view) => {
         hitCell(type, v.normal), hitCell(type, v.crit), hitCell(type, v.juiced))))),
     h("div", { class: "note small muted", style: "margin-top:8px" }, t("hitsNote")));
 
-  const order = { must: 0, priority: 1, warn: 2 };
-  const issues = h("div", { class: "card" }, h("h3", {}, t("issuesTitle")), h("div", { class: "sub" }, t("issuesSub")),
-    h("div", { class: "issues" }, [...r.gates].sort((a, c) => order[a.level] - order[c.level]).map((g) =>
-      h("div", { class: "issue" }, h("div", {}, chip(g.level, t("lvl_" + g.level))),
-        h("div", {}, h("div", { class: "t" }, LANG === "en" && g.title_en ? g.title_en : trFree(g.title)),
-          h("div", { class: "d" }, LANG === "en" && g.detail_en ? g.detail_en : trFree(g.detail)))))));
-
-  for (const list of Object.values(r.attributes.supportsAtRisk || {})) {
-    issues.append(h("div", { class: "sub", style: "margin-top:12px" }, t("supportsAtRisk")),
-      h("table", {}, h("tbody", {}, list.map((s) => h("tr", {}, h("td", {}, trName(s.name)), h("td", { class: "muted" }, trName(s.skill)),
-        h("td", { class: "num" }, pct(s.skill_dps_pct)))))));
-  }
-
-  const path = h("div", { class: "card" }, h("h3", {}, t("pathTitle")), h("div", { class: "sub" }, t("pathSub")),
-    h("div", { class: "steps" }, r.path.map((s) => h("div", { class: "step" }, h("div", {},
-      h("div", { class: "what mod" }, trMod(s.mod)),
-      deltas({ dps: s.dps, phys_hit: s.defence.Physical, chaos_hit: s.defence.Chaos, recovery: s.recovery }))))));
-
   const worstShare = worst && share(worst[0], worst[1].juiced);
-  const broken = r.gates.filter((g) => g.level === "must").length;
-  return h("div", { class: "stack" }, nextCard(r), levelingCard(), kpi, h("div", { class: "grid two" },
-    foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null),
-    foldedCard(issues, "issues", r.gates.length ? t("issuesSum", r.gates.length, broken) : null)),
-  foldedCard(path, "path", r.path.length ? t("firstStep", trMod(r.path[0].mod)) : null));
+  return h("div", { class: "stack" }, nextCard(r), levelingCard(), kpi,
+    foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null));
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -1203,13 +1182,27 @@ function nextCard(r) {
     h("span", { class: "next-ico" }, icon),
     h("div", { class: "next-body" }, h("div", {}, h("span", { class: "muted small" }, label, ": "), h("b", {}, what)), extra),
     go ? goBtn(go) : null);
-  const must = r.gates.find((g) => g.level === "must");
-  const weak = r.gates.find((g) => g.level === "priority");
+  // what is broken and where the holes are: one line each, the explanation opens on a click
+  const ICON = { must: "⛔", priority: "⚠", warn: "ℹ" };
+  const order = { must: 0, priority: 1, warn: 2 };
+  const gateRow = (g) => h("li", { class: "next-row next-gate " + g.level },
+    h("span", { class: "next-ico" }, ICON[g.level]),
+    h("details", { class: "next-body" }, h("summary", {}, h("span", { class: "muted small" }, t("lvl_" + g.level), ": "), h("b", {}, gateText(g))),
+      h("div", { class: "small muted" }, detailText(g))),
+    tabOf(g) ? goBtn(() => switchTab(tabOf(g))) : null);
   const list = h("ol", { class: "start-steps next-steps" });
-  if (must) list.append(row("⛔", t("startFix"), gateText(must), h("div", { class: "small muted" }, detailText(must)),
-    tabOf(must) ? () => switchTab(tabOf(must)) : null));
-  if (weak) list.append(row("⚠", t("startWeak"), gateText(weak), h("div", { class: "small muted" }, detailText(weak)),
-    tabOf(weak) ? () => switchTab(tabOf(weak)) : null));
+  const gates = [...r.gates].sort((a, c) => order[a.level] - order[c.level]);
+  list.append(...gates.filter((g) => g.level !== "warn").map(gateRow));
+  // the smaller things to keep in mind: one line that opens into them
+  const minor = [...gates.filter((g) => g.level === "warn").map((g) => h("div", { class: "next-minor" },
+    h("details", {}, h("summary", {}, gateText(g)), h("div", { class: "small muted" }, detailText(g))),
+    tabOf(g) ? goBtn(() => switchTab(tabOf(g))) : null)),
+    ...Object.values(r.attributes.supportsAtRisk || {}).map((risk) => h("div", { class: "next-minor small" },
+      h("span", { class: "muted" }, t("supportsAtRisk"), " "), risk.map((x) => `${trName(x.name)} ${pct(x.skill_dps_pct)}`).join(" · ")))];
+  if (minor.length) {
+    list.append(h("li", { class: "next-row next-gate warn" }, h("span", { class: "next-ico" }, "ℹ"),
+      h("details", { class: "next-body" }, h("summary", {}, h("b", {}, t("nextMinor", minor.length))), ...minor)));
+  }
   const pending = h("li", { class: "next-row muted small" }, loading(t("nextLoading")));
   list.append(pending);
 
@@ -1263,8 +1256,14 @@ function nextCard(r) {
     pending.replaceWith(...(steps.length ? steps.map((x) => x[1]) : [h("li", { class: "muted small" }, t("nextNone"))]));
   })();
 
+  // the upgrade path: mod after mod, each counted with the ones before it - folded to its first step
+  const path = r.path.length ? h("details", { class: "next-path" },
+    h("summary", {}, h("b", {}, "📈 ", t("pathTitle")), " ", h("span", { class: "muted small" }, t("firstStep", trMod(r.path[0].mod)))),
+    h("div", { class: "small muted" }, t("pathSub")),
+    h("ol", { class: "path-compact" }, r.path.map((x) => h("li", {}, h("span", { class: "mod" }, trMod(x.mod)), " ",
+      deltas({ dps: x.dps, phys_hit: x.defence.Physical, chaos_hit: x.defence.Chaos, recovery: x.recovery }))))) : null;
   return h("div", { class: "card start-card" }, h("h3", {}, t("nextTitle")),
-    h("div", { class: "sub" }, t("nextSub", t("mode_" + state.mode))), list);
+    h("div", { class: "sub" }, t("nextSub", t("mode_" + state.mode))), list, path);
 }
 
 // ---------- damage ----------
@@ -2887,7 +2886,18 @@ function lrReason(p) {
   if (p.kind === "source") return t("lrWhySource", t("lrMech_" + p.mechanic), trName(p.name), p.via ? trName(p.via) : "", p.level);
   if (p.kind === "buff") return t("lrWhyBuff", trName(p.name), pct(p.dps), p.level);
   if (p.kind === "spirit") return p.short ? t("lrWhySpiritShort", p.need, p.have) : t("lrWhySpirit", p.need, p.level);
+  if (p.kind === "snapshot") return t("lrWhySnapshot", p.at, lrProblems(p.problems));
   return t("lrWhyUnique", trItem(p.name.split(",")[0]), pct(p.dps), p.level);
+}
+
+// what does not work yet as a character of that level has the build (PoB's snapshot): Spirit, mana
+function lrProblems(xs) {
+  return xs.map((x) => x.kind === "spirit" ? t("lrProbSpirit", x.have, x.need) : t("lrProbMana", fmt(x.cost), fmt(x.regen, 1))).join(", ");
+}
+
+// the attributes the gems want more of than a character of that level has without attribute nodes and gear
+function lrAttributes(xs) {
+  return xs.map((x) => t("lrAttr_" + x.attr, x.need, x.have)).join(", ");
 }
 
 // where the Spirit comes from, by level: quests, items, the rest
@@ -2909,10 +2919,12 @@ function lrArmourNote(p) {
 
 function lrPart(p, trade) {
   const pic = p.kind === "unique" ? itemIcon(p.name, p.name.split(",")[1], "unique")
-    : p.kind === "spirit" ? h("span", { class: "lr-emoji" }, "✨") : icon(p.name);
+    : p.kind === "spirit" ? h("span", { class: "lr-emoji" }, "✨")
+    : p.kind === "snapshot" ? h("span", { class: "lr-emoji" }, "🧪") : icon(p.name);
   const gem = p.firstName || p.name;
   const name = p.kind === "unique" ? h("b", {}, trItem(p.name.split(",")[0]))
     : p.kind === "spirit" ? h("b", {}, t("lrSpirit"))
+    : p.kind === "snapshot" ? h("b", {}, t("lrSnapshot"))
     : hoverTip(h("b", { class: "pk-node" }, trName(gem)), () => gemTipCard(gem));
   let note = null;
   if (p.kind === "support" && p.firstName) note = t("lrSupportFull", trName(p.name), p.full);
@@ -2924,7 +2936,9 @@ function lrPart(p, trade) {
     p.spirit ? t("lrReserves", p.spirit) : "", p.byHand ? t("lrByHand", p.byHand) : ""].filter(Boolean).join(" · ");
   if (p.kind === "buff") note = [p.mechanic ? t("lrMakes", t("lrMech_" + p.mechanic)) : "", p.spirit ? t("lrReserves", p.spirit) : ""].filter(Boolean).join(" · ") || null;
   if (p.kind === "spirit") note = lrSpiritSources(p);
+  if (p.kind === "snapshot") note = lrReason(p);
   const worth = p.kind === "skill" ? t("lrMainSkill") : p.kind === "spirit" ? t("lrSpiritNeed", p.need, p.have)
+    : p.kind === "snapshot" ? ""
     : p.kind !== "unique" ? t("lrDps", pct(p.dps)) : p.core ? t("lrDps", pct(p.dps)) : t("lrEhp", pct(p.ehp));
   return h("div", { class: "lr-part" + (p.decisive ? " decisive" : "") + (p.kind === "unique" && p.core && !trade ? " ssf" : "") },
     h("span", { class: "lr-part-ico" }, pic),
@@ -2956,7 +2970,10 @@ function drawLeveling(card, d) {
     h("div", {}, h("div", { class: "lr-switch-title" }, sw.level ? t("lrSwitchAt", sw.level, lrStageName(sw.stage)) : t("lrSwitchUnknown")),
       decisive.length ? h("div", {}, t("lrBecause"), " ", decisive.map(lrReason).join("; ")) : null,
       sw.early ? h("div", { class: "small" }, t("lrEarly", sw.early.level, pct(sw.early.dps - 100),
-        sw.early.without.map((n) => n === "Spirit" ? t("lrSpirit") : trName(n)).join(", "))) : null,
+        sw.early.without.map((n) => trName(n)).join(", ")),
+        sw.early.problems.length ? " " + t("lrEarlyProblems", sw.early.level, lrProblems(sw.early.problems)) : "") : null,
+      sw.snapshot && sw.snapshot.ok ? h("div", { class: "small muted", title: t("lrSnapshotHint") }, "🧪 ", t("lrChecked", sw.snapshot.level),
+        sw.snapshot.attributes.length ? " " + t("lrAttrHint", lrAttributes(sw.snapshot.attributes)) : "") : null,
       r.characterLevel ? h("div", { class: "small muted" }, r.characterLevel >= (sw.level || 999) ? t("lrReady", r.characterLevel) : t("lrLeft", r.characterLevel, sw.level - r.characterLevel)) : null));
   const core = sw.parts.filter((p) => p.core);
   const extra = sw.parts.filter((p) => !p.core && p.kind === "unique" && p.defence);
@@ -2970,7 +2987,7 @@ function drawLeveling(card, d) {
   const stage = (s) => {
     const rows = [];
     if (s.switch) {
-      const to = sw.parts.filter((p) => p.core && !["unique", "spirit"].includes(p.kind));
+      const to = sw.parts.filter((p) => p.core && !["unique", "spirit", "snapshot"].includes(p.kind));
       rows.push(h("div", { class: "lr-row lr-to" }, h("span", { class: "lr-k" }, "⭐"), t("lrSwitchTo"),
         ...to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name)))));
     }

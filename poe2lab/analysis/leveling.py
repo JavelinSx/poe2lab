@@ -36,6 +36,10 @@ _SPIRIT = re.compile(r"\+(\d+) to Spirit", re.I)
 _ARMOUR_SPIRIT = re.compile(r"\+1 to Spirit for every (\d+) (?:Item )?(Energy Shield|Evasion Rating|Armour)\b[^.]*Body Armour",
                             re.I)
 _NO_GEAR_SPIRIT = re.compile(r"cannot gain spirit from equipment", re.I)
+_WEAPON_SET_POINTS = re.compile(r"\+(\d+) Weapon Set Passive Skill Points", re.I)
+SNAPSHOT_STEP = 5  # the levels the build is tried at past what it stands on
+MANA_SLACK = 1.15  # mana spent per second over regenerated, against the guide's own: this much worse is a problem
+ATTRIBUTES_SHORT = ("Str", "Dex", "Int")
 
 
 def stages() -> list[dict]:
@@ -325,13 +329,14 @@ def chain(engine, config: dict, groups: list[dict], main: dict | None, skill: di
 
 
 def switch(engine, config: dict, trade: bool = True, catalog: list[dict] | None = None,
-           asc: list[dict] | None = None) -> dict:
+           asc: list[dict] | None = None, rage: int | None = None, mana_sustained: bool = False) -> dict:
     """When to switch to the build and why: every piece that carries its power with the level it can be had from and
     what the build loses without it (PoB). The switch is the level by which the main skill and every core piece -
     a support worth CORE_SUPPORT% of the main skill's damage (its family's first tier counts: "Close Combat I" is
     there long before "II"), a unique worth CORE_ITEM% of the damage (only when trading: a unique may never drop) -
     can all be had; `decisive` are the ones that set it. A unique that gives defence only does not hold the switch
-    back: it is put on when it can be."""
+    back: it is put on when it can be. From that level on, the build is tried as a character of each level would
+    have it (snapshot): the switch is the first level it works at - the Spirit for its core, mana."""
     catalog = catalog if catalog is not None else engine.gem_catalog()
     asc = asc if asc is not None else ascendancy_order(engine, config, "damage")
     groups = engine.skill_groups()
@@ -373,36 +378,172 @@ def switch(engine, config: dict, trade: bool = True, catalog: list[dict] | None 
     parts += links
     counted += [p for p in links if p["core"] and p["level"]]
     level = max((p["level"] for p in counted), default=None)
+    spirit = next((p["need"] for p in links if p["kind"] == "spirit"), 0)
+    ctx = {"rage": rage, "mana": mana_sustained, "trade": trade, "quests": engine.quest_rewards(), "groups": groups,
+           "catalog": catalog, "graph": engine.tree_graph(), "asc": asc, "levels": levels,
+           "equipped": engine.equipped_bases(), "bases": engine.item_bases(), "spirit": spirit}
+    tried = []
+    top = engine.info()["level"]
+    if level and level < top:
+        steps = sorted({level, *range((level // SNAPSHOT_STEP + 1) * SNAPSHOT_STEP, top, SNAPSHOT_STEP), top})
+        for n in steps:
+            tried.append(snapshot(engine, n, ctx))
+            if tried[-1]["ok"]:
+                break
+    works = next((t for t in tried if t["ok"]), None)
+    late = works is not None and works["level"] > level
+    if late:  # the pieces are there, but the build does not work yet: what holds it
+        parts.append({"kind": "snapshot", "name": "", "level": works["level"], "core": True,
+                      "problems": tried[-2]["problems"], "at": tried[-2]["level"]})
+        counted.append(parts[-1])
+        level = works["level"]
     for p in parts:
         p["decisive"] = p in counted and p["level"] == level
-    order = {"skill": 0, "source": 1, "spirit": 2, "buff": 3, "support": 4, "unique": 5}
+    order = {"skill": 0, "snapshot": 1, "source": 2, "spirit": 3, "buff": 4, "support": 5, "unique": 6}
     parts.sort(key=lambda p: (not p["core"], order[p["kind"]], -(p.get("dps") or 0)))
+    early = _early(engine, config, base, links, gems_level, level, ctx)
     return {"level": level, "stage": stage_of(level), "parts": parts, "trade": trade,
-            "mainDps": base.get("CombinedDPS", 0), "early": _early(engine, config, base, links, gems_level, level)}
+            "mainDps": base.get("CombinedDPS", 0), "early": early,
+            "snapshot": works or (tried[-1] if tried else None)}
 
 
-def _early(engine, config: dict, base: dict, links: list[dict], at: int | None, level: int | None) -> dict | None:
-    """Starting with the build's own gems before what they stand on is there: from `at`, the level its gems can be
-    had, the share of the build's damage it deals without the sources, and the buffs that cannot be up yet (their
-    gem not there, or the Spirit for them not)."""
+def _early(engine, config: dict, base: dict, links: list[dict], at: int | None, level: int | None,
+           ctx: dict) -> dict | None:
+    """Starting with the build's own gems before the rest is there, at `at` (the level its gems can be had): the
+    pieces of the chain still missing (their gem not there, or the Spirit for them not) and the share of the build's
+    damage it deals without them; what does not work yet as a character of that level has the build (snapshot:
+    Spirit, mana) and the attributes it lacks."""
     if not at or not level or at >= level or not base.get("CombinedDPS"):
         return None
     spirit = next((p for p in links if p["kind"] == "spirit"), None)
     short = spirit is not None and (spirit["level"] or 0) > at
-    cfg = dict(config)
-    without = []
+    cfg, without = dict(config), []
     for p in links:
         late = not p["level"] or p["level"] > at or (short and p.get("spirit"))
-        if p["kind"] == "source" and late:
-            var, off = CHAIN_CONFIG[p["mechanic"]]
-            cfg[var] = off
+        if p["kind"] in ("source", "buff") and late:
             without.append(p["name"])
-        elif p["kind"] == "buff" and late:
-            without.append(p["name"])
+            if p["kind"] == "source":
+                var, off = CHAIN_CONFIG[p["mechanic"]]
+                cfg[var] = off
     late_buffs = {p["group"] for p in links if p["kind"] == "buff" and p["name"] in without}
     off = [(g["index"], x["index"]) for g in engine.skill_groups() if g["index"] in late_buffs for x in g["gems"]]
     out = engine.what_if(config=cfg, disable_gems=off)
-    return {"level": at, "dps": out.get("CombinedDPS", 0) / base["CombinedDPS"] * 100, "without": without}
+    snap = snapshot(engine, at, ctx)
+    return {"level": at, "dps": out.get("CombinedDPS", 0) / base["CombinedDPS"] * 100,
+            "without": list(dict.fromkeys(without)), "problems": snap["problems"], "attributes": snap["attributes"]}
+
+
+def _not_taken_yet(graph: dict, level: int, asc: list[dict], quests: list[dict]) -> list[int]:
+    """The build's passive nodes a character of `level` has not got yet: on the main tree the ones past its level - 1
+    points (nearest the class start first), in each weapon set the ones past the weapon set points of the quests
+    done by then, in the ascendancy the notables past the trials done (most worth first, each with the nodes on its
+    way)."""
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    alloc = {i: n for i, n in nodes.items() if n["alloc"]}
+    remove = []
+    start = next((n for n in alloc.values() if n["type"] == "ClassStart"), None)
+    if start:
+        dist, queue = {start["id"]: 0}, [start["id"]]
+        while queue:  # breadth first through the allocated nodes of the main tree and the weapon sets
+            nid = queue.pop(0)
+            for m in nodes[nid]["links"]:
+                if m in alloc and not alloc[m]["asc"] and m not in dist:
+                    dist[m] = dist[nid] + 1
+                    queue.append(m)
+        by_set = {}
+        for nid in sorted((i for i in dist if i != start["id"]), key=lambda i: dist[i]):
+            by_set.setdefault(alloc[nid].get("mode") or 0, []).append(nid)
+        set_points = sum(int(m.group(1)) for q in quests
+                         if q["level"] <= level and (m := _WEAPON_SET_POINTS.search(q.get("stat") or "")))
+        for mode, ids in by_set.items():
+            remove += ids[max(0, level - 1) if mode == 0 else set_points:]
+    asc_start = next((n for n in alloc.values() if n["type"] == "AscendClassStart"), None)
+    if asc_start:
+        froms = {st["key"]: st["from"] for st in stages()}
+        points = 2 * sum(1 for key in TRIALS if froms[key] <= level)
+        parent, queue = {asc_start["id"]: None}, [asc_start["id"]]
+        while queue:
+            nid = queue.pop(0)
+            for m in nodes[nid]["links"]:
+                if m in alloc and alloc[m]["asc"] and m not in parent:
+                    parent[m] = nid
+                    queue.append(m)
+        keep = set()
+        for n in asc:  # most worth first
+            path, x = [], n["id"]
+            while x is not None and x != asc_start["id"] and x in parent:
+                path.append(x)
+                x = parent[x]
+            new = [x for x in path if x not in keep]
+            if len(keep) + len(new) <= points:
+                keep |= set(new)
+        remove += [i for i, n in alloc.items() if n["asc"] and n["type"] != "AscendClassStart" and i not in keep]
+    return remove
+
+
+def _gear_at(level: int, levels: dict, equipped: dict, bases: list[dict], trade: bool) -> dict:
+    """What a character of `level` wears instead of the build's items it cannot yet (and, not trading, its
+    uniques): a plain item of the same kind - the highest base it can wear (a rare of its level has more, so this is
+    the low end); nothing when there is no such base."""
+    out = {}
+    for slot, lv in levels.items():
+        b = equipped.get(slot)
+        if not b or not ((lv or 0) > level or (not trade and b["rarity"] == "UNIQUE")):
+            continue
+        fits = [x for x in bases if x["type"] == b["type"] and x["subType"] == b["subType"] and x["level"] <= level
+                and not x["hidden"]]
+        best = max(fits, key=lambda x: (x["level"], not x["name"].startswith("Rune")), default=None)
+        out[slot] = f"Rarity: Normal\n{best['name']}\nItem Level: {level}" if best else None
+    return out
+
+
+def _gems_not_yet(groups: list[dict], catalog: list[dict], level: int) -> list[tuple[int, int]]:
+    """The build's gems that have not dropped by `level` (a support counts from its family's first tier)."""
+    out = []
+    for g in groups:
+        for x in g["gems"]:
+            if not x["enabled"]:
+                continue
+            lv = available_level(x)
+            first = _first_of_family(x, catalog) if x["support"] else None
+            if first:
+                lv = first["level"]
+            if lv and lv > level:
+                out.append((g["index"], x["index"]))
+    return out
+
+
+def snapshot(engine, level: int, ctx: dict) -> dict:
+    """The build as a character of `level` would have it, calculated by PoB: that character level, gems at the
+    level their requirement allows and the ones not dropped yet left out, the passive points of that level, the
+    trials done, plain items where the build's need a higher level, the quests not done yet off - against the
+    enemy of that level. Its damage as a share of the finished build's against the same enemy, and what does not
+    work yet: the Spirit the core reserves, mana spent faster than the guide's own; and the attributes the gems
+    lack (a hint)."""
+    cfg = MapProfile.for_level(level, rage=ctx["rage"], mana_sustained=ctx["mana"]).config()
+    quests = {q["var"]: "None" if q.get("options") else False for q in ctx["quests"] if q["level"] > level}
+    guide = engine.what_if(config=cfg)
+    out = engine.at_level(level, _gems_not_yet(ctx["groups"], ctx["catalog"], level),
+                          _not_taken_yet(ctx["graph"], level, ctx["asc"], ctx["quests"]),
+                          _gear_at(level, ctx["levels"], ctx["equipped"], ctx["bases"], ctx["trade"]), cfg | quests)
+    problems = []
+    if ctx["spirit"] and out.get("Spirit", 0) < ctx["spirit"]:
+        problems.append({"kind": "spirit", "have": round(out.get("Spirit", 0)), "need": ctx["spirit"]})
+    if not ctx["mana"]:
+        def ratio(o):
+            cost, regen = o.get("ManaPerSecondCost", 0), o.get("ManaRegenRecovery", 0)
+            return cost / regen if regen > 0 else (float("inf") if cost > 0 else 0.0)
+        if out.get("ManaPerSecondCost", 0) > 0 and ratio(out) > max(1.0, ratio(guide)) * MANA_SLACK:
+            problems.append({"kind": "mana", "cost": out["ManaPerSecondCost"], "regen": out.get("ManaRegenRecovery", 0)})
+    # attributes are a hint, not a stop: the player takes attribute nodes and gear for them on the way (the tree
+    # here is cut by distance, not by what a player would take first)
+    attributes = []
+    for a in ATTRIBUTES_SHORT:
+        lack = out.get("Req" + a, 0) - out.get(a, 0)
+        if lack > max(0, guide.get("Req" + a, 0) - guide.get(a, 0)):
+            attributes.append({"attr": a, "need": round(out.get("Req" + a, 0)), "have": round(out.get(a, 0))})
+    dps = out.get("CombinedDPS", 0) / guide["CombinedDPS"] * 100 if guide.get("CombinedDPS") else 0.0
+    return {"level": level, "dps": dps, "problems": problems, "attributes": attributes, "ok": not problems}
 
 
 def tree_order(engine) -> list[dict]:
@@ -442,7 +583,7 @@ def roadmap(engine, rage: int | None, mana_sustained: bool, answers: dict, chara
     way = next((w for w in all_ways["ways"] if w["id"] == answers.get("way")), None) or all_ways["ways"][0]
     config = MapProfile(rage=rage, mana_sustained=mana_sustained).config()
     asc = ascendancy_order(engine, config, mode)
-    sw = switch(engine, config, trade, catalog, asc)
+    sw = switch(engine, config, trade, catalog, asc, rage, mana_sustained)
     notables = tree_order(engine)
     if way["id"] == "build":  # until the build's skills drop: the way closest to it
         way = _until_build(way, all_ways["ways"])

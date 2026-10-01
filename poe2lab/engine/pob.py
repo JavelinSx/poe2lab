@@ -897,6 +897,94 @@ local out = _poe2lab_with_gems_disabled({{ {gems} }}, function()
 end)
 return _poe2lab_numbers(out)""")
 
+    def at_level(self, level: int, disable_gems=(), remove_nodes=(), items: dict | None = None,
+                 config: dict | None = None) -> dict[str, float]:
+        """The build as a character of `level` would have it, calculated without changing the build: that character
+        level; each active gem at the highest level its requirement allows (not above the build's own); the gems
+        given as (group, index) left out (not dropped yet); passive nodes removed; items by slot replaced by an item
+        text or taken off (None); Configuration values set (the quests not done yet). PoB's output for the main
+        skill, with the attributes the gems and items require (ReqStr...)."""
+        remove = ", ".join(str(int(n)) for n in remove_nodes)
+        gems = ", ".join(f"{{ {int(g)}, {int(i)} }}" for g, i in disable_gems)
+        slots = ", ".join(f"[ {lua_string(k)} ] = {lua_string(v) if v else 'false'}" for k, v in (items or {}).items())
+        cfg = ", ".join(f"[ {lua_string(k)} ] = {_lua_value(v)}" for k, v in (config or {}).items())
+        return self._json(f"""
+local level = {int(level)}
+local saved = {{ level = build.characterLevel, gems = {{}}, slots = {{}}, added = {{}} }}
+local groups = build.skillsTab.socketGroupList
+local ok, res = pcall(function()
+  build.characterLevel = level
+  for _, g in ipairs(groups) do
+    for _, gem in ipairs(g.gemList) do
+      local ge = gem.gemData and gem.gemData.grantedEffect
+      saved.gems[#saved.gems + 1] = {{ gem = gem, level = gem.level, enabled = gem.enabled }}
+      if ge and not ge.support and gem.level then
+        local top = 1
+        for l = 1, gem.level do
+          local lv = ge.levels[l]
+          if lv and (lv.levelRequirement or 0) <= level then top = l end
+        end
+        gem.level = top
+      end
+    end
+  end
+  for _, p in ipairs({{ {gems} }}) do
+    local gem = groups[p[1]] and groups[p[1]].gemList[p[2]]
+    if gem then gem.enabled = false end
+  end
+  for _, g in ipairs(groups) do build.skillsTab:ProcessSocketGroup(g) end
+  for slotName, text in pairs({{ {slots} }}) do
+    local slot = build.itemsTab.slots[slotName]
+    if slot then
+      saved.slots[slotName] = slot.selItemId
+      if text then
+        local item = _poe2lab_item(text, true)
+        build.itemsTab:AddItem(item, true)
+        saved.added[#saved.added + 1] = item
+        slot:SetSelItemId(item.id)
+      else
+        slot:SetSelItemId(0)
+      end
+    end
+  end
+  return _poe2lab_with_setup({{ {cfg} }}, {{}}, {{}}, function()
+    local calcFunc = build.calcsTab:GetMiscCalculator()
+    return calcFunc({{ removeNodes = _poe2lab_nodeset({{ {remove} }}) }}, false)
+  end)
+end)
+build.characterLevel = saved.level
+for _, s in ipairs(saved.gems) do s.gem.level, s.gem.enabled = s.level, s.enabled end
+for slotName, id in pairs(saved.slots) do build.itemsTab.slots[slotName]:SetSelItemId(id) end
+for _, item in ipairs(saved.added) do build.itemsTab:DeleteItem(item, true) end
+for _, g in ipairs(groups) do build.skillsTab:ProcessSocketGroup(g) end
+build.buildFlag = true
+build.calcsTab:BuildOutput()
+if not ok then error(res, 0) end
+return _poe2lab_numbers(res)""")
+
+    def item_bases(self) -> list[dict]:
+        """Every item base PoB knows: name, type, subtype, level requirement."""
+        return self._json("""
+local out = _poe2lab_array({})
+for name, b in pairs(data.itemBases) do
+  out[#out + 1] = { name = name, type = b.type or "", subType = b.subType or "", level = (b.req and b.req.level) or 0,
+                    hidden = b.hidden and true or false }
+end
+return _poe2lab_json(out)""")
+
+    def equipped_bases(self) -> dict[str, dict]:
+        """Each gear slot's item base: {slot: {base, type, subType}}."""
+        return self._json("""
+local out = {}
+for _, slot in ipairs(build.itemsTab.orderedSlots) do
+  local item = not slot.nodeId and build.itemsTab.items[slot.selItemId]
+  if item and item.base then
+    out[slot.slotName] = { base = item.baseName or "", type = item.base.type or "", subType = item.base.subType or "",
+                           rarity = item.rarity or "" }
+  end
+end
+return _poe2lab_json(out)""")
+
     def gems(self) -> list[dict]:
         """Every gem in every socket group; color is PoB's colour code (green = dexterity, blue = int, red = str)."""
         return self._json("""
