@@ -33,7 +33,7 @@ async function api(path, opts = {}) {
     let msg = res.statusText, body = null;
     try { body = await res.json(); msg = body.detail || msg; } catch (_) { /* not json */ }
     // FastAPI's own 404 for an unknown path: the page is newer than the server that serves it
-    if (res.status === 404 && msg === "Not Found") msg = t("serverOutdated");
+    if ((res.status === 404 && msg === "Not Found") || (res.status === 400 && /^неизвестный (вид|режим)/.test(msg))) msg = t("serverOutdated");
     // an error nothing expected: written to poe2lab's log under this code (see errorCard)
     if (res.status >= 500) msg = t("errInternal", msg);
     const err = new Error(msg);
@@ -550,6 +550,10 @@ function plannerReport(r) {
 async function loadStatus() {
   const s = await api("/api/status");
   $("#llm-status").textContent = s.llm.configured ? t("aiOn", s.llm.model) : t("aiOff");
+  // the code on disk is newer than the running server (an update): the page is the new one, the server is not
+  const outdated = !("version" in s) || (s.current && s.version !== s.current);
+  $("#outdated-banner")?.remove();
+  if (outdated) document.body.prepend(h("div", { id: "outdated-banner", class: "outdated-banner" }, "⟳ ", t("serverRestart")));
   return s;
 }
 

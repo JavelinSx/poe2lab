@@ -198,13 +198,17 @@ class ChatRequest(BaseModel):
     lang: str = "ru"
 
 
+STARTED_VERSION = feedback.version()  # the code this server runs; an update on disk needs a restart to take
+
+
 @app.get("/api/status")
 def status():
     cfg = LLMConfig.current()
     return {"loaded": session.engine is not None, "build": session.path.stem if session.path else None,
             "buildChanged": session.engine is not None and session.file_changed(),
             "llm": {"configured": cfg is not None, "model": cfg.model if cfg else None,
-                    "provider": cfg.provider if cfg else None}}
+                    "provider": cfg.provider if cfg else None},
+            "version": STARTED_VERSION, "current": feedback.version()}
 
 
 stop_hook = None  # set by `python -m poe2lab ui`: ends the server (the interface's Stop button)
@@ -1867,7 +1871,9 @@ def send_feedback(req: FeedbackRequest):
     try:
         feedback.send(feedback.compose(req.message, req.contact, req.images, build, profile, context))
     except feedback.FeedbackError as err:
+        log.warning("report not sent: %s", err)
         raise HTTPException(400, str(err))
+    log.info("report sent (%d screenshots, log %s)", len(req.images), "attached" if req.attachLog else "not attached")
     return {"ok": True}
 
 

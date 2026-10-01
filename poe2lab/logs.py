@@ -8,7 +8,7 @@ from pathlib import Path
 
 LOG_SIZE = 1024 * 1024
 BACKUPS = 2
-TAIL = 48 * 1024  # what goes with a report (the relay takes up to 64 KB of context)
+TAIL = 32 * 1024  # what goes with a report (the relay takes up to 64 KB of context.json, JSON escaping included)
 
 log = logging.getLogger("poe2lab")
 
