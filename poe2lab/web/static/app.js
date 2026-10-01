@@ -963,7 +963,6 @@ function readHash() {
   const q = new URLSearchParams(location.hash.slice(1));
   const tab = MOVED_TABS[q.get("tab")] || q.get("tab");
   if (tab && TABS[tab]) state.tab = tab;
-  if (q.get("tab") === "damage") state.skillsMode = "damage";  // the Damage tab is the Skills tab's mode now
   if (q.get("mode") && ["damage", "balanced", "defence"].includes(q.get("mode"))) {
     state.mode = q.get("mode");
     document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
@@ -1376,8 +1375,28 @@ TABS.gear = async (view) => {
 
   draw();
   return h("div", { class: "stack" }, h("div", { class: "gear-top" }, h("div", { class: "card" }, dollBox), side),
-    path, craftGuide());
+    path, uniquesCard(), craftGuide());
 };
+
+// The uniques linked to the build's skills, with their prices: for a levelling character the ones it can wear soon
+// (the cheap ones for the start marked), on maps every one. Counted when the card is opened.
+function uniquesCard() {
+  const inner = h("div", { class: "stack" });
+  const card = foldedCard(h("div", { class: "card" }, h("h3", {}, "💍 ", t("unTitle")), inner), "uniques", t("unFoldSum"));
+  let loaded = false;
+  const load = async (again) => {
+    if (loaded && again !== true) return;
+    loaded = true;
+    inner.replaceChildren(loading(t("unLoading")));
+    const scope = state.uniqueScope || "level";
+    try {
+      const r = await cached(`skills:uniques:${scope}`, () => api(`/api/skills?view=uniques&scope=${scope}&${buildQuery()}`));
+      inner.replaceChildren(...renderUniqueLinks(r, () => load(true)));
+    } catch (e) { inner.replaceChildren(h("p", { class: "muted" }, e.message)); }
+  };
+  whenOpen(card, load);
+  return card;
+}
 
 // an item's mods when the pointer is over it: its lines only, as the game lists them
 function modsTip(it) {
@@ -3009,7 +3028,7 @@ function drawLeveling(card, d) {
     h("ul", { class: "small lr-tips" }, tips.map((x) => h("li", {}, x))),
     h("div", { class: "row" }, edit(t("lrEdit"), "ghost small"),
       h("span", { class: "muted small" }, t("lrAnswers", lrWayTitle(r.way), t(a.trade ? "lrTradeShort" : "lrSsfShort"), t(a.pace === "safe" ? "lrSafeShort" : "lrFastShort"))),
-      h("button", { class: "link small", onclick: () => { state.skillsMode = "leveling"; switchTab("skills"); } }, t("lrMore")))].filter(Boolean));
+      h("button", { class: "link small", onclick: () => { state.openLeveling = true; switchTab("skills"); } }, t("lrMore")))].filter(Boolean));
   head.querySelector(".fold-sum")?.remove();
   if (sw.level) head.append(h("span", { class: "fold-sum" }, "🚩 " + t("lrSwitchShort", sw.level)));
   questsData().then((qd) => {  // each act's reward choice: the one to take (or taken)
@@ -3146,29 +3165,88 @@ function levelingWizard(d, done) {
 // ---------- mechanics ----------
 // ---------- skills: each skill with its gems and the links between skills; the gem order while levelling ----------
 TABS.skills = async (view) => {
-  const mode = ["build", "damage", "leveling", "uniques"].includes(state.skillsMode) ? state.skillsMode : "build";
-  const seg = h("div", { class: "segmented" }, [["build", t("skBuild")], ["damage", t("skDamage")], ["leveling", t("skLeveling")], ["uniques", t("skUniquesTab")]]
-    .map(([k, label]) => h("button", { class: mode === k ? "active" : "", onclick: () => { state.skillsMode = k; switchTab("skills"); } }, label)));
-  const scope = state.uniqueScope || "level";
-  const body = h("div", { class: "stack" }, loading(t(mode === "build" ? "skLoading" : mode === "damage" ? "calcReport"
-    : mode === "uniques" ? "unLoading" : "skLoadingLevel")));
-  view.replaceChildren(h("div", { class: "stack" }, h("div", { class: "row" }, seg), body));
-  if (mode === "damage") {
-    try { body.replaceChildren(...renderDamage(await report())); } catch (e) { body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message))); }
+  const body = h("div", { class: "stack" }, loading(t("skLoading")));
+  view.replaceChildren(body);
+  let r;
+  try {
+    r = await cached("skills:build", () => api(`/api/skills?view=build&${buildQuery()}`));
+  } catch (e) {
+    body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message)));
     return;
   }
-  // levelling follows the build's target (the guide the player plays by) unless the player asks for the build
-  const of = mode === "leveling" && (state.build.profileRaw || {}).target && state.levelOf !== "build" ? "target" : "";
-  try {
-    const key = mode === "uniques" ? `skills:uniques:${scope}` : `skills:${mode}${of ? ":target" : ""}`;
-    const r = await cached(key, () => api(`/api/skills?view=${mode}&scope=${scope}${of ? "&of=target" : ""}&${buildQuery()}`));
-    body.replaceChildren(...(mode === "build" ? renderSkillsBuild(r) : mode === "uniques" ? renderUniqueLinks(r)
-      : [levelingNote(), ...renderSkillsLeveling(r)]));
-  } catch (e) {
-    body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message),
-      of ? h("button", { class: "ghost small", onclick: () => { state.levelOf = "build"; switchTab("skills"); } }, t("lvByBuild")) : null));
-  }
+  // under the skills, folded: what the damage is made of, and the gems while levelling (counted when opened)
+  const damage = h("div", { class: "stack" }, loading(t("calcReport")));
+  report().then((rep) => damage.replaceChildren(...renderDamage(rep)))
+    .catch((e) => damage.replaceChildren(h("p", { class: "muted" }, e.message)));
+  body.replaceChildren(...renderSkillsBuild(r), h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
+  betterSupports(body);
 };
+
+// Supports worth more than each skill's weakest one, among those the character can have now (loaded after the
+// page is shown: PoB tries every support on every skill): a line in each skill's card.
+function betterSupports(root) {
+  cached("skills:supports", () => api(`/api/skills?view=supports&${buildQuery()}`)).then((d) => {
+    for (const x of d.skills) {
+      const card = root.querySelector(`.sk-group[data-group="${x.group}"]`);
+      if (!card) continue;
+      // the weakest by damage may be there for defence or a mechanic PoB does not count: said, not hidden
+      const blind = Math.abs(x.weakestWorth) < 0.5;
+      card.append(h("div", { class: "sk-better", title: t("skBetterHint") },
+        h("div", {}, h("b", {}, "💡 ", t("skBetter")), " ", h("span", { class: "muted small" },
+          t("skBetterInstead", trName(x.weakest), pct(x.weakestWorth)),
+          x.weakestEhp >= 0.5 ? " " + t("skBetterDefends", pct(x.weakestEhp)) : blind ? " " + t("skBetterBlind") : "")),
+        h("div", { class: "row" }, x.better.map((b) => h("span", { class: "sk-better-gem" }, gemName(b.name), " ",
+          h("b", { class: "pos" }, pct(b.net)))))));
+    }
+  }).catch(() => {});
+}
+
+// The gems while levelling, as the game shows them (renderSkillsLeveling): a folded card, counted the first time it
+// is opened - it tries every support on every skill. "More" on the levelling card opens it.
+function levelingGemsCard() {
+  const inner = h("div", { class: "stack" });
+  const card = foldedCard(h("div", { class: "card" }, h("h3", {}, "💎 ", t("skLevelingTitle")), inner), "leveling-gems",
+    t("skLevelingSum"));
+  let loaded = false;
+  const load = async () => {
+    if (loaded) return;
+    loaded = true;
+    inner.replaceChildren(loading(t("skLoadingLevel")));
+    // levelling follows the build's target (the guide the player plays by) unless the player asks for the build
+    const of = (state.build.profileRaw || {}).target && state.levelOf !== "build" ? "target" : "";
+    try {
+      const r = await cached(`skills:leveling${of ? ":target" : ""}`, () => api(`/api/skills?view=leveling${of ? "&of=target" : ""}&${buildQuery()}`));
+      inner.replaceChildren(levelingNote(), ...renderSkillsLeveling(r));
+    } catch (e) {
+      inner.replaceChildren(h("p", { class: "muted" }, e.message),
+        of ? h("button", { class: "ghost small", onclick: () => { state.levelOf = "build"; switchTab("skills"); } }, t("lvByBuild")) : null);
+    }
+  };
+  // opened by the player, by "More" on the levelling card, or remembered open
+  whenOpen(card, load, () => {
+    if (!state.openLeveling) return;
+    state.openLeveling = false;
+    if (card.classList.contains("collapsed")) card.querySelector("h3").click();
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  return card;
+}
+
+// Run `load` once a folded card is open - remembered open, or opened by a click; `ready` first, once the card is
+// on the page and folded. Timers, not animation frames: a hidden page gets none of those.
+function whenOpen(card, load, ready) {
+  const head = card.querySelector("h3");
+  head.addEventListener("click", () => setTimeout(() => { if (!card.classList.contains("collapsed")) load(); }, 0));
+  const check = (n) => {
+    if (!card.isConnected || !card.dataset.fold) {
+      if (n < 100) setTimeout(() => check(n + 1), 50);
+      return;
+    }
+    if (ready) ready();
+    if (!card.classList.contains("collapsed")) load();
+  };
+  setTimeout(() => check(0), 0);
+}
 
 // ---------- the ascendancy and the taken notables (cards of the Tree tab) ----------
 const treeGraph = () => cached("tree-graph", () => api(`/api/tree/graph?${buildQuery()}`));
@@ -4080,7 +4158,7 @@ function renderSkillsBuild(r) {
     return n ? `DPS ${fmt(n.dps)}` : supports ? t("skSupportsN", supports) : null;
   };
   const cards = r.groups.filter((g) => g.gems.length).sort((a, b) => b.main - a.main).map((g) => {
-    const card = h("div", { class: "card sk-group" + (g.enabled ? "" : " off") + (g.main ? " wide" : "") },
+    const card = h("div", { class: "card sk-group" + (g.enabled ? "" : " off") + (g.main ? " wide" : ""), "data-group": g.index },
       h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
         g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
         g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
@@ -4104,7 +4182,10 @@ function renderSkillsBuild(r) {
 
 // uniques of the whole game that go with the build's skills (mechanics, skill kinds, damage types, shared terms)
 const DMG_RU = { cold: "холод", fire: "огонь", lightning: "молния", chaos: "хаос", physical: "физический" };
-function renderUniqueLinks(r) {
+// the uniques linked to the build's skills (the Gear tab's card): `reload` asks again for the other range
+const UNIQUE_START_LEVEL = 30;  // a unique worn from this level or lower: for the start, to level faster
+const UNIQUE_DEAR_DIV = 1;  // from this price (divines) it is marked dear
+function renderUniqueLinks(r, reload) {
   TERMS = r.terms || {};
   const mech = (k) => (LANG === "en" && MECH_EN[k]) || r.mechanics[k] || k;
   const skills = (list) => list.map((n, i) => [i ? ", " : "", gemName(n)]);
@@ -4117,15 +4198,26 @@ function renderUniqueLinks(r) {
   };
   const leveling = r.level && r.level < 65;
   const scopeSeg = leveling ? h("div", { class: "segmented small-seg" }, [["level", t("unScopeLevel", r.maxLevel || r.level + 5)], ["all", t("unScopeAll")]].map(([k, label]) =>
-    h("button", { class: (state.uniqueScope || "level") === k ? "active" : "", onclick: () => { state.uniqueScope = k; switchTab("skills"); } }, label))) : null;
-  const head = h("div", { class: "card" }, h("h3", {}, t("unTitle")), h("div", { class: "sub" }, t("unSub", r.considered)),
+    h("button", { class: (state.uniqueScope || "level") === k ? "active" : "", onclick: () => { state.uniqueScope = k; reload(); } }, label))) : null;
+  const head = h("div", {}, h("div", { class: "sub" }, t("unSub", r.considered)),
     r.outweighed ? h("div", { class: "hint", style: "margin-bottom:8px" }, t("unOutweighed", r.outweighed)) : null, scopeSeg);
   if (!r.suggestions.length) return [head, h("p", { class: "muted" }, t("unNone"))];
+  // its price on poe.ninja (the chosen league): in exalted orbs under one divine
+  const prices = r.prices || {};
+  const price = (name) => {
+    const x = (prices.byName || {})[name];
+    if (!x) return h("span", { class: "chip tag", title: t("unNoPriceHint") }, t("unNoPrice"));
+    const rate = prices.exaltedPerDivine || 0;
+    const text = x.div < 1 && rate ? `${fmt(x.div * rate, x.div * rate < 10 ? 1 : 0)} ex` : `${fmt(x.div, x.div < 10 ? 1 : 0)} div`;
+    return h("span", { class: "chip " + (x.div >= UNIQUE_DEAR_DIV ? "warn" : "ok"), title: t("unPriceHint", trName(prices.league || ""), x.listings) }, "💰 ", text);
+  };
   const cards = r.suggestions.map((u) => {
     return h("div", { class: "card sk-item" },
       h("div", { class: "row" }, itemIcon(u.name, u.base, "unique"), hoverTip(h("b", { class: "pk-node" }, trItem(u.name)), () => uniqueTip(u.name, u.base, u.lines)),
         h("span", { class: "muted small" }, `${slotName(u.slot)} · ${trName(u.base)}`),
-        u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null),
+        u.level ? h("span", { class: "muted small" }, t("unLevel", u.level)) : null,
+        u.level && u.level <= UNIQUE_START_LEVEL ? h("span", { class: "chip ok", title: t("unStartHint") }, "🚀 ", t("unStart")) : null,
+        price(u.name)),
       h("ul", { class: "un-reasons small" }, u.reasons.map((x) => h("li", {}, reason(x)))),
       h("div", { class: "small" }, h("span", { class: "muted" }, t("unWorth", slotName(u.slot))), " ",
         u.outsidePob ? h("span", { class: "chip util" }, t("unPobBlind")) : deltas(u.changes, METRIC, 0.5)),

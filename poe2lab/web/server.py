@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.items import breakeven, compare
-from ..analysis.skills import available_level, build_view as skill_build_view, leveling_view as skill_leveling_view
+from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.report import score as report_score
@@ -1087,12 +1087,24 @@ def mechanics(build: str | None = None):
         return _json({"gaps": m.gaps, "skills": m.skills, "uniques": m.uniques})
 
 
+def _unique_prices() -> dict:
+    """Uniques' prices on poe.ninja in the chosen league (empty without a connection)."""
+    prices = session.prices()
+    if prices is None:
+        return {}
+    try:
+        names = session.cached(("unique-prices", prices.league), lambda: ninja.unique_prices(prices.league))
+    except OSError:
+        return {}
+    return {"league": prices.league, "exaltedPerDivine": prices.exalted_per_divine, "byName": names}
+
+
 @app.get("/api/skills")
 def skills_view(view: str = "build", scope: str = "level", build: str | None = None, of: str | None = None):
     """The build's skills: each with its support gems and the links between skills ("build"), or when each gem can
     be had and what to socket meanwhile while levelling ("leveling"; of="target": the levelling of the build's
     target - the guide the player follows)."""
-    if view not in ("build", "leveling", "uniques"):
+    if view not in ("build", "leveling", "uniques", "supports"):
         raise HTTPException(400, f"неизвестный вид {view!r}")
     with session.lock:
         session.require(build)
@@ -1107,7 +1119,11 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
                 cap = session.level + 5 if scope == "level" and session.level and session.level < 65 else None
                 view_data = data
                 data = session.cached(("skills", "uniques", cap), lambda: suggest_uniques(e, cfg, view_data, cap))
-                data = data | {"level": session.level}
+                data = data | {"level": session.level, "prices": _unique_prices()}
+        elif view == "supports":
+            # supports worth more than each skill's weakest, among those the character can have at its level
+            data = session.cached(("skills", "supports"), lambda: better_supports(e, cfg, session.level))
+            return _json({"skills": data, "level": session.level})
         elif of == "target":
             name = session.bp.target
             if not name:

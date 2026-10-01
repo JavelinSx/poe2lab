@@ -363,6 +363,58 @@ def _worth(engine, config, g: dict, m: dict, gem: dict, base: dict, base_hit: fl
     return {k: -v for k, v in metric_changes(without, with_it).items()}
 
 
+BETTER_MIN = 2.0  # % of the skill's damage a support must give over its weakest one to be suggested
+BETTER_TOP = 3
+
+
+def better_supports(engine, config, level: int | None = None) -> list[dict]:
+    """For each skill that deals damage: supports PoB finds worth more to it than its weakest one, among those a
+    character of `level` can have - each with the damage it adds in place of the weakest (about what it gives with
+    the skill's other supports less what the weakest gives). A support gem goes into one skill only and one of a
+    family: the ones the build uses and their families are left out, and a suggested gem goes to the skill it gives
+    most. The weakest support's defence is told: PoB may see no damage in it, and it may be there for defence."""
+    groups = engine.skill_groups()
+    used = {x["name"] for g in groups if g["enabled"] for x in g["gems"] if x["support"] and x["enabled"]}
+    found, skills = [], {}
+    for g in groups:
+        if not g["enabled"] or not g["actives"]:
+            continue
+        m = _measure_group(engine, config, g)
+        own = [x for x in g["gems"] if x["support"] and x["enabled"]]
+        if m["how"] == "main" or not own:
+            continue
+        base = engine.what_if(config=config, main_socket_group=m["group"])
+        base_hit = _hit(engine, config, m) if m["how"] == "hit" else 0.0
+        worth = {x["name"]: _worth(engine, config, g, m, x, base, base_hit) for x in own}
+        weakest = min(own, key=lambda x: worth[x["name"]]["dps"])
+        floor = worth[weakest["name"]]["dps"]
+        families = {x.get("family") or x["name"] for x in own}
+        cands = [c for c in engine.support_candidates(g["index"]) if c["name"] not in used
+                 and (c["family"] or c["name"]) not in families
+                 and (level is None or UNCUT_SUPPORT_AREA.get(c["tier"], 999) <= level)]
+        if not cands:
+            continue
+        gains = _gains(engine, config, g, m, [c["id"] for c in cands])
+        key = "hit" if m["how"] == "hit" else "dps"
+        b = gains["base"][key] or 1
+        for c in cands:
+            got = gains.get(c["id"])
+            net = (got[key] / b - 1) * 100 - floor if got else 0
+            if net >= BETTER_MIN:
+                found.append((net, g["index"], c))
+        skills[g["index"]] = {"group": g["index"], "skill": g["actives"][0]["name"], "measured": m["how"],
+                              "weakest": weakest["name"], "weakestWorth": floor,
+                              "weakestEhp": worth[weakest["name"]].get("ehp", 0.0), "better": []}
+    taken = set()  # a gem (and its family) to the skill it gives most
+    for net, gi, c in sorted(found, key=lambda x: (-round(x[0], 1), -(x[2]["tier"] or 0))):  # the higher tier on a tie
+        fam = c["family"] or c["name"]
+        if fam in taken or len(skills[gi]["better"]) >= BETTER_TOP:
+            continue
+        taken.add(fam)
+        skills[gi]["better"].append({"name": c["name"], "net": net, "tier": c["tier"], "color": c["color"]})
+    return [x for x in skills.values() if x["better"]]
+
+
 # what fills a meta gem's energy, by its stat ids and description: (key, pattern, mechanic the build must create)
 META_SOURCES = [
     ("ignite", r"on_ignite|ignite", "ignite"), ("shock", r"on_shock|shock", "shock"),

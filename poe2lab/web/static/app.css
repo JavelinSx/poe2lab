@@ -539,6 +539,8 @@ details > summary .ico { margin-left: 2px; }
 
 .sk-meta { border-left: 2px solid var(--gold-soft); padding: 4px 10px; margin: 6px 0 8px; display: flex; flex-direction: column; gap: 3px; }
 .sk-trigger { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--gold); }
+.sk-better { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--good); display: flex; flex-direction: column; gap: 4px; }
+.sk-better-gem { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
 
 /* passives and ascendancy; the tree view */
 .ps-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }

@@ -158,3 +158,30 @@ def test_a_support_waiting_for_a_configuration_box():
     assert [c["var"] for c in engine.gem_conditions(group["index"], blazing["index"])] == ["conditionCritRecently"]
     rend = next(g for g in engine.skill_groups() if g["actives"] and g["actives"][0]["name"] == "Rend")
     assert all(not engine.gem_conditions(rend["index"], x["index"]) for x in rend["gems"] if x["name"] == "Rapid Attacks II")
+
+
+def test_supports_worth_more_than_the_weakest(titan):
+    """For each skill: supports PoB finds worth more than its weakest, that the character can have, that the build
+    does not use; a gem suggested to one skill only."""
+    out = sk.better_supports(titan, MapProfile().config(), level=95)
+    assert out
+    used = {x["name"] for g in titan.skill_groups() for x in g["gems"] if x["support"] and x["enabled"]}
+    names = [b["name"] for x in out for b in x["better"]]
+    assert len(names) == len(set(names)) and not set(names) & used
+    for x in out:
+        assert 1 <= len(x["better"]) <= sk.BETTER_TOP and all(b["net"] >= sk.BETTER_MIN for b in x["better"])
+    # at level 1 only the first tier's supports drop
+    low = sk.better_supports(titan, MapProfile().config(), level=1)
+    assert all(b["tier"] == 1 for x in low for b in x["better"])
+
+
+def test_unique_prices(monkeypatch):
+    from poe2lab.economy import ninja
+
+    def fake(path, **params):
+        if params["type"] == "UniqueArmours":
+            return {"lines": [{"name": "Cloak of Flame", "baseType": "Silk Robe", "primaryValue": 0.02, "listingCount": 40},
+                              {"name": "Cloak of Flame", "baseType": "Silk Robe", "primaryValue": 0.5, "listingCount": 3}]}
+        return {"lines": []}
+    monkeypatch.setattr(ninja, "_get", fake)
+    assert ninja.unique_prices("Standard") == {"Cloak of Flame": {"div": 0.02, "listings": 40}}  # the cheapest line

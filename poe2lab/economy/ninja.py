@@ -132,6 +132,21 @@ def market(league: str) -> dict:
     return {"league": league, "items": items, "uniques": uniques, "exaltedPerDivine": rate}
 
 
+def unique_prices(league: str) -> dict[str, dict]:
+    """Uniques' prices in divines by name: {name: {"div", "listings"}} (the cheapest line when poe.ninja has a few)."""
+    out = {}
+    for t in UNIQUE_TYPES:
+        try:
+            data = _get("stash/current/item/overview", league=league, type=t)
+        except OSError:
+            continue
+        for line in data.get("lines", []):
+            name, div = line.get("name"), float(line.get("primaryValue", 0))
+            if name and (name not in out or div < out[name]["div"]):
+                out[name] = {"div": div, "listings": int(line.get("listingCount", 0))}
+    return out
+
+
 def _get(path: str, **params) -> dict | list:
     """poe.ninja's answer, cached for an hour. What is not JSON (a maintenance or challenge page) is an OSError like
     no connection - callers fall back the same way - and is never cached."""
