@@ -3449,7 +3449,8 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
   // a colour with its word, kept together when the legend wraps
   const key = (d, text) => h("span", { class: "tv-key" }, d, text);
   hintsLegend.append(key(dot(C.hint), t("tvGrowth")), key(dot("rgba(77,163,255,.45)"), t("tvRoad")),
-    ...(full.useful.size ? [key(dot("rgba(77,163,255,.3)"), t("tvUseful"))] : []));
+    ...(full.useful.size ? [key(dot("rgba(77,163,255,.3)"), t("tvUseful"))] : []),
+    h("span", { class: "muted small", title: t("tvCalloutsHint") }, t("tvCallouts")));
   setHints(hints);
   const helpBox = h("div", { class: "tv-help-box hidden" },
     h("div", { class: "tree-legend small" }, key(dot(C.gold), t("tvAlloc")), key(dot(C.ws[1]), t("tvWsSet", 1)), key(dot(C.ws[2]), t("tvWsSet", 2)),
@@ -3617,6 +3618,81 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
       }
     }
     labels(ctx);
+    callouts(ctx, w, hgt);
+  }
+
+  // over each suggested node a small window: what it gives to damage (⚔) and to defence (🛡), and its place among
+  // the suggestions of this view - the best one biggest (by worth per point), the rest smaller down to the last
+  function callouts(ctx, w, hgt) {
+    if (!hints && !focus) return;
+    const defenceOf = (c) => (Math.abs(c.ehp || 0) >= 0.1 ? c.ehp
+      : Math.max(c.phys_hit || 0, c.fire_hit || 0, c.cold_hit || 0, c.lightning_hit || 0, c.chaos_hit || 0, c.recovery || 0));
+    const shown = visible().filter((n) => !n.alloc && growth.has(n.id) && worth.has(n.id) && worth.get(n.id).changes)
+      .map((n) => ({ n, w: worth.get(n.id) }))
+      .sort((a, b) => (b.w.perPoint ?? b.w.value ?? 0) - (a.w.perPoint ?? a.w.value ?? 0));
+    if (!shown.length) return;
+    const last = Math.max(1, shown.length - 1);
+    const boxes = [];
+    const placed = [];
+    shown.forEach(({ n, w: v }, rank) => {
+      const x = sx(n), y = sy(n);
+      if (x < -60 || y < -60 || x > w + 60 || y > hgt + 60) return;
+      const k = 1 - 0.4 * (rank / last);  // the best 1, the last 0.6
+      const dmg = v.changes.dps || 0, def = defenceOf(v.changes);
+      const parts = [];
+      if (Math.abs(dmg) >= 0.1) parts.push({ text: `⚔ ${pct(dmg)}`, color: dmg > 0 ? "#ffad66" : "#ff6b6b" });
+      if (Math.abs(def) >= 0.1) parts.push({ text: `🛡 ${pct(def)}`, color: def > 0 ? "#7fd8a6" : "#ff6b6b" });
+      if (!parts.length) return;
+      const size = Math.round(9 + 7 * k), pad = Math.round(2 + 4 * k);
+      ctx.font = `600 ${size}px system-ui, sans-serif`;
+      const badge = `${rank + 1}`;
+      const badgeW = ctx.measureText(badge).width + pad * 1.6;
+      const widths = parts.map((q) => ctx.measureText(q.text).width);
+      const bw = badgeW + widths.reduce((a, b) => a + b, 0) + pad * (parts.length + 1);
+      const bh = size + pad * 2;
+      let bx = x - bw / 2, by = y - frameR(n) - 10 - bh;
+      // above the ones already placed that it would cover
+      for (let i = 0; i < 6 && placed.some((b) => bx < b.x + b.w && bx + bw > b.x && by < b.y + b.h && by + bh > b.y); i++) by -= bh + 2;
+      placed.push({ x: bx, y: by, w: bw, h: bh });
+      boxes.push({ x, y, bx, by, bw, bh, k, size, pad, badge, badgeW, parts, widths, top: frameR(n), first: rank === 0 });
+    });
+    // the worst first, so the best are drawn on top
+    for (const b of boxes.reverse()) {
+      ctx.save();
+      ctx.globalAlpha = 0.75 + 0.25 * b.k;
+      const edgeColor = b.first ? C.gold : C.hint;
+      ctx.beginPath();  // a thin line down to its node
+      ctx.moveTo(b.x, b.y - b.top - 2);
+      ctx.lineTo(b.x, b.by + b.bh);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = edgeColor;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.roundRect(b.bx, b.by, b.bw, b.bh, 6);
+      ctx.fillStyle = "rgba(14, 16, 21, 0.92)";
+      ctx.fill();
+      ctx.lineWidth = 1 + b.k;
+      ctx.strokeStyle = edgeColor;
+      ctx.stroke();
+      ctx.font = `700 ${b.size}px system-ui, sans-serif`;
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      const mid = b.by + b.bh / 2 + 0.5;
+      ctx.beginPath();
+      ctx.roundRect(b.bx + 2, b.by + 2, b.badgeW, b.bh - 4, 4);
+      ctx.fillStyle = edgeColor;
+      ctx.fill();
+      ctx.fillStyle = "#0e1015";
+      ctx.fillText(b.badge, b.bx + 2 + b.pad * 0.8, mid);
+      ctx.font = `600 ${b.size}px system-ui, sans-serif`;
+      let tx = b.bx + 2 + b.badgeW + b.pad;
+      b.parts.forEach((q, i) => {
+        ctx.fillStyle = q.color;
+        ctx.fillText(q.text, tx, mid);
+        tx += b.widths[i] + b.pad;
+      });
+      ctx.restore();
+    }
   }
 
   function drawArt(ctx, w, hgt) {
