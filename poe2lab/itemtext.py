@@ -33,6 +33,8 @@ BONDED = re.compile(r"^(Связаны|Bonded):\s*", re.I)
 PROPERTIES = {"качество": "Quality", "гнезда": "Sockets", "уровень предмета": "Item Level"}
 SKIPPED = re.compile(r"^(примечание|note):", re.I)
 CORRUPTED_RU = {"порча", "осквернено", "corrupted"}
+# the item's own marks that are not mods: a fractured mod is marked "(fractured)" on its line already
+ITEM_MARKS = {"расколотый предмет", "fractured item"}
 
 
 @lru_cache(maxsize=1)
@@ -103,6 +105,8 @@ def plain_to_english(text: str, p: "journal.Parsed", uniques: list[dict] = ()) -
             continue  # the name lines and what PoB computes (damage, crit, speed, requirements); a trade note
         if line.lower() in CORRUPTED_RU:
             section.append("Corrupted")
+            continue
+        if line.lower() in ITEM_MARKS:
             continue
         en = translate_mod(line)
         if en is None:

@@ -61,6 +61,10 @@ def test_a_plain_copy_from_the_market_reads_line_by_line(db):
     assert "+18% to Block chance (implicit)" in lines and "+137 to Accuracy Rating (desecrated)" in lines
     assert "Adds 94 to 161 Cold Damage" in lines and "+3 to Level of all Melee Skills" in lines
     assert not any(x in en for x in ("divine", "Requires", "Physical Damage: ", "Attacks per Second"))
+    # the item's own mark "fractured item" is not a mod: left out (its fractured mod is marked on its line)
+    fractured = text.replace("+3 к уровню всех камней умений ближнего боя", "+3 к уровню всех камней умений ближнего боя (fractured)")
+    en_f = itemtext.to_english(fractured + "\n--------\nРасколотый предмет", db, journal.Names(db))
+    assert "+3 to Level of all Melee Skills (fractured)" in en_f.splitlines()
     # a line no template knows is named, not dropped quietly
     with pytest.raises(itemtext.TranslationError, match="не перевёл"):
         itemtext.to_english(text.replace("+137 к меткости", "+137 к чему-то несуществующему"), db, journal.Names(db))
