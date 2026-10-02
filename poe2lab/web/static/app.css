@@ -133,6 +133,8 @@ main { padding: 12px 28px 60px; min-width: 0; height: 100vh; overflow-y: auto; }
 .sa-why .chip { margin-right: 4px; }
 .sa-why-slot ul { margin: 4px 0 0; padding-left: 18px; }
 .sa-why-slot li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0; }
+.sa-hit-from { margin: 4px 0 0; padding-left: 18px; }
+.sa-hit-from li { margin: 2px 0; }
 @media (max-width: 900px) { .ai-grid { grid-template-columns: 1fr; } }
 .build-header {
   display: flex;

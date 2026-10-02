@@ -44,9 +44,14 @@ def test_a_character_gets_what_it_can_wear(monk):
     engine, cfg, db, all_bases = monk
     names = set(engine.slot_bases("Weapon 1"))
     bases = [b for b in all_bases if b["name"] in names]
-    a = slotadvice.advise(engine, db, cfg, "Weapon 1", bases, engine.equipped_bases()["Weapon 1"], level=40)
+    worn = engine.equipped_bases()["Weapon 1"]
+    # the character going toward a build (here the build is itself): the best items tried on it too
+    a = slotadvice.advise(engine, db, cfg, "Weapon 1", bases, worn, level=40, player=(engine, cfg, None, worn))
     base = next(b for b in all_bases if b["name"] == a["base"])
     assert base["level"] <= 40 and a["itemLevel"] == 40 and a["forLevel"] == 40
+    assert a["you"]["worn"] == worn and a["best"]
+    for b in a["best"].values():  # the same build: the same change
+        assert b["you"]["dps"] == pytest.approx(b["dps"]) and b["you"]["ehp"] == pytest.approx(b["ehp"])
 
 
 def test_links_and_kinds_from_pobs_names():
@@ -75,8 +80,9 @@ def test_links_and_kinds_from_pobs_names():
 
 
 class _Build:
-    """A build's numbers as PoB gives them: a staff's hit 25% physical, 75% cold - the cold gained from the
-    physical (a gem and a passive) - and evasion granting deflection (two items)."""
+    """A build's numbers as PoB gives them: a staff's hit 25% physical, 75% cold - cold the staff and a ring add and
+    damage gained as cold (a gem and a passive), scaled by elemental damage - and evasion granting deflection (two
+    items)."""
     def main_skill_of(self, group):
         return nullcontext()
 
@@ -90,7 +96,13 @@ class _Build:
     def stat_sources(self, names):
         def row(value, kind, name):
             return {"value": value, "source": {"kind": kind, "name": name}, "conds": []}
-        return {"skill": "Flicker Strike", "stats": {
+        return {"skill": "Flicker Strike", "attack": True,
+                "weaponDamage": {"Physical": {"min": 82, "max": 172}, "Cold": {"min": 43, "max": 62}}, "stats": {
+            "ColdMin": {"BASE": [row(24, "Item", "Rune Finger, Iron Ring")], "INC": [], "MORE": []},
+            "ColdMax": {"BASE": [row(32, "Item", "Rune Finger, Iron Ring")], "INC": [], "MORE": []},
+            "Damage": {"BASE": [], "INC": [row(119, "Tree", "Attack Damage")], "MORE": [row(30, "Skill", "Concentrated Area")]},
+            "ElementalDamage": {"BASE": [], "INC": [row(165, "Tree", "Elemental Damage")],
+                                "MORE": [row(25, "Skill", "Elemental Armament II")]},
             "DamageGainAsCold": {"BASE": [row(30, "Skill", "Freezing Mark"), row(10, "Tree", "I am the Blizzard...")],
                                  "INC": [], "MORE": []},
             "EvasionGainAsDeflection": {"BASE": [row(27, "Item", "Phoenix Sanctuary, Sleek Jacket"),
@@ -108,6 +120,13 @@ def test_facts_say_what_the_build_is_made_of():
     cold = f["links"][1]
     assert [(x["kind"], x["name"], x["value"]) for x in cold["sources"]] == [
         ("gem", "Freezing Mark", 30), ("tree", "I am the Blizzard...", 10)]
+    # where the hit's cold comes from, though the skill's description names none: the staff, a ring, the scaling
+    frm = f["hitFrom"]
+    assert frm["Cold"]["weapon"] == {"min": 43, "max": 62}
+    assert frm["Cold"]["added"] == [{"kind": "item", "name": "Rune Finger, Iron Ring", "min": 24, "max": 32}]
+    assert frm["Cold"]["inc"] == 284 and frm["Cold"]["more"] == pytest.approx(1.3 * 1.25)
+    assert frm["Physical"]["weapon"] == {"min": 82, "max": 172} and frm["Physical"]["added"] == []
+    assert frm["Physical"]["inc"] == 119 and frm["Physical"]["more"] == pytest.approx(1.3)
 
 
 def test_why_names_the_kinds_the_slot_pays_for_most():

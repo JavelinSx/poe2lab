@@ -979,16 +979,25 @@ def _slot_choice(slot: str) -> dict:
 
 
 def _slot_advice(slot: str) -> dict:
-    """The slot's advice (poe2lab.analysis.slotadvice), computed once: for the end game on its bases, for a character
-    on every base of the slot it can wear (a levelling one too)."""
+    """The slot's advice (poe2lab.analysis.slotadvice), computed once. A build alone: on itself, the end game's bases.
+    A player's character goes toward its build: the advice is the guide's - what the build needs, of every base of
+    the slot the character can wear at its level (a levelling one too) - and its best items tried on the character
+    against what it wears."""
     e, cfg = session.engine, session.profile.config()
-    level = session.level if session.main is not None else None
 
     def compute():
+        if session.main is None:
+            return slotadvice.advise(e, session.db(), cfg, slot, _slot_choice(slot)["bases"], e.equipped_bases().get(slot),
+                                     main_socket_group=_damage_group(e, cfg))
+        _, ref, rbp = _reference(RECORDED)
+        rcfg = MapProfile(rage=rbp.rage, mana_sustained=rbp.mana_sustained).config()
+        g = session.cached(("guide-damage-group",), lambda: main_group(ref, ref.skill_groups(), ref.skill_damage(rcfg)))
         names = set(e.slot_bases(slot))
-        bases = _slot_choice(slot)["bases"] if level is None else [b for b in _item_data()["bases"] if b["name"] in names]
-        return slotadvice.advise(e, session.db(), cfg, slot, bases, e.equipped_bases().get(slot),
-                                 main_socket_group=_damage_group(e, cfg), level=level)
+        mine = e.equipped_bases().get(slot)
+        return slotadvice.advise(ref, session.db(), rcfg, slot, [b for b in _item_data()["bases"] if b["name"] in names],
+                                 ref.equipped_bases().get(slot) or mine,
+                                 main_socket_group=None if g is None or g["main"] else g["index"], level=session.level,
+                                 player=(e, cfg, _damage_group(e, cfg), mine))
     return session.cached(("slot-advice", slot), compute)
 
 

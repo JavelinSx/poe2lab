@@ -1516,11 +1516,8 @@ const ELEMENTS = ["Fire", "Cold", "Lightning"];
 const linkStat = (k) => (["Physical", "Fire", "Cold", "Lightning", "Chaos"].includes(k) ? t("st_hit_" + k)
   : ["All", "Elemental", "Evasion", "Armour", "Deflection", "Life", "EnergyShield", "Mana", "Random"].includes(k) ? t("saStat_" + k)
   : k.includes("Or") ? k.split("Or").map(linkStat).join(t("saOr")) : k);
-const linkSource = (x) => {
-  const name = x.kind === "item" || x.kind === "jewel" ? trItem(x.name.split(",")[0])
-    : x.kind === "tree" && x.small ? t("exKind_small") : trName(x.name);
-  return `${name}${x.count > 1 ? ` ×${x.count}` : ""} ${fmt(x.value, 0)}%`;
-};
+const sourceName = (x) => (x.kind === "item" || x.kind === "jewel" ? trItem(x.name.split(",")[0]) : trName(x.name));
+const linkSource = (x) => `${sourceName(x)}${x.count > 1 ? ` ×${x.count}` : ""} ${fmt(x.value, 0)}%`;
 
 // why, from the build itself: what the main skill's hit is made of, the links between stats (damage gained as
 // another type, evasion granting deflection) and where each comes from, the defences; then what the slot pays for
@@ -1533,6 +1530,23 @@ function adviceWhy(a, slot) {
   if (hit.length) {
     rows.push(h("div", {}, "⚔ ", f.skill ? gemName(f.skill) : null, " ", t("saHits"), " ",
       hit.map(([k, v]) => h("span", { class: "chip tag", style: `border-color:${DMG_COLOR[k]}` }, `${t("st_hit_" + k)} ${fmt(v, 0)}%`))));
+    // where each type comes from: a skill's description may not name it - the weapon, what items add, what is
+    // gained as it, how much it is scaled
+    const from = f.hitFrom || {};
+    const range = (lo, hi) => `${fmt(lo, 0)}–${fmt(hi, 0)}`;
+    const lines = hit.filter(([k]) => from[k]).map(([k, v]) => {
+      const x = from[k];
+      const parts = [];
+      if (x.weapon) parts.push(`${t("saHitWeapon")} ${range(x.weapon.min, x.weapon.max)}`);
+      for (const s of x.added) parts.push(`${sourceName(s)} ${range(s.min, s.max)}`);
+      for (const l of (f.links || []).filter((l) => l.to === k || l.to.split("Or").includes(k))) {
+        parts.push(`${l.how === "gain" ? t("saLinkGain", linkStat(l.from), fmt(l.value, 0), linkStat(k))
+          : t("saLinkConvert", linkStat(l.from), fmt(l.value, 0), linkStat(k))} (${l.sources.map(linkSource).join(", ")})`);
+      }
+      parts.push(t("saHitScale", fmt(x.inc, 0), x.more > 1.005 ? fmt(x.more, 2) : null));
+      return h("li", {}, h("b", { style: `color:${DMG_COLOR[k]}` }, `${t("st_hit_" + k)} ${fmt(v, 0)}%`), ": ", parts.join(" · "));
+    });
+    if (lines.length) rows.push(h("details", { class: "small" }, h("summary", {}, t("saHitFrom")), h("ul", { class: "sa-hit-from" }, lines)));
   }
   // links of one source and size together: "elemental → fire / cold / lightning 33%" (Painter's Servant)
   const links = {};
@@ -1574,7 +1588,7 @@ function adviceWhy(a, slot) {
       h("ul", {}, a.why.map((w) => h("li", {}, h("b", {}, t("saKind_" + w.kind)), " ", deltas({ dps: w.dps, ehp: w.ehp }, METRIC, 0.1),
         reason(w.kind) ? h("span", { class: "muted small" }, " — ", reason(w.kind)) : null)))));
   }
-  return rows.length ? h("div", { class: "hint sa-why" }, h("div", { class: "small" }, h("b", {}, t("saWhyTitle"))), ...rows) : null;
+  return rows.length ? h("div", { class: "hint sa-why" }, h("div", { class: "small" }, h("b", {}, t(a.you ? "saWhyTitleGuide" : "saWhyTitle"))), ...rows) : null;
 }
 
 function renderAdvice(a, slot) {
@@ -1582,7 +1596,7 @@ function renderAdvice(a, slot) {
   const metric = (x) => deltas({ dps: x.dps, ehp: x.ehp }, METRIC, 0.1);
   const out = [adviceWhy(a, slot)].filter(Boolean);
   out.push(h("div", { class: "small muted" }, t(a.inItem ? "saSubInItem" : "saSub", trName(a.base), a.itemLevel),
-    a.forLevel ? " " + t("saForLevel", a.forLevel) : ""));
+    a.forLevel ? " " + t(a.you ? "saForLevelGuide" : "saForLevel", a.forLevel) : ""));
   out.push(h("table", { class: "ex-table" }, h("tbody", {}, a.mods.slice(0, 10).map((m) => h("tr", {},
     h("td", { class: "mod" }, m.lines.map(trMod).join(" / "), " ", h("span", { class: "muted small" }, m.type === "Prefix" ? t("saPrefix") : t("saSuffix"))),
     h("td", { title: m.aloneDps !== undefined ? t("saAloneHint", fmt(m.aloneDps, 1), fmt(m.aloneEhp, 1)) : null }, metric(m)))))));
@@ -1600,9 +1614,11 @@ function renderAdvice(a, slot) {
     const marketBtn = h("button", { class: "ghost small", "data-wait": "saMarketSearching" }, t("saMarket"));
     marketBtn.onclick = open(marketBtn, async () => adviceMarket(await api("/api/gear/advice/market",
       { method: "POST", body: { slot, mode, status: tradeStatus() } })));
+    // a character going toward its build: the item against what the character wears; a build alone: against its own
+    const against = a.you ? h("span", {}, h("span", { class: "small muted" }, a.you.uniqueWorn ? t("saYouVsUnique") : t("saYouVsWorn")), " ", metric(b.you))
+      : h("span", {}, h("span", { class: "small muted" }, a.uniqueWorn ? t("saVsUnique") : t("saVsWorn")), " ", metric(b));
     out.push(h("div", { class: "sk-better" },
-      h("div", {}, h("b", {}, mode === "damage" ? "⚔ " + t("saBestDamage") : "⚖ " + t("saBestBalanced")), " ",
-        h("span", { class: "small muted" }, a.uniqueWorn ? t("saVsUnique") : t("saVsWorn")), " ", metric(b)),
+      h("div", {}, h("b", {}, mode === "damage" ? "⚔ " + t("saBestDamage") : "⚖ " + t("saBestBalanced")), " ", against),
       h("ul", { class: "item-lines small" }, b.lines.map((l) => h("li", {}, trMod(l)))),
       h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => itemEditor(slot, b.text) }, t("saTry")), craftBtn, marketBtn),
       extra));

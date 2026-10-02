@@ -364,7 +364,8 @@ return _poe2lab_json(out)""")
         """PoB's modifiers to each stat as the main skill sees them (`player`: the character's own, for defences), by
         type (BASE, INC, MORE): each with its value, where it comes from by name (a passive and its kind, an item, a
         gem, a jewel in its socket) and the conditions it waits for - with the Configuration box that is each one's.
-        Also the main skill's base critical chance (its weapon's for an attack) and the `flags` it has."""
+        Also the main skill's base critical chance (its weapon's for an attack), whether it is an attack, its weapon's
+        damage by type and the `flags` it has."""
         stats = ", ".join(lua_string(n) for n in names)
         flag_list = ", ".join(lua_string(f) for f in flags)
         return self._json(f"""
@@ -441,8 +442,16 @@ end
 if skill then
   local w = env.player.weaponData1
   out.skill = skill.activeEffect.grantedEffect.name
+  out.attack = (skill.skillTypes and skill.skillTypes[SkillType.Attack]) and true or false
   out.weaponCrit = w and w.CritChance or nil
   out.weapon = w and w.name or nil
+  -- the weapon's own damage by type (its local mods counted): what an attack starts from
+  for _, t in ipairs({{ "Physical", "Fire", "Cold", "Lightning", "Chaos" }}) do
+    if w and (w[t .. "Max"] or 0) > 0 then
+      out.weaponDamage = out.weaponDamage or {{}}
+      out.weaponDamage[t] = {{ min = w[t .. "Min"] or 0, max = w[t .. "Max"] }}
+    end
+  end
   out.skillCrit = skill.skillData and skill.skillData.CritChance or nil
   out.attackRate = w and w.AttackRate or nil
   out.castTime = skill.activeEffect.grantedEffect.castTime or nil

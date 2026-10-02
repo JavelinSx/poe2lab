@@ -9,6 +9,9 @@ best, and is the unique a must?", worked out by PoB on the build itself.
   worn item. The worn item a unique: whether a rare beats it, and by how much.
 
 - Each mod in context: what it is worth inside that good item, not on an empty one.
+- A player's character goes toward its build: everything above is worked out on the build (the guide) - what it
+  needs - of what the character can find and wear at its level; the best items are then tried on the character
+  too, against what it wears.
 - Why, from the build itself: what the main skill's hit is made of, the links PoB counts between stats (damage
   gained as another type, evasion granting deflection) with where each comes from, the character's defences; and
   the kinds of mod the slot pays for most - "the hit is 77% cold and its cold comes from the staff's physical: the
@@ -34,6 +37,7 @@ PLAY = re.compile(r"movement speed", re.I)
 LINKS = ("GainAs", "ConvertTo")
 _LINK = re.compile(r"^(?:Skill)?(?P<src>[A-Za-z]*?)(?:Damage)?(?:Skill)?(?P<how>GainAs|ConvertTo)(?P<dst>[A-Za-z]+)$")
 DEFENCES = ("Life", "EnergyShield", "Evasion", "Armour")
+ELEMENTS = ("Fire", "Cold", "Lightning")
 # the kinds of mod, the first that matches a mod's lines (PoB's English wording)
 KINDS = [("gems", r"to Level of all"), ("crit", r"Critical"), ("speed", r"Attack Speed|Cast Speed"),
          ("resist", r"Resistance"), ("deflect", r"Deflect"), ("evasion", r"Evasion"), ("armour", r"Armour"),
@@ -73,16 +77,43 @@ def kind_of(lines) -> str:
     return next((k for k, rx in KINDS if rx.search(text)), "other")
 
 
+def _hit_from(src: dict, hit: dict) -> dict:
+    """Where each damage type of the hit comes from - a skill's description may not name it at all: the weapon's own
+    damage (an attack's), the damage added by each item or passive (min to max), and how much the type is scaled
+    ("increased" summed, "more" multiplied; an element by elemental damage too)."""
+    def rows(name, kind):
+        return src["stats"].get(name, {}).get(kind, [])
+    weapon = src.get("weaponDamage") if src.get("attack") and isinstance(src.get("weaponDamage"), dict) else {}
+    out = {}
+    for t in hit:
+        low = {(g["kind"], g["name"]): g["value"] for g in _grouped(rows(f"{t}Min", "BASE"))}
+        high = {(g["kind"], g["name"]): g["value"] for g in _grouped(rows(f"{t}Max", "BASE"))}
+        scaled = ["Damage", f"{t}Damage"] + (["ElementalDamage"] if t in ELEMENTS else [])
+        more = 1.0
+        for r in (r for m in scaled for r in rows(m, "MORE")):
+            more *= 1 + r["value"] / 100
+        out[t] = {"weapon": weapon.get(t),
+                  "added": [{"kind": k, "name": n, "min": low.get((k, n), 0.0), "max": high.get((k, n), 0.0)}
+                            for k, n in dict.fromkeys([*low, *high])],
+                  "inc": sum(r["value"] for m in scaled for r in rows(m, "INC")), "more": more}
+    return out
+
+
 def facts(engine, config: dict, main_socket_group: int | None = None) -> dict:
     """What the build is made of, for the why of a slot: the main skill and what its hit is made of (% by damage
-    type), its crit chance, the links PoB counts between stats (each with its total and where it comes from) and the
-    character's defences."""
+    type) and where each type comes from, its crit chance, the links PoB counts between stats (each with its total
+    and where it comes from) and the character's defences."""
     with engine.main_skill_of(main_socket_group) if main_socket_group is not None else nullcontext():
         o = engine.what_if(config=config)
+        hit = hit_shares(o)
         names = engine.stat_names(LINKS)
-        src = engine.stat_sources(names) if names else {"stats": {}}
+        made = [f"{t}{end}" for t in hit for end in ("Min", "Max", "Damage")] + ["Damage"]
+        if set(hit) & set(ELEMENTS):
+            made.append("ElementalDamage")
+        src = engine.stat_sources(names + made)
     links = []
-    for name, per in src["stats"].items():
+    for name in names:
+        per = src["stats"].get(name, {})
         m = _LINK.match(name)
         rows = [r for r in per.get("BASE", []) if r["value"]]
         if not m or not rows:
@@ -90,7 +121,7 @@ def facts(engine, config: dict, main_socket_group: int | None = None) -> dict:
         links.append({"stat": name, "from": m["src"] or "All", "how": "gain" if m["how"] == "GainAs" else "convert",
                       "to": m["dst"], "value": sum(r["value"] for r in rows),
                       "sources": [{k: g[k] for k in ("kind", "name", "small", "value", "count")} for g in _grouped(rows)]})
-    return {"skill": src.get("skill"), "hit": hit_shares(o), "crit": o.get("CritChance", 0.0),
+    return {"skill": src.get("skill"), "hit": hit, "hitFrom": _hit_from(src, hit), "crit": o.get("CritChance", 0.0),
             "links": sorted(links, key=lambda l: -l["value"]),
             "defences": {d: o.get(d, 0.0) for d in DEFENCES if o.get(d, 0.0) >= DEFENCE_MIN},
             "deflection": o.get("DeflectChance", 0.0)}
@@ -107,11 +138,13 @@ def why_of(mods: list[dict]) -> list[dict]:
 
 
 def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | None,
-           main_socket_group: int | None = None, level: int | None = None) -> dict:
+           main_socket_group: int | None = None, level: int | None = None, player: tuple | None = None) -> dict:
     """The slot's mods priced for this build and the best items made of them (see the module's note).
     `worn`: the equipped item's base, type, subType and rarity (PobEngine.equipped_bases), None for an empty slot;
     `main_socket_group`: the skill whose damage counts (the build's main one by default); `level`: a character's
-    level - the bases it can wear and the tiers an item found at its level rolls (the end game without it)."""
+    level - the bases it can wear and the tiers an item found at its level rolls (the end game without it);
+    `player`: the character going toward this build - (engine, config, main socket group, its worn item) - the
+    best items tried on it against what it wears."""
     item_level = min(ITEM_LEVEL, level) if level else ITEM_LEVEL
     if level:
         bases = [b for b in bases if b["level"] <= level]
@@ -190,6 +223,15 @@ def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | 
             except itemcraft.CraftError:
                 continue
             m["dps"], m["ehp"] = c["dps"] - ref_c["dps"], c["ehp"] - ref_c["ehp"]
+    you = None
+    if player:  # the best items on the character itself, against what it wears now
+        p_engine, p_config, p_group, p_worn = player
+        p_now = p_engine.what_if(config=p_config, main_socket_group=p_group)
+        for b in best.values():
+            c = metric_changes(p_engine.what_if(config=p_config, replace_item=(slot, b["text"]),
+                                                main_socket_group=p_group), p_now)
+            b["you"] = {"dps": c["dps"], "ehp": c["ehp"]}
+        you = {"worn": p_worn, "uniqueWorn": bool(p_worn and p_worn.get("rarity") == "UNIQUE")}
     mods.sort(key=lambda m: -(m["dps"] + m["ehp"]))
     counted = [m for m in mods if abs(m["dps"]) >= 0.1 or abs(m["ehp"]) >= 0.1]
     rest = [" / ".join(m["lines"]) for m in mods if m not in counted]
@@ -198,4 +240,4 @@ def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | 
             "inItem": ref is not None,
             # nothing to this build's damage or effective life by PoB; movement speed and the like are the game's
             "play": sorted({l for l in rest if PLAY.search(l)}), "useless": sorted({l for l in rest if not PLAY.search(l)}),
-            "best": best, "why": why_of(counted), "facts": facts(engine, config, main_socket_group)}
+            "best": best, "why": why_of(counted), "facts": facts(engine, config, main_socket_group), "you": you}
