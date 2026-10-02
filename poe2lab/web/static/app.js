@@ -120,6 +120,15 @@ const itemIcon = (name, base, rarity = "") => {
 };
 
 const loading = (text) => h("div", { class: "loading" }, h("div", { class: "spinner" }), text);
+// an interface icon of the sprite in index.html (one colour: it takes the text's)
+function I(id, cls = "") {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "ic" + (cls ? " " + cls : ""));
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#i-" + id);
+  svg.append(use);
+  return svg;
+}
 
 const DMG_COLOR = { Physical: "var(--phys)", Fire: "var(--fire)", Cold: "var(--cold)", Lightning: "var(--lightning)", Chaos: "var(--chaos)" };
 const METRIC = [["dps", "m_dps"], ["ehp", "m_ehp"], ["phys_hit", "m_phys"], ["fire_hit", "m_fire"], ["cold_hit", "m_cold"],
@@ -227,18 +236,21 @@ async function loadBuildList() {
     for (const b of builds) {
       // a div, not a button: the star and the cross inside are buttons of their own
       box.append(h("div", {
-        class: "build-item" + (state.build && state.build.name === b.name ? " active" : "") + (b.favorite ? " fav" : ""),
-        role: "button", tabindex: "0", onclick: () => openBuild(b.name),
+        class: "bitem" + (state.build && state.build.name === b.name ? " is-on" : "") + (b.favorite ? " is-fav" : ""),
+        role: "button", tabindex: "0", title: b.name, onclick: () => openBuild(b.name),
         onkeydown: (e) => { if (e.key === "Enter") openBuild(b.name); },
       },
-      h("div", { class: "bi-text" },
-        h("div", { class: "bi-name" }, b.name),
-        h("div", { class: "bi-kind" }, (b.kind === "pob" ? t("savedInPob") : t("pobCode")) + (b.hasProfile ? " · " + t("withProfile") : "")
-          + (b.hasMain ? " · " + t("chInList") : ""))),
-      h("button", { class: "bi-act star" + (b.favorite ? " on" : ""), title: b.favorite ? t("favOff") : t("favOn"),
-        onclick: (e) => { e.stopPropagation(); toggleFavorite(b); } }, b.favorite ? "★" : "☆"),
-      h("button", { class: "bi-act del", title: t("removeBuild"),
-        onclick: (e) => { e.stopPropagation(); removeBuild(b); } }, "×")));
+      h("span", { class: "bitem-n" }, b.name),
+      h("span", { class: "bitem-m" },
+        b.kind === "pob" ? h("span", { title: t("savedInPob") }, t("savedInPob"))
+          : h("span", { title: t("pobCode") }, I("scroll"), "PoB"),
+        b.hasProfile ? h("span", { title: t("withProfile") }, I("id")) : null,
+        b.hasMain ? h("span", { class: "is-me", title: t("chInList") }, I("person"), t("mainShort")) : null),
+      h("span", { class: "bitem-x" },
+        h("button", { class: "icon-btn sm star", title: b.favorite ? t("favOff") : t("favOn"),
+          onclick: (e) => { e.stopPropagation(); toggleFavorite(b); } }, I(b.favorite ? "star" : "star-o", "ic-s")),
+        h("button", { class: "icon-btn sm", title: t("removeBuild"),
+          onclick: (e) => { e.stopPropagation(); removeBuild(b); } }, I("x", "ic-s")))));
     }
     if (hidden.count) {
       box.append(h("button", { class: "link small", onclick: async () => {
@@ -267,6 +279,7 @@ async function removeBuild(b) {
       state.chat = [];
       resetCache();
       $("#build-header").classList.add("hidden");
+      $("#bh-controls").classList.add("hidden");
       $("#tabs").classList.add("hidden");
       renderEmpty();
     }
@@ -583,16 +596,20 @@ function renderHeader() {
   loadAllGems();
   setBuildNames(b);
   $("#build-header").classList.remove("hidden");
+  $("#bh-controls").classList.remove("hidden");
   $("#tabs").classList.remove("hidden");
   $("#bh-name").textContent = b.name;
   document.title = `${b.name} · poe2lab`;
-  $("#bh-menu").textContent = t("bhMenu");
+  $("#bh-menu").title = t("bhMenu");
+  $("#bh-menu").setAttribute("aria-label", t("bhMenu"));
   renderChanges();
   renderCtorBar();
+  const way = b.main && b.guide.level ? Math.max(0, Math.min(100, (b.info.level / b.guide.level) * 100)) : 0;
   $("#bh-sub").replaceChildren(...(b.main
-    ? [h("span", { class: "bh-who mine", title: t("chMineHint") }, "👤 ", t("chMine"), " ", who(b.info)),
-      h("span", { class: "bh-who", title: t("chGuideHint") }, "📘 ", t("chGuide"), " ", who(b.guide))]
-    : [who(b.info)]));
+    ? [h("span", { class: "who-item", title: t("chMineHint") }, h("span", { class: "av me" }, I("person")), t("chMine"), " ", h("b", {}, who(b.info))),
+      h("span", { class: "who-path", title: t("whoPath", b.info.level, b.guide.level) }, h("span", { class: "track", style: `--v:${way}%` }, h("i"))),
+      h("span", { class: "who-item", title: t("chGuideHint") }, h("span", { class: "av guide" }, I("scroll")), t("chGuide"), " ", who(b.guide))]
+    : [h("span", { class: "who-item" }, h("b", {}, who(b.info)))]));
   // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
   const entries = b.groups.flatMap((g) => g.skills.map((s, i) => ({ group: g.index, skill: i + 1, name: s })));
@@ -602,8 +619,8 @@ function renderHeader() {
     class: "picker-item" + (e === current ? " active" : ""),
     onclick: () => { list.classList.add("hidden"); if (e !== current) openBuild(b.name, e.group, e.skill); },
   }, label(e))));
-  const button = h("button", { class: "picker-button", onclick: (ev) => { ev.stopPropagation(); list.classList.toggle("hidden"); } },
-    current ? label(current) : null, h("span", { class: "caret" }, "▾"));
+  const button = h("button", { class: "picker-button select", onclick: (ev) => { ev.stopPropagation(); list.classList.toggle("hidden"); } },
+    current ? label(current) : null, I("chev"));
   picker.replaceChildren(button, list);
 }
 
@@ -719,11 +736,11 @@ async function applyReload(code) {
 }
 
 async function reloadFromFile() {
-  const btn = $("#bh-menu");
-  const was = btn.textContent;
+  const btn = $("#bh-menu"), label = $("#bh-menu-label");
   btn.disabled = true;
-  btn.textContent = t("reloading");
-  try { await applyReload(""); } catch (e) { toast(e.message); btn.textContent = was; }
+  label.textContent = t("reloading");
+  try { await applyReload(""); } catch (e) { toast(e.message); }
+  label.textContent = "";
   btn.disabled = false;
 }
 
@@ -848,7 +865,7 @@ function renderChanges() {
 
 // forms that replace the build view (add, update, feedback) hide everything tied to the open build
 function hideBuildChrome() {
-  for (const id of ["#build-header", "#tabs", "#changes", "#build-notice", "#ctor-bar", "#plan-strip"]) $(id).classList.add("hidden");
+  for (const id of ["#build-header", "#bh-controls", "#tabs", "#changes", "#build-notice", "#ctor-bar", "#plan-strip"]) $(id).classList.add("hidden");
 }
 
 document.addEventListener("click", (e) => {
@@ -856,14 +873,14 @@ document.addEventListener("click", (e) => {
 });
 
 $("#mode").addEventListener("click", (e) => {
-  const m = e.target.dataset.mode;
+  const m = e.target.closest("button")?.dataset.mode;
   if (!m || m === state.mode) return;
   state.mode = m;
   document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
   switchTab(state.tab);
 });
 
-$("#tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) switchTab(e.target.dataset.tab); });
+$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) switchTab(b.dataset.tab); });
 
 // ---------- folding cards ----------
 // Every card with a heading folds by a click on it: long tabs become a list of headings to open what is needed.
@@ -982,7 +999,7 @@ function readHash() {
 
 async function switchTab(tab) {
   state.page = null;
-  if (tab !== state.tab) document.querySelector("main").scrollTop = 0;  // a new tab starts at its top
+  if (tab !== state.tab) window.scrollTo(0, 0);  // a new tab starts at its top
   state.tab = tab;
   writeHash();
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
@@ -995,7 +1012,8 @@ async function switchTab(tab) {
     // a build with the player's character: the tab on the character (Мейн) or the build it follows (Билд)
     const sided = state.build.main && SIDE_VIEWS[tab];
     const host = sided ? h("div", {}) : view;
-    if (sided) view.replaceChildren(sideSwitch(tab), host);
+    $("#scope").replaceChildren(...(sided ? [sideSwitch(tab)] : []));
+    if (sided) view.replaceChildren(...[state.side === "build" ? guideRibbon() : null, host].filter(Boolean));
     const content = await (sided && state.side === "build" ? SIDE_VIEWS[tab] : TABS[tab])(host);
     if (switchTab.token === token && content) host.replaceChildren(content);
     if (switchTab.token === token) renderPlanStrip();
@@ -1088,11 +1106,15 @@ const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=
 
 // ---------- a build with the player's character: its tabs as the build (the guide) has them, against the character ----------
 function sideSwitch(tab) {
-  return h("div", { class: "side-switch" }, h("div", { class: "segmented", title: t("sideHint") },
-    [["main", t("sideMain")], ["build", t("sideBuild")]].map(([k, label]) => h("button", {
-      class: (state.side || "main") === k ? "active" : "", onclick: () => { state.side = k; switchTab(tab); } }, label))),
-  h("span", { class: "muted small" }, (state.side || "main") === "build" ? t("sideBuildNote", who(state.build.guide)) : t("sideMainNote", who(state.build.info))));
+  const side = state.side || "main";
+  return h("div", { class: "seg scope", title: t("sideHint") },
+    [["main", "me", "person", t("sideMainShort")], ["build", "guide", "scroll", t("sideBuildShort")]].map(([k, who_, ic, label]) => h("button", {
+      class: side === k ? `is-on ${who_}` : "", onclick: () => { state.side = k; switchTab(tab); } },
+    h("span", { class: "av " + who_ }, I(ic)), label)));
 }
+// the view is the guide's: a ribbon over it says so
+const guideRibbon = () => h("div", { class: "ribbon" }, h("span", { class: "av guide" }, I("scroll")),
+  h("span", {}, h("b", {}, t("ribbonGuide")), " · ", t("ribbonVs", who(state.build.guide), state.build.info.level)));
 const guideGear = () => cached("refgear:" + RECORDED_REF, () => api(`/api/versus/gear?ref=${RECORDED_REF}&${buildQuery()}`));
 const guideVersus = () => cached("versus:" + RECORDED_REF, () => api(`/api/versus?ref=${RECORDED_REF}&${buildQuery()}`));
 const guideHead = (g) => h("div", { class: "sub" }, t("sideGuideIs", `${trName(g.ascendancy || g.class)} · ${t("level", g.level)}`, trName(g.skill)));

@@ -8,74 +8,72 @@
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="brand">poe2<span>lab</span></div>
-    <div class="side-title-row"><span class="side-title" data-i18n="builds"></span>
-      <button id="refresh-builds" class="icon-btn" data-i18n-title="refresh">↻</button></div>
-    <button id="new-build" class="primary small" data-i18n="nbButton"></button>
-    <button id="add-build" class="ghost small" data-i18n="addBuild"></button>
-    <div id="builds" class="build-list"></div>
-    <div class="side-foot">
-      <div class="side-tiles">
-        <button id="glossary-open" class="side-tile" data-i18n-title="glOpen"><span class="st-ico">📖</span><span data-i18n="glShort"></span></button>
-        <button id="journal-open" class="side-tile" data-i18n-title="jnOpen"><span class="st-ico">⚒</span><span data-i18n="jnShort"></span></button>
-        <button id="feedback" class="side-tile" data-i18n-title="fbButton"><span class="st-ico">✉</span><span data-i18n="fbShort"></span></button>
-        <button id="settings-open" class="side-tile" data-i18n-title="setHint" aria-expanded="false"><span class="st-ico">⚙</span><span data-i18n="setShort"></span></button>
-      </div>
-      <div id="settings-box" class="settings-box hidden">
-        <label class="league-pick small"><span class="muted" data-i18n="leagueLabel"></span>
-          <select id="league"></select></label>
-        <button id="ru-status" class="link small hidden"></button>
-        <div id="llm-status" class="small muted"></div>
-      </div>
-      <button id="stop-app" class="ghost small stop-app" data-i18n="stopApp" data-i18n-title="stopHint"></button>
-      <div class="ggg-notice">This product isn't affiliated with or endorsed by Grinding Gear Games in any way.</div>
+  <svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true"><symbol id="i-book" viewBox="0 0 24 24"><path d="M2.5 5.2C5 4 8.6 4 11 5.4v14.4c-2.5-1.3-6-1.3-8.5-.2Z M21.5 5.2C19 4 15.4 4 13 5.4v14.4c2.5-1.3 6-1.3 8.5-.2Z"/></symbol><symbol id="i-anvil" viewBox="0 0 24 24"><path d="M2 6.5h13.5c.6 1.7 2.6 2.7 6.5 2.7v1.6c-3.6.3-6.2 1.6-7.2 3.6v1.3h2.7V19H5.5v-3.3h2.7v-1.3C7.4 12.2 5.3 10.8 2 10.6Z"/></symbol><symbol id="i-mail" viewBox="0 0 24 24"><path d="M3 5.5h18v1.3l-9 6.4-9-6.4Z M3 9.3l9 6.3 9-6.3v9.2H3Z"/></symbol><symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="3.4"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(0 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(45 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(90 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(135 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(180 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(225 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(270 12 12)"/><rect x="10.3" y="1.6" width="3.4" height="4.6" rx=".9" transform="rotate(315 12 12)"/></symbol><symbol id="i-power" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v8"/><path d="M7.2 6.6a7.5 7.5 0 1 0 9.6 0"/></g></symbol><symbol id="i-plus" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></g></symbol><symbol id="i-x" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></g></symbol><symbol id="i-chev" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></g></symbol><symbol id="i-chev-r" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></g></symbol><symbol id="i-arrow-r" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></g></symbol><symbol id="i-arrow-l" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H6M11 6l-6 6 6 6"/></g></symbol><symbol id="i-refresh" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4.6h-4.6"/></g></symbol><symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></g></symbol><symbol id="i-help" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5 .9c0 1.8-2.5 2.1-2.5 3.6"/></g><circle cx="12" cy="17" r="1.2"/></symbol><symbol id="i-info" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/></g><circle cx="12" cy="7.7" r="1.2"/></symbol><symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8Z"/></symbol><symbol id="i-star-o" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8Z"/></symbol><symbol id="i-person" viewBox="0 0 24 24"><path d="M12 2.5a4.3 4.3 0 1 1 0 8.6 4.3 4.3 0 0 1 0-8.6Z M3.5 21.5c0-4.7 3.8-8.2 8.5-8.2s8.5 3.5 8.5 8.2Z"/></symbol><symbol id="i-scroll" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M6.5 3H18a3 3 0 0 1 0 6h-1.2v9.5A2.5 2.5 0 0 1 14.3 21H5.5a2.5 2.5 0 0 1 0-5h1Z M9 7h5v1.4H9Z M9 10.2h5v1.4H9Z M9 13.4h5v1.4H9Z"/></symbol><symbol id="i-sword" viewBox="0 0 24 24"><path d="M21 3l-.8 4.6L11 16.8 7.2 13 16.4 3.8Z M4.6 12.4l7 7-1.5 1.5-2-2-2.8 2.8a1.1 1.1 0 0 1-1.6-1.6l2.8-2.8-2-2Z"/></symbol><symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.3l8.2 3.1v5.9c0 5.2-3.5 9-8.2 10.4C7.3 20.3 3.8 16.5 3.8 11.3V5.4Z"/></symbol><symbol id="i-broken" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2.3l8.2 3.1v5.9c0 5.2-3.5 9-8.2 10.4C7.3 20.3 3.8 16.5 3.8 11.3V5.4Z M12.9 4.6l-2.3 5.1 3 2.1-2.6 5.6 1.3.3 3.2-6.3-3-2.1 1.7-4.3Z"/></symbol><symbol id="i-scales" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5V20M7.5 20h9M4.5 7h15"/></g><path d="M1.6 13.2 4.5 7l2.9 6.2a2.9 2.9 0 0 1-5.8 0Z M16.6 13.2 19.5 7l2.9 6.2a2.9 2.9 0 0 1-5.8 0Z"/></symbol><symbol id="i-warn" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2.6 22.4 20.6H1.6Z M11 9h2v5.8h-2Z M11 16.3h2v2.1h-2Z"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" d="M5 12.5l4.5 4.5L19 7.5"/></symbol><symbol id="i-target" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4.2"/><path d="M12 1.5v3.4M12 19.1v3.4M1.5 12h3.4M19.1 12h3.4"/></g><circle cx="12" cy="12" r="1.6"/></symbol><symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.6 2 4.8 13.4h6.3L9.8 22l9.4-12.3h-6.3Z"/></symbol><symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.4c-3 4.6-6.6 8.2-6.6 12.2a6.6 6.6 0 0 0 13.2 0c0-4-3.6-7.6-6.6-12.2Z"/></symbol><symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.5s-8.5-5-8.5-11A4.6 4.6 0 0 1 12 6.6a4.6 4.6 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11Z"/></symbol><symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21.5V2.8h1.6v1.1H19.5l-3.2 4.6 3.2 4.6H6.6v8.4Z"/></symbol><symbol id="i-map" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M2.5 5.8 8.3 3.5l7.4 2.6 5.8-2.3v14.4l-5.8 2.3-7.4-2.6-5.8 2.3Z M7.7 5.5h1.2v12.2H7.7Z M15.1 8.1h1.2v12.2h-1.2Z"/></symbol><symbol id="i-crown" viewBox="0 0 24 24"><path d="M2.5 7.5l5 4.2L12 3.8l4.5 7.9 5-4.2-2 10.7H4.5Z M4.6 19.5h14.8v1.8H4.6Z"/></symbol><symbol id="i-tree" viewBox="0 0 24 24"><path d="M12 1.8c3.3 0 5.9 2.4 5.9 5.5 0 .8-.2 1.5-.5 2.2a4.6 4.6 0 0 1-2.2 8.6h-2.2v4.1h-2v-4.1H8.8a4.6 4.6 0 0 1-2.2-8.6 5.3 5.3 0 0 1-.5-2.2c0-3.1 2.6-5.5 5.9-5.5Z"/></symbol><symbol id="i-chest" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M3 10.3h18v9.7H3Z M10.8 11.6h2.4v3.6h-2.4Z M3.6 9.2C4.5 6 7.7 4.4 12 4.4s7.5 1.6 8.4 4.8Z"/></symbol><symbol id="i-hammer" viewBox="0 0 24 24"><path d="M3.3 6.7 8.6 2.4l4.6 4.6-1.6 1.6.9.9-1.7 1.7-.9-.9-1.6 1.6Z M10.9 12.4l1.7-1.7 8.6 8.6a1.2 1.2 0 0 1-1.7 1.7Z"/></symbol><symbol id="i-coins" viewBox="0 0 24 24"><path d="M12 3c4.4 0 8 1.4 8 3.2s-3.6 3.2-8 3.2-8-1.4-8-3.2S7.6 3 12 3Z M4 8.6c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2v2.6c0 1.8-3.6 3.2-8 3.2s-8-1.4-8-3.2Z M4 13.4c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V16c0 1.8-3.6 3.2-8 3.2S4 17.8 4 16Z"/></symbol><symbol id="i-skull" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2.4c-4.6 0-8 3.2-8 7.5 0 2.6 1.2 4.5 3 5.5v3.4h2.2v-2.1h1.7v2.1h2.2v-2.1h1.7v2.1H17v-3.4c1.8-1 3-2.9 3-5.5 0-4.3-3.4-7.5-8-7.5Z M8.6 8.6a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8Z M15.4 8.6a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8Z"/></symbol><symbol id="i-gem" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M7 3.2h10l4.3 5.9L12 21 2.7 9.1Z M12 6.4l3.4 3.2L12 16.2 8.6 9.6Z"/></symbol><symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M6 2.2h12v2h-1.1c0 3.6-2.6 5.6-3.6 7.8 1 2.2 3.6 4.2 3.6 7.8H18v2H6v-2h1.1c0-3.6 2.6-5.6 3.6-7.8C9.7 9.8 7.1 7.8 7.1 4.2H6Z"/></symbol><symbol id="i-funnel" viewBox="0 0 24 24"><path d="M3 4h18l-7 8.6v7.6l-4-2v-5.6Z"/></symbol><symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 3.5h16A1.5 1.5 0 0 1 21.5 5v10.5A1.5 1.5 0 0 1 20 17h-8.5l-5 4v-4H4a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 4 3.5Z"/></symbol><symbol id="i-id" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M2.5 5h19v14h-19Z M8 8.2a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4Z M4.8 16.2c.3-1.8 1.6-2.9 3.2-2.9s2.9 1.1 3.2 2.9Z M13.5 9h5.5v1.4h-5.5Z M13.5 12h5.5v1.4h-5.5Z"/></symbol><symbol id="i-compass" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19Z M16.2 7.8l-2.6 5.8-5.8 2.6 2.6-5.8Z"/></symbol><symbol id="i-chart" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 19.5h17M5 15l4.5-4.5 3.5 3 6-6.5M15 7h4v4"/></g></symbol><symbol id="i-eye" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 5c5.2 0 9.2 4.6 10 7-.8 2.4-4.8 7-10 7S2.8 14.4 2 12c.8-2.4 4.8-7 10-7Z M12 8.6a3.4 3.4 0 1 1 0 6.8 3.4 3.4 0 0 1 0-6.8Z"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></g></symbol><symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 1.8l2.3 7.9 7.9 2.3-7.9 2.3L12 22.2l-2.3-7.9L1.8 12l7.9-2.3Z"/></symbol><symbol id="i-record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></symbol><symbol id="i-clip" viewBox="0 0 24 24"><path d="M8 2.8h8v3H8Z M5.5 4.5h1.2v2.8h10.6V4.5h1.2A1.5 1.5 0 0 1 20 6v14.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 20.5V6a1.5 1.5 0 0 1 1.5-1.5Z"/></symbol><symbol id="i-upload" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 8.5 12 3.5l5 5M4.5 19.5h15"/></g></symbol><symbol id="i-download" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11M7 9.5l5 5 5-5M4.5 19.5h15"/></g></symbol><symbol id="i-lay-1" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 12h16"/></g></symbol><symbol id="i-lay-2" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M12 4v16M4 12h16"/></g></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4.5L15.5 5a2 2 0 0 1 2.9 0l.6.6a2 2 0 0 1 0 2.9L8.5 19Z"/></symbol><symbol id="i-helm" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2.5c-4.7 0-8 3.6-8 8.3V16l3 2v3.5h2.5V18h5v3.5H17V18l3-2v-5.2c0-4.7-3.3-8.3-8-8.3Z M7 10.4h10v2.3H7Z"/></symbol><symbol id="i-phys" viewBox="0 0 24 24"><path d="M12 2.5l7.5 9.5-7.5 9.5L4.5 12Z"/></symbol><symbol id="i-fire" viewBox="0 0 24 24"><path d="M12.5 2c.6 3.6 5.5 5.6 5.5 11a6 6 0 0 1-12 0c0-2.6 1.3-4.6 2.6-5.8.2 2 1.2 3.3 2.5 3.6C10.6 7.6 11 4.8 12.5 2Z"/></symbol><symbol id="i-cold" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"><path d="M12 2.5v19M3.8 7.2l16.4 9.6M3.8 16.8l16.4-9.6M9.3 3.8 12 6.3l2.7-2.5M9.3 20.2 12 17.7l2.7 2.5"/></g></symbol><symbol id="i-chaos" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2.5a9.5 9.5 0 1 0 9.5 9.5h-3.4A6.1 6.1 0 1 1 12 5.9Z"/><circle cx="12" cy="12" r="2.6"/></symbol><symbol id="i-keystone" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2l9 5v10l-9 5-9-5V7Z M12 7.2l4.5 2.5v4.6L12 16.8l-4.5-2.5V9.7Z"/></symbol><symbol id="i-ring" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 6.5a7.7 7.7 0 1 1 0 15.4 7.7 7.7 0 0 1 0-15.4Z M12 9.6a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 1 0-9.2Z M9.2 2h5.6l1.6 3.2L12 7.6 7.6 5.2Z"/></symbol><symbol id="i-jewel" viewBox="0 0 24 24"><path d="M12 2.5l8.5 6-3.2 12h-10.6L3.5 8.5Z"/></symbol><symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></symbol><symbol id="i-key" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M8.5 4a5.5 5.5 0 0 1 5.2 7.3l7.3 7.3V21h-3.3v-1.8h-1.8v-1.8h-1.8l-2.2-2.2A5.5 5.5 0 1 1 8.5 4Z M7 7.6a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2.5 22 8l-10 5.5L2 8Z M4.6 11.3 12 15.4l7.4-4.1L22 12.7l-10 5.5-10-5.5Z M4.6 15.6 12 19.7l7.4-4.1 2.6 1.4-10 5.5-10-5.5Z"/></symbol><symbol id="i-swap" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/></g></symbol><symbol id="i-leaf" viewBox="0 0 24 24"><path d="M20.5 3.5C11 3.5 4.5 8 4.5 14.5c0 1.6.4 3 1.1 4.1L3.5 20.7l1.1 1.1 2.1-2.1c1.1.7 2.5 1.1 4.1 1.1C17.3 20.8 20.5 13 20.5 3.5Z"/></symbol><symbol id="i-run" viewBox="0 0 24 24"><path d="M14.5 2.5a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4Z M9.5 8.5l4-1 3.2 3.4 3 .6-.4 2-3.9-.8-1.6-1.5-1.2 3.8 3 2.6V22h-2v-3.5l-3.4-2.7-1.4 3.9-4.3 1.4-.6-1.9 3.4-1.1 2.8-8.3-1.6.4-1.6 2.9-1.8-1Z"/></symbol></svg>
+  <div class="app">
+  <aside class="side">
+    <a class="logo" href="/" id="logo">poe2<span>lab</span></a>
+    <div class="side-head"><span data-i18n="builds"></span>
+      <button id="refresh-builds" class="icon-btn sm" data-i18n-title="refresh"><svg class="ic ic-s"><use href="#i-refresh"/></svg></button></div>
+    <div class="side-actions">
+      <button id="new-build" class="btn btn-primary"><svg class="ic"><use href="#i-spark"/></svg><span data-i18n="nbButton"></span></button>
+      <button id="add-build" class="btn btn-ghost" data-i18n-title="addBuild"><svg class="ic"><use href="#i-plus"/></svg></button>
     </div>
+    <nav id="builds" class="build-list"></nav>
+    <div class="side-tools">
+      <button id="glossary-open" class="tool" data-i18n-title="glOpen"><svg class="ic"><use href="#i-book"/></svg><span data-i18n="glShort"></span></button>
+      <button id="journal-open" class="tool" data-i18n-title="jnOpen"><svg class="ic"><use href="#i-anvil"/></svg><span data-i18n="jnShort"></span></button>
+      <button id="feedback" class="tool" data-i18n-title="fbButton"><svg class="ic"><use href="#i-mail"/></svg><span data-i18n="fbShort"></span></button>
+      <button id="settings-open" class="tool" data-i18n-title="setHint" aria-expanded="false"><svg class="ic"><use href="#i-gear"/></svg><span data-i18n="setShort"></span></button>
+    </div>
+    <div id="settings-box" class="settings-box hidden">
+      <label class="league-pick small"><span class="muted" data-i18n="leagueLabel"></span>
+        <select id="league"></select></label>
+      <button id="ru-status" class="link small hidden"></button>
+      <div id="llm-status" class="small muted"></div>
+    </div>
+    <div class="side-foot"><span class="ggg-notice">This product isn't affiliated with or endorsed by Grinding Gear Games in any way.</span>
+      <button id="stop-app" class="icon-btn" data-i18n-title="stopHint"><svg class="ic"><use href="#i-power"/></svg></button></div>
   </aside>
 
-  <main>
-    <div class="topbar">
-      <div class="segmented small-seg" id="lang">
-        <button data-lang="ru">RU</button>
-        <button data-lang="en">EN</button>
-      </div>
-    </div>
+  <main class="main">
     <div id="lang-banner" class="lang-banner hidden"></div>
-
-    <header id="build-header" class="build-header hidden">
-      <div class="bh-main">
-        <div class="bh-title"><h1 id="bh-name"></h1>
-          <span class="bh-menu-wrap"><button id="bh-menu" class="ghost small" aria-haspopup="menu" aria-expanded="false"></button>
+    <header class="topbar">
+      <div id="build-header" class="bh-main hidden">
+        <div class="title-row"><h1 id="bh-name" class="build-name"></h1>
+          <span class="bh-menu-wrap"><button id="bh-menu" class="btn btn-sm btn-quiet" aria-haspopup="menu" aria-expanded="false"><svg class="ic"><use href="#i-dots"/></svg><span id="bh-menu-label"></span></button>
             <div id="bh-menu-list" class="bh-menu-list hidden" role="menu"></div></span></div>
-        <div id="bh-sub" class="muted"></div>
+        <div id="bh-sub" class="who"></div>
       </div>
-      <div class="bh-controls">
-        <div class="field">
-          <span class="field-label"><span data-i18n="mainSkill"></span> <span class="info" data-i18n-title="mainSkillHint">?</span></span>
-          <div id="main-skill" class="skill-picker"></div>
+      <div class="controls">
+        <div id="bh-controls" class="controls hidden">
+          <div><div class="ctl-l"><span data-i18n="mainSkill"></span> <span class="info" data-i18n-title="mainSkillHint"><svg class="ic"><use href="#i-help"/></svg></span></div>
+            <div id="main-skill" class="skill-picker"></div></div>
+          <div><div class="ctl-l"><span data-i18n="goal"></span> <span class="info" data-i18n-title="goalHint"><svg class="ic"><use href="#i-help"/></svg></span></div>
+            <div class="seg" id="mode">
+              <button data-mode="damage"><svg class="ic ic-s"><use href="#i-sword"/></svg><span data-i18n="mode_damage"></span></button>
+              <button data-mode="balanced" class="active"><svg class="ic ic-s"><use href="#i-scales"/></svg><span data-i18n="mode_balanced"></span></button>
+              <button data-mode="defence"><svg class="ic ic-s"><use href="#i-shield"/></svg><span data-i18n="mode_defence"></span></button>
+            </div></div>
         </div>
-        <div class="field">
-          <span class="field-label"><span data-i18n="goal"></span> <span class="info" data-i18n-title="goalHint">?</span></span>
-          <div class="segmented" id="mode">
-            <button data-mode="damage" data-i18n="mode_damage"></button>
-            <button data-mode="balanced" class="active" data-i18n="mode_balanced"></button>
-            <button data-mode="defence" data-i18n="mode_defence"></button>
-          </div>
+        <div class="lang" id="lang">
+          <button data-lang="ru">RU</button>
+          <button data-lang="en">EN</button>
         </div>
       </div>
     </header>
 
     <nav id="tabs" class="tabs hidden">
-      <button data-tab="overview" class="active" data-i18n="tab_overview"></button>
-      <button data-tab="skills" data-i18n="tab_skills"></button>
-      <button data-tab="gear" data-i18n="tab_gear"></button>
-      <button data-tab="tree" data-i18n="tab_tree"></button>
-      <button data-tab="loot" data-i18n="tab_loot"></button>
-      <button data-tab="profile" data-i18n="tab_profile"></button>
-      <button data-tab="assistant" data-i18n="tab_assistant"></button>
-      <span class="fold-tools">
-        <button id="fold-all" class="fold-tool">⊟</button>
-        <button id="unfold-all" class="fold-tool">⊞</button>
+      <button data-tab="overview" class="tab active"><svg class="ic"><use href="#i-compass"/></svg><span data-i18n="tab_overview"></span></button>
+      <button data-tab="skills" class="tab"><svg class="ic"><use href="#i-gem"/></svg><span data-i18n="tab_skills"></span></button>
+      <button data-tab="gear" class="tab"><svg class="ic"><use href="#i-helm"/></svg><span data-i18n="tab_gear"></span></button>
+      <button data-tab="tree" class="tab"><svg class="ic"><use href="#i-tree"/></svg><span data-i18n="tab_tree"></span></button>
+      <button data-tab="loot" class="tab"><svg class="ic"><use href="#i-funnel"/></svg><span data-i18n="tab_loot"></span></button>
+      <button data-tab="profile" class="tab"><svg class="ic"><use href="#i-id"/></svg><span data-i18n="tab_profile"></span></button>
+      <button data-tab="assistant" class="tab"><svg class="ic"><use href="#i-chat"/></svg><span data-i18n="tab_assistant"></span></button>
+      <span class="tabs-end">
+        <span id="scope"></span>
+        <button id="fold-all" class="icon-btn"><svg class="ic"><use href="#i-lay-1"/></svg></button>
+        <button id="unfold-all" class="icon-btn"><svg class="ic"><use href="#i-lay-2"/></svg></button>
       </span>
     </nav>
 
@@ -85,6 +83,7 @@
     <div id="changes" class="hidden"></div>
     <section id="view" class="view"></section>
   </main>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
   <script src="/static/pob_labels.js"></script>
