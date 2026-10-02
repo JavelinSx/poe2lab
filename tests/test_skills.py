@@ -234,3 +234,6 @@ def test_roles_say_what_each_skill_does_for_the_main_one(regex_only):
     # the same skill twice: how each copy is used and the supports only it has
     assert by[5]["copies"] == [{"group": 6, "skill": "Profane Ritual", "meta": "Cast on Critical", "slot": None}]
     assert by[5]["only"] == ["Unleash"] and by[6]["only"] == ["Boundless Energy II"] and by[6]["meta"] == "Cast on Critical"
+    # a skill PoB gives no damage because it is triggered: its damage from how often it goes off
+    view = [{"group": 4, "skills": [{"name": "Whirling Assault", "dps": {"boss": [12.0, 20.0], "pack": [30.0, 30.0]}}]}]
+    assert sk.roles(RolesStub(), {}, rows, view)["groups"][3]["own"] == pytest.approx(12)

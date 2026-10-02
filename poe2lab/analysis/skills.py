@@ -471,14 +471,16 @@ def meta_view(groups: list[dict]) -> None:
         g["meta"] = info
 
 
-def roles(engine, config: dict, rows: list[dict]) -> dict:
+def roles(engine, config: dict, rows: list[dict], view: list[dict] | None = None) -> dict:
     """What each skill group does for the build - for a player asking why a build has three damage skills, or the
     same skill twice. The main skill (poe2lab.analysis.explain.main_group); each other group: its own damage as a
     share of the main one's, what the main skill's damage and the effective life lose without it (its active gems
     turned off: a buff of the main skill, a defence), the mechanics it creates that the main skill uses (power charges:
     PoB counts them full, so their maker shows no damage), and nothing of these - a role PoB does not count. A skill
     in two groups: how each copy is used (by itself, through a meta gem, granted by an item) and the supports only
-    that copy has."""
+    that copy has. `view`: poe2lab.analysis.triggers.trigger_view - a skill PoB gives no damage because something
+    triggers it (Elemental Expression on crit) has its own damage from how often it goes off (against a boss, the
+    low end)."""
     from .explain import main_group  # explain imports this module
 
     groups = engine.skill_groups()
@@ -490,7 +492,8 @@ def roles(engine, config: dict, rows: list[dict]) -> dict:
     names = {m.key: m.name for m in MECHANICS}
 
     def own(index):
-        return max((r["dps"] for r in rows if r["group"] == index), default=0.0)
+        triggered = [s["dps"]["boss"][0] for t in (view or []) if t["group"] == index for s in t["skills"] if s.get("dps")]
+        return max([r["dps"] for r in rows if r["group"] == index] + triggered, default=0.0)
 
     main_dps = own(main["index"])
     base = engine.what_if(config=config, main_socket_group=main["index"])

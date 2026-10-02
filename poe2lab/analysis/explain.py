@@ -9,12 +9,16 @@ how the crit chance gets that high, why the mana runs out and what fixes it, wha
   supports that fix the balance, priced in damage.
 - Meta gems: what fills each one's Energy and how much per event, its modifiers, how often it goes off against a
   boss and a pack (poe2lab.analysis.triggers), what it triggers and what that gives the main skill, the Spirit it
-  holds."""
+  holds.
+- A main skill that spends charges on use (Flicker Strike: a strike more per power charge... any skill, any charge):
+  what one use deals at each count of them - PoB gives it a damage per second as if it were used without a break -
+  how many there can be and from what, what in the build makes them and how often, what else spends them, and the
+  supports that put a condition on its use."""
 import re
 from contextlib import nullcontext
 
 from .leveling import CHAIN_CONFIG
-from .skills import UNCUT_SUPPORT_AREA, mechanics_of
+from .skills import UNCUT_SUPPORT_AREA, mechanics_of, meta_view
 from .triggers import trigger_view
 
 DAMAGE_TYPES = ("Physical", "Fire", "Cold", "Lightning", "Chaos")
@@ -30,6 +34,9 @@ GEAR_SLOTS = ("Helmet", "Body Armour", "Gloves", "Boots", "Weapon 2", "Weapon 1"
 DEFENCES = ("Life", "EnergyShield", "Evasion", "Armour")
 DEFENCE_MIN = 100  # a defence below this is not worth a card
 EXACT = 0.02  # the formula shown only when it gives PoB's number this closely (PoB may count more than one stat)
+CHARGES = ("Power", "Frenzy", "Endurance")
+CHARGE_STEPS = 12  # charge counts a use is shown at, at most (then the maximum)
+_USE_ONLY = re.compile(r"can only be used", re.I)  # a support's condition on its skill's use (Hit and Run)
 
 
 def _exact(built: float, value: float) -> bool:
@@ -217,10 +224,12 @@ def mana(engine, config: dict, group: dict, level: int | None = None) -> dict:
     return out
 
 
-def metas(engine, config: dict, groups: list[dict], main: dict | None, rows: list[dict]) -> list[dict]:
+def metas(engine, config: dict, groups: list[dict], main: dict | None, rows: list[dict],
+          view: list[dict] | None = None) -> list[dict]:
     """Each meta gem (and each skill an ascendancy or item triggers on crit): how often it goes off and from what,
-    its Energy and what raises it, what it triggers and what that gives the main skill, the Spirit it holds."""
-    view = trigger_view(engine, config, rows)
+    its Energy and what raises it, what it triggers and what that gives the main skill, the Spirit it holds.
+    `view`: poe2lab.analysis.triggers.trigger_view of the build, when already made."""
+    view = view if view is not None else trigger_view(engine, config, rows)
     base = engine.what_if(config=config)
     uses = set()
     main_skill = next((x for x in main["gems"] if not x["support"]), None) if main else None
@@ -250,14 +259,69 @@ def metas(engine, config: dict, groups: list[dict], main: dict | None, rows: lis
     return out
 
 
+def charges(engine, config: dict, group: dict, groups: list[dict], rows: list[dict], view: list[dict]) -> dict | None:
+    """A main skill that spends charges on use, of any kind (its skill type "consumes ... charges on use"): what one
+    use deals at each count of them (0 to the maximum) and how many hits that is; the maximum and its sources; what
+    makes them - skills (by the mechanics they create; through a meta gem: how often it goes off, from `view`) and the
+    allocated passives' and worn items' lines that gain them - what else spends them, and the main skill's supports
+    that put a condition on its use. None for a skill that spends none."""
+    skill = next((x for x in group["gems"] if not x["support"]), None)
+    types = set(skill.get("types", [])) if skill else set()
+    kind = next((c for c in CHARGES if f"SkillConsumes{c}ChargesOnUse" in types), None)
+    if kind is None:
+        return None
+    use, count, key = f"use{kind}Charges", f"override{kind}Charges", kind.lower()
+
+    def per_use(o):
+        return {"hits": o.get("AverageBurstHits") or 1.0,
+                "damage": o.get("AverageBurstDamage") or o.get("AverageDamage") or o.get("AverageHit", 0.0)}
+
+    with engine.main_skill_of(group["index"]):
+        now = engine.what_if(config=config)
+        top = int(engine.what_if(config=config | {use: True}).get(f"{kind}ChargesMax", 0))
+        counts = list(range(0, min(top, CHARGE_STEPS) + 1)) + ([top] if top > CHARGE_STEPS else [])
+        steps = [{"charges": n} | per_use(engine.what_if(config=config | ({use: False} if n == 0 else {use: True, count: n})))
+                 for n in counts]
+        src = engine.stat_sources([f"{kind}ChargesMax"], player=True)
+    meta_view(groups)
+    makers, spenders = [], []
+    for g in groups:
+        if not g["enabled"] or g["index"] == group["index"]:
+            continue
+        for x in g["gems"]:
+            if x["support"] or not x["enabled"]:
+                continue
+            if key in mechanics_of(x)["creates"]:
+                t = next((t for t in view if t["group"] == g["index"] and any(s["name"] == x["name"] for s in t["skills"])), None)
+                makers.append({"skill": x["name"], "group": g["index"], "meta": g["meta"]["gem"] if g.get("meta") else None,
+                               "rate": t["rate"] if t else None})
+            if f"SkillConsumes{kind}ChargesOnUse" in x.get("types", []):
+                spenders.append(x["name"])
+    gain = re.compile(rf"\bgain\b[^.]*\b{kind} Charges?\b", re.I)
+    lines = [{"line": line, "from": n.get("dn") or n.get("name")} for n in engine.tree_graph()["nodes"] if n["alloc"]
+             for line in n["stats"] if gain.search(line)]
+    lines += [{"line": l["line"], "from": it["name"]} for it in engine.equipped_item_details()
+              for k in ("implicit", "explicit", "runes", "enchant") for l in it.get(k, []) if gain.search(l["line"])]
+    row = next((r for r in rows if r["group"] == group["index"] and r["name"] == skill["name"]), {})
+    diffs = [b["hits"] - a["hits"] for a, b in zip(steps, steps[1:])]
+    return {"skill": skill["name"], "kind": key, "max": top, "now": int(now.get(f"{kind}Charges", 0) or 0), "nowUse": per_use(now),
+            # the hits a charge adds, as most of them add (the first one may add more)
+            "steps": steps, "perCharge": max(set(diffs), key=diffs.count) if diffs else 0.0,
+            "maxFrom": _grouped(src["stats"].get(f"{kind}ChargesMax", {}).get("BASE", [])),
+            "makers": makers, "lines": lines, "spenders": sorted(set(spenders)), "speed": row.get("speed", 0.0),
+            "conditions": [x["name"] for x in group["gems"] if x["support"] and x["enabled"]
+                           and _USE_ONLY.search(x.get("description", ""))]}
+
+
 def explain(engine, config: dict, rows: list[dict], level: int | None = None) -> dict:
     """The explanations for the build's main skill (see the module's note)."""
     groups = engine.skill_groups()
     g = main_group(engine, groups, rows)
     if g is None:
         return {"skill": None, "crit": None, "critDamage": None, "speed": None, "mana": None, "metas": [],
-                "defences": defences(engine, config)}
+                "charges": None, "defences": defences(engine, config)}
+    view = trigger_view(engine, config, rows)
     return {"skill": g["actives"][0]["name"] if g["actives"] else None, "group": g["index"],
             "crit": crit(engine, config, g), "critDamage": crit_damage(engine, config, g), "speed": speed(engine, config, g),
-            "mana": mana(engine, config, g, level), "metas": metas(engine, config, groups, g, rows),
-            "defences": defences(engine, config)}
+            "mana": mana(engine, config, g, level), "metas": metas(engine, config, groups, g, rows, view),
+            "charges": charges(engine, config, g, groups, rows, view), "defences": defences(engine, config)}

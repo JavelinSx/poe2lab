@@ -1274,10 +1274,12 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
                 def guide_roles():
                     _, ref, rbp = _reference(RECORDED)
                     rcfg = MapProfile(rage=rbp.rage, mana_sustained=rbp.mana_sustained).config()
-                    return skill_roles(ref, rcfg, ref.skill_damage(rcfg))
+                    rows = ref.skill_damage(rcfg)
+                    return skill_roles(ref, rcfg, rows, trigger_view(ref, rcfg, rows))
                 return _json(session.cached(("skill-roles", "guide"), guide_roles))
             numbers = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
-            return _json(session.cached(("skill-roles",), lambda: skill_roles(e, cfg, numbers)))
+            view_ = session.cached(("triggers",), lambda: trigger_view(e, cfg, numbers))
+            return _json(session.cached(("skill-roles",), lambda: skill_roles(e, cfg, numbers, view_)))
         if view in ("build", "uniques"):
             m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
             data = session.cached(("skills", "build"), lambda: skill_build_view(

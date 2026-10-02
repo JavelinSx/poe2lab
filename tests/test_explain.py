@@ -72,3 +72,78 @@ def test_crit_damage_speed_and_defences_are_made_of_their_sources(monk):
         assert all(gear["slot"] in ex.GEAR_SLOTS for gear in d["gear"])
         if d["exact"]:
             assert d["base"] * (1 + d["incTotal"] / 100) * d["moreTotal"] == pytest.approx(d["value"], rel=ex.EXACT)
+
+
+class ChargesStub:
+    """A build whose main attack spends frenzy charges (any skill, any charge: nothing here is Flicker Strike's):
+    each charge adds three hits; a passive and a skill make the charges, a buff spends them too, a support puts a
+    condition on the attack's use."""
+    def __init__(self):
+        def gem(index, name, support=False, types=(), description=""):
+            return {"index": index, "name": name, "support": support, "enabled": True, "types": list(types),
+                    "description": description}
+        self.groups = [
+            {"index": 1, "main": True, "enabled": True, "slot": "", "actives": [{"name": "Frenzy Slam", "types": []}],
+             "gems": [gem(1, "Frenzy Slam", types=["Attack", "SkillConsumesFrenzyChargesOnUse"],
+                          description="Consumes Frenzy Charges to Slam again."),
+                      gem(2, "Steady Feet", True, description="Supported Skills can only be used while standing still.")]},
+            {"index": 2, "main": False, "enabled": True, "slot": "", "actives": [{"name": "Frenzy Maker", "types": []}],
+             "gems": [gem(1, "Frenzy Maker", types=["Spell"], description="Grants you a Frenzy Charge on use.")]},
+            {"index": 3, "main": False, "enabled": True, "slot": "", "actives": [{"name": "Frenzy Buff", "types": []}],
+             "gems": [gem(1, "Frenzy Buff", types=["Buff", "SkillConsumesFrenzyChargesOnUse"],
+                          description="Consume all Frenzy Charges for a buff.")]}]
+
+    def main_skill_of(self, group):
+        from contextlib import nullcontext
+        return nullcontext()
+
+    def what_if(self, config=None, **_):
+        config = config or {}
+        n = 0 if not config.get("useFrenzyCharges") else config.get("overrideFrenzyCharges", 4)
+        return {"FrenzyChargesMax": 4, "FrenzyCharges": n, "AverageBurstHits": 1 + 3 * n,
+                "AverageBurstDamage": 100.0 * (1 + 3 * n), "AverageDamage": 100.0}
+
+    def stat_sources(self, names, player=False, flags=()):
+        row = lambda v, kind, name: {"value": v, "source": {"kind": kind, "name": name}, "conds": []}
+        return {"stats": {"FrenzyChargesMax": {"BASE": [row(3, "Base", "Base"), row(1, "Tree", "Frenzied")],
+                                               "INC": [], "MORE": []}}}
+
+    def tree_graph(self):
+        return {"nodes": [{"alloc": True, "name": "Frenzied", "stats": ["+1 to Maximum Frenzy Charges"]},
+                          {"alloc": True, "name": "Rush", "stats": ["10% chance to gain a Frenzy Charge on Hit"]}]}
+
+    def equipped_item_details(self):
+        return []
+
+
+def test_a_skill_spending_charges_shows_one_use_at_each_count(monkeypatch):
+    from poe2lab.analysis import skills as sk
+    monkeypatch.setattr(sk, "_labels", {})  # the dictionary's own reading of these made-up texts
+    stub = ChargesStub()
+    groups = stub.groups
+    view = [{"group": 2, "kind": "energy", "rate": {"boss": [0.5, 0.5], "pack": [0.1, 0.1]},
+             "skills": [{"name": "Frenzy Maker"}]}]
+    c = ex.charges(stub, {}, groups[0], groups, [{"group": 1, "name": "Frenzy Slam", "speed": 2.0}], view)
+    assert c["kind"] == "frenzy" and c["max"] == 4 and c["now"] == 0 and c["perCharge"] == 3
+    assert [(x["charges"], x["hits"], x["damage"]) for x in c["steps"]] == [
+        (0, 1, 100), (1, 4, 400), (2, 7, 700), (3, 10, 1000), (4, 13, 1300)]
+    assert [x["name"] for x in c["maxFrom"]] == ["Base", "Frenzied"]
+    assert c["makers"] == [{"skill": "Frenzy Maker", "group": 2, "meta": None, "rate": {"boss": [0.5, 0.5], "pack": [0.1, 0.1]}}]
+    assert [l["line"] for l in c["lines"]] == ["10% chance to gain a Frenzy Charge on Hit"]
+    assert c["spenders"] == ["Frenzy Buff"] and c["conditions"] == ["Steady Feet"] and c["speed"] == 2.0
+
+
+def test_charges_of_another_build(monk):
+    """The monk's Hollow Form spends power charges too: their maximum and its sources, the skill and the lines that
+    make them; PoB counts only "charges or none" for it (one hit; the same damage from one charge to five)."""
+    engine, cfg, rows = monk
+    groups = engine.skill_groups()
+    c = ex.charges(engine, cfg, ex.main_group(engine, groups, rows), groups, rows, [])
+    assert c["skill"] == "Hollow Form" and c["kind"] == "power" and c["max"] == 5 and c["perCharge"] == 0
+    assert [x["name"] for x in c["maxFrom"]] == ["Base", "Overflowing Power"]
+    assert [m["skill"] for m in c["makers"]] == ["Devour"] and c["lines"]
+    damage = [x["damage"] for x in c["steps"]]
+    assert damage[1] > damage[0] and damage[-1] == pytest.approx(damage[1])
+    # a skill that spends no charges has no such card
+    stub = ChargesStub()
+    assert ex.charges(stub, {}, stub.groups[1], stub.groups, [], []) is None

@@ -3455,7 +3455,8 @@ TABS.skills = async (view) => {
 // ---------- how the build works (poe2lab.analysis.explain) ----------
 // the cards in order: damage first (crit, its damage, speed), mana, the meta gems, then the defences
 function explainCards(d, guide) {
-  return [d.crit && d.crit.value > 0 ? critCard(d.crit, guide) : null, d.critDamage && d.crit && d.crit.value > 0 ? critDamageCard(d.critDamage) : null,
+  return [d.charges ? chargesCard(d.charges) : null,
+    d.crit && d.crit.value > 0 ? critCard(d.crit, guide) : null, d.critDamage && d.crit && d.crit.value > 0 ? critDamageCard(d.critDamage) : null,
     d.speed && d.speed.value > 0 ? speedCard(d.speed) : null, d.mana ? manaCard(d.mana) : null, ...(d.metas || []).map(metaCard),
     ...(d.defences || []).map(defenceCard)].filter(Boolean);
 }
@@ -3493,6 +3494,45 @@ function critCard(c, guide) {
       adds ? " " + t("exCritAdds", pctOf(adds), c.adds.map((x) => trName(x.name)).join(", ")) : ""].join(""),
     extra: guide && guide.crit ? h("div", { class: "small muted" }, t("exGuideCrit", trName(guide.skill), pctOf(guide.crit))) : null,
     fmtV: pctOf, key: "ex-crit", sum: pctOf(c.value) });
+}
+
+// A main skill that spends charges on use (poe2lab.analysis.explain.charges), any skill and any charge: what one
+// use deals at each count of them, as bars; how many there can be and from what, what makes them and how often, what
+// else spends them, the supports that put a condition on its use. PoB's DPS of it is one use repeated without a
+// break, which such a skill is not: one use is what counts.
+function chargesCard(c) {
+  const kind = t("lrMech_" + c.kind).toLowerCase();
+  const most = Math.max(...c.steps.map((x) => x.damage), 1);
+  const last = c.steps[c.steps.length - 1];
+  const often = ([lo, hi]) => {
+    const one = (v) => (v <= 0 ? t("exChNever") : v >= 1 ? t("exChPerSec", fmt(v, 1)) : t("exChEvery", fmt(1 / v, 1 / v < 10 ? 1 : 0)));
+    return Math.abs(hi - lo) <= 0.05 * Math.max(lo, hi) ? one(lo) : `${one(lo)} – ${one(hi)}`;
+  };
+  const steps = h("div", { class: "ch-steps" }, c.steps.map((x) => h("div", { class: "ch-step" + (x.charges === c.now ? " now" : "") },
+    h("span", { class: "ch-n" }, t("exChCharges", x.charges)),
+    h("span", { class: "ch-bar" }, h("i", { style: `width:${Math.max(2, (x.damage / most) * 100)}%` })),
+    h("span", { class: "ch-v" }, t("exChHits", fmt(x.hits)), " · ", h("b", {}, fmt(x.damage))),
+    x.charges === c.now ? chip("tag", t("exChNow")) : null)));
+  const from = c.maxFrom.map((x) => `${x.name === "Base" ? t("exChBase") : x.kind === "item" ? trItem(x.name.split(",")[0]) : trName(x.name)} +${fmt(x.value)}`).join(", ");
+  const makers = [
+    ...c.makers.map((m) => h("div", { class: "small" }, "• ", m.meta && m.rate
+      ? t("exChMakerMeta", trName(m.skill), trName(m.meta), often(m.rate.boss), often(m.rate.pack))
+      : t("exChMakerSelf", trName(m.skill)))),
+    ...c.lines.map((l) => h("div", { class: "small" }, "• ", trMod(l.line), h("span", { class: "muted" }, ` (${l.from.includes(",") ? trItem(l.from.split(",")[0]) : trName(l.from)})`)))];
+  return foldedCard(h("div", { class: "card ex-card" }, h("h3", {}, "🔁 ", t("exChTitle", trName(c.skill), kind)),
+    // more hits per charge; or more damage with each; or PoB counts only "charges or none" (what each further one
+    // gives is the skill's description's, which PoB does not count)
+    h("div", { class: "ex-formula" }, c.perCharge ? t("exChHow", fmt(c.perCharge), kind)
+      : c.steps.length > 2 && last.damage > c.steps[1].damage * 1.01 ? t("exChHowDamage", kind)
+      : c.steps.length > 1 ? t("exChFlat", kind, fmt(c.steps[1].damage / Math.max(c.steps[0].damage, 1), 2)) : t("exChHowDamage", kind)),
+    steps,
+    c.speed > 0 ? h("div", { class: "hint" }, t("exChPobDps", fmt(c.speed, 1))) : null,
+    h("div", { class: "small" }, t("exChMax", fmt(c.max)), from ? h("span", { class: "muted" }, ` — ${from}`) : null),
+    makers.length ? h("div", { class: "stack", style: "gap:2px" }, h("b", { class: "small" }, t("exChMakers", kind)), ...makers)
+      : h("div", { class: "small neg-text" }, t("exChNone", kind)),
+    c.spenders.length ? h("div", { class: "small" }, "⚠ ", t("exChSpenders", c.spenders.map(trName).join(", "), kind)) : null,
+    c.conditions.length ? h("div", { class: "small" }, "⚠ ", t("exChCondition"), " ", c.conditions.map((n, i) => [i ? ", " : "", gemName(n)])) : null),
+  "ex-charges", t("exChSum", fmt(last.hits), fmt(last.damage)));
 }
 
 // what a crit deals over a normal hit
