@@ -1128,12 +1128,12 @@ const SIDE_VIEWS = {
       const [m, l] = [missing - m0, lower - l0];
       return m || l || g.main ? card : foldedCard(card, "vs" + g.index, "✓");
     });
-    const grid = h("div", { class: "grid two" }, cards);
+    const grid = h("div", { class: "grid two masonry" }, cards);
     cached("skills:roles:guide", () => api(`/api/skills?view=roles&of=guide&${buildQuery()}`))
       .then((rr) => fillRoles(grid, rr)).catch(() => {});
     const extra = [...have.keys()].filter((n) => !theirs.has(n));
     // how the guide works: its crit, mana and meta gems (the character's are on the Main side)
-    const explained = h("div", { class: "grid two" }, loading(t("exLoading")));
+    const explained = h("div", { class: "grid two masonry" }, loading(t("exLoading")));
     cached("skills:explain:guide", () => api(`/api/skills?view=explain&of=guide&${buildQuery()}`))
       .then((d) => explained.replaceChildren(...explainCards(d, null)))
       .catch((e) => explained.replaceChildren(errorCard(e)));
@@ -3157,8 +3157,10 @@ const LR_MIN_GUIDE = 60;  // a build below this level is not a guide to level up
 const lrWayTitle = (w) => (w.id === "build" ? t("lrWayBuild")
   : `${t("lrWeapon_" + w.weapon)}${w.element ? " · " + t("lrEl_" + w.element) : ""}`);
 const lrWayIcon = (w) => (w.id === "build" ? "⭐" : `${LR_WEAPON[w.weapon] || ""}${w.element ? LR_ELEMENT[w.element] || "" : ""}`);
-const lrSkill = (s) => h("span", { class: "lr-skill" + (s.until ? " until" : "") }, gemName(s.name),
-  h("span", { class: "lr-lvl" }, t("lrFrom", s.level)));
+const lrSkill = (s) => h("span", { class: "lr-skill" + (s.until ? " until" : ""), title: t("lrFromLevel", s.level) }, gemName(s.name),
+  h("span", { class: "lr-lvl" }, s.level));
+// a stage's mark on the track and in its card: the act's number, I for the interludes, a star for maps
+const lrStageMark = (key) => (key.startsWith("act") ? key.slice(3) : key === "interlude" ? (LANG === "en" ? "I" : "И") : "★");
 const lrStageName = (key) => t("lrStage_" + key);
 
 function levelingCard() {
@@ -3278,33 +3280,39 @@ function drawLeveling(card, d) {
   const until = r.way.skills.filter((s) => !sw.level || s.level < sw.level || r.way.id === "build");
   const before = h("div", { class: "lr-before" }, h("span", { class: "section-title" }, t("lrUntil")),
     h("span", { class: "lr-way" }, lrWayIcon(r.way), " ", lrWayTitle(r.way)), ...until.slice(0, 6).map(lrSkill));
+  // a section of a stage: a small label over its items
+  const sec = (key, items, cls = "") => (items.length ? h("div", { class: "lr-sec " + cls },
+    h("div", { class: "lr-sec-k" }, t("lrSec_" + key)), h("div", { class: "lr-sec-v" }, ...items)) : null);
+  // one line, the whole text on hover
+  const line = (icon, text) => h("div", { class: "lr-line", title: text }, h("span", { class: "lr-line-ico" }, icon), h("span", { class: "lr-line-t" }, text));
   const stage = (s) => {
-    const rows = [];
-    if (s.switch) {
-      const to = sw.parts.filter((p) => p.core && !["unique", "spirit", "snapshot"].includes(p.kind));
-      rows.push(h("div", { class: "lr-row lr-to" }, h("span", { class: "lr-k" }, "⭐"), t("lrSwitchTo"),
-        ...to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name)))));
-    }
-    if (s.skills.length) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, "⚔"), ...s.skills.map(lrSkill)));
-    if (s.gems.length) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k", title: t("lrGemsHint") }, "💎"),
-      ...s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name)))));
-    if (s.supportTier.length) rows.push(h("div", { class: "lr-row small muted" }, h("span", { class: "lr-k" }, "🔹"), t("lrSupportTier", s.supportTier.join(", "))));
-    if (s.tree.length) rows.push(hoverTip(h("div", { class: "lr-row pk-node" }, h("span", { class: "lr-k" }, "🌳"), t("lrTree", s.tree.length, trName(s.tree[0].name))),
-      () => h("div", { class: "stack" }, h("b", {}, t("lrTreeTip")), h("ol", { class: "small" }, s.tree.map((n) => h("li", {}, trName(n.name), h("span", { class: "muted" }, ` · ~${n.points}`)))))));
-    for (const x of s.ascendancy) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, "👑"), t("lrAsc", x.trial, trName(x.name))));
-    for (const u of s.uniques) rows.push(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, u.defence ? "🛡" : "💰"), trItem(u.name.split(",")[0])));
-    if (s.penalty) rows.push(h("div", { class: "lr-row small" + (a.pace === "safe" ? " bad-text" : " muted") }, h("span", { class: "lr-k" }, "🔥"), t("lrResist", s.penalty)));
-    if (a.novice && t("lrNov_" + s.key) !== "lrNov_" + s.key) rows.push(h("div", { class: "hint" }, t("lrNov_" + s.key)));
-    if (a.novice && s.switch) rows.push(h("div", { class: "hint" }, t("lrNovSwitch")));
+    const to = s.switch ? sw.parts.filter((p) => p.core && !["unique", "spirit", "snapshot"].includes(p.kind)) : [];
+    const tree = s.tree.length ? [hoverTip(h("div", { class: "lr-line pk-node" }, h("span", { class: "lr-line-ico" }, "🌳"),
+      h("span", { class: "lr-line-t" }, t("lrTree", s.tree.length, trName(s.tree[0].name)))),
+    () => h("div", { class: "stack" }, h("b", {}, t("lrTreeTip")), h("ol", { class: "small" }, s.tree.map((n) => h("li", {}, trName(n.name), h("span", { class: "muted" }, ` · ~${n.points}`))))))] : [];
     return h("div", { class: "lr-stage" + (s.switch ? " switch" : "") + (s.here ? " here" : ""), "data-stage": s.key },
-      h("div", { class: "lr-stage-head" }, h("b", {}, lrStageName(s.key)), " ", h("span", { class: "muted small" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)),
-        s.switch ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null,
-        s.here ? h("span", { class: "chip ok" }, t("lrHere")) : null),
-      ...rows);
+      h("div", { class: "lr-stage-head" }, h("span", { class: "lr-mark" }, lrStageMark(s.key)),
+        h("div", { class: "lr-stage-name" }, h("b", {}, lrStageName(s.key)), h("span", { class: "muted small" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from))),
+        s.penalty ? h("span", { class: "lr-pen" + (a.pace === "safe" ? " hard" : ""), title: t("lrResist", s.penalty) }, `🔥 ${s.penalty}%`) : null),
+      s.here || s.switch ? h("div", { class: "lr-badges" }, s.here ? h("span", { class: "chip ok" }, t("lrHere")) : null,
+        s.switch ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null) : null,
+      sec("switch", to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name))), "lr-sec-to"),
+      sec("skills", s.skills.map(lrSkill)),
+      sec("gems", s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name)))),
+      s.supportTier.length ? h("div", { class: "lr-line muted" }, h("span", { class: "lr-line-ico" }, "🔹"), h("span", { class: "lr-line-t" }, t("lrSupportTier", s.supportTier.join(", ")))) : null,
+      sec("growth", [...tree, ...s.ascendancy.map((x) => line("👑", t("lrAsc", x.trial, trName(x.name)))),
+        ...s.uniques.map((u) => line(u.defence ? "🛡" : "💰", trItem(u.name.split(",")[0])))]),
+      h("div", { class: "lr-rewards" }),
+      a.novice && t("lrNov_" + s.key) !== "lrNov_" + s.key ? h("div", { class: "hint" }, t("lrNov_" + s.key)) : null,
+      a.novice && s.switch ? h("div", { class: "hint" }, t("lrNovSwitch")) : null);
   };
+  // the track: every stage a mark on one line, where the player is and where the build begins
+  const track = h("div", { class: "lr-track" }, r.stages.map((s) => h("div", { class: "lr-tick" + (s.here ? " here" : "") + (s.switch ? " switch" : ""),
+    title: lrStageName(s.key) }, h("span", { class: "lr-tick-dot" }, s.switch ? "🚩" : lrStageMark(s.key)),
+    h("span", { class: "lr-tick-l" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)))));
   const tips = [t(a.pace === "safe" ? "lrTipSafe" : "lrTipFast"), t(a.trade ? "lrTipTrade" : "lrTipSsf")];
   card.replaceChildren(...[head, banner, why, before,
-    h("div", { class: "lr-stages" }, r.stages.map(stage)),
+    track, h("div", { class: "lr-stages" }, r.stages.map(stage)),
     h("ul", { class: "small lr-tips" }, tips.map((x) => h("li", {}, x))),
     h("div", { class: "row" }, edit(t("lrEdit"), "ghost small"),
       h("span", { class: "muted small" }, t("lrAnswers", lrWayTitle(r.way), t(a.trade ? "lrTradeShort" : "lrSsfShort"), t(a.pace === "safe" ? "lrSafeShort" : "lrFastShort"))),
@@ -3314,10 +3322,12 @@ function drawLeveling(card, d) {
   questsData().then((qd) => {  // each act's reward choice: the one to take (or taken)
     for (const q of qd.choices) {
       const pick = q.options.find((o) => o.value === q.chosen) || q.options.find((o) => o.best);
-      const box = card.querySelector(`.lr-stage[data-stage="${QUEST_ACT[q.act]}"]`);
+      const box = card.querySelector(`.lr-stage[data-stage="${QUEST_ACT[q.act]}"] .lr-rewards`);
       if (!pick || !box) continue;
-      box.append(h("div", { class: "lr-row" }, h("span", { class: "lr-k" }, "🎁"),
-        `${questName(q)}: ${optionTitle(q, q.options.indexOf(pick)) || optionText(pick)}`, q.chosen === pick.value ? " ✓" : ""));
+      if (!box.childElementCount) box.append(h("div", { class: "lr-sec-k" }, t("lrSec_rewards")));
+      const text = `${questName(q)}: ${optionTitle(q, q.options.indexOf(pick)) || optionText(pick)}`;
+      box.append(h("div", { class: "lr-line" + (q.chosen === pick.value ? " done" : ""), title: text },
+        h("span", { class: "lr-line-ico" }, q.chosen === pick.value ? "✓" : "🎁"), h("span", { class: "lr-line-t" }, text)));
     }
   }).catch(() => {});
 }
@@ -3458,7 +3468,7 @@ TABS.skills = async (view) => {
   const damage = h("div", { class: "stack" }, loading(t("calcReport")));
   report().then((rep) => damage.replaceChildren(...renderDamage(rep)))
     .catch((e) => damage.replaceChildren(h("p", { class: "muted" }, e.message)));
-  const explained = h("div", { class: "grid two" }, loading(t("exLoading")));
+  const explained = h("div", { class: "grid two masonry" }, loading(t("exLoading")));
   body.replaceChildren(...renderSkillsBuild(r), h("div", { class: "section-title" }, "🔍 ", t("exTitle")), explained,
     h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
   betterSupports(body);
@@ -4653,7 +4663,7 @@ function renderSkillsBuild(r) {
         h("span", { class: "muted small" }, slotName(it.slot))),
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
       mechChips(it), termChips(it.terms))))), "uniques", t("skUniquesSum", r.items.length)) : null;
-  const grid = h("div", { class: "grid cards" }, cards);
+  const grid = h("div", { class: "grid cards masonry" }, cards);
   cached("skills:roles", () => api(`/api/skills?view=roles&${buildQuery()}`)).then((rr) => fillRoles(grid, rr)).catch(() => {});
   return [links, items, grid].filter(Boolean);
 }

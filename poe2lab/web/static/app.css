@@ -200,6 +200,11 @@ button.link { background: none; border: 0; color: var(--gold); cursor: pointer; 
 .grid.kpi { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
 .grid.cards { grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); }
+/* cards packed in columns, where many are folded: each as tall as itself, no empty boxes stretched to a row */
+.grid.masonry { display: block; columns: 380px; column-gap: 16px; }
+.grid.two.masonry { columns: 420px; }
+.grid.masonry > * { break-inside: avoid; margin: 0 0 16px; }
+.grid.masonry > .wide { column-span: all; }
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -936,12 +941,40 @@ tr.dense .fit-chips { margin-top: 2px; }
 .lr-way { font-weight: 600; }
 .lr-skill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: var(--panel-2); font-size: 13px; }
 .lr-skill.until { opacity: .75; border: 1px dashed var(--line); }
-.lr-lvl { color: var(--muted); font-size: 11px; }
-.lr-stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.lr-lvl { color: var(--muted); font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--bg); }
+.lr-stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; align-items: start; }
+/* the track over the stages: a line with each stage's mark */
+.lr-track { display: flex; align-items: flex-start; margin: 4px 0 2px; position: relative; }
+.lr-track::before { content: ""; position: absolute; left: 14px; right: 14px; top: 13px; height: 2px; background: var(--line); }
+.lr-tick { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; min-width: 0; }
+.lr-tick-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); border: 2px solid var(--line); font-weight: 700; font-size: 13px; }
+.lr-tick-l { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.lr-tick.here .lr-tick-dot { border-color: var(--good); color: var(--good); box-shadow: 0 0 0 3px rgba(95, 201, 141, .2); }
+.lr-tick.switch .lr-tick-dot { border-color: var(--gold); background: var(--gold-soft); }
 .lr-stage { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
 .lr-stage.switch { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
 .lr-stage.here { background: var(--panel-2); }
-.lr-stage-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 2px; }
+.lr-stage-head { display: flex; gap: 8px; align-items: center; margin-bottom: 2px; }
+.lr-mark { flex: none; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); border: 1px solid var(--line); font-weight: 700; font-size: 13px; }
+.lr-stage.switch .lr-mark { border-color: var(--gold); color: var(--gold); }
+.lr-stage.here .lr-mark { border-color: var(--good); color: var(--good); }
+.lr-stage-name { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.lr-pen { margin-left: auto; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--panel-2); color: var(--muted);
+  white-space: nowrap; }
+.lr-pen.hard { color: var(--bad); }
+.lr-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.lr-sec { display: flex; flex-direction: column; gap: 4px; }
+.lr-sec-k { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 2px; }
+.lr-sec-v { display: flex; flex-wrap: wrap; gap: 4px; }
+.lr-sec-to .lr-skill { border: 1px solid var(--gold); }
+.lr-line { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; min-width: 0; }
+.lr-line-ico { flex: none; width: 16px; text-align: center; }
+.lr-line-t { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; min-width: 0; }
+.lr-line.done .lr-line-ico { color: var(--good); }
+.lr-rewards { display: flex; flex-direction: column; gap: 3px; }
+.lr-rewards:empty { display: none; }
 .lr-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 13px; }
 .lr-k { width: 20px; text-align: center; }
 /* the campaign's rewards: each choice's options side by side */
