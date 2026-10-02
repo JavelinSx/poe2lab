@@ -1227,19 +1227,20 @@ TABS.overview = async (view) => {
   const rng = r.damageRange;
   const hits = Object.entries(b.survivableHit);
 
-  const kpi = h("div", { class: "grid kpi" },
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, b.minions ? t("dpsMinions") : t("dps")),
-      h("div", { class: "value" }, fmt(rng.low), rng.high > rng.low ? h("span", { class: "to" }, ` … ${fmt(rng.high)}`) : null),
-      h("div", { class: "note" }, b.minions ? t("minionsNote", b.minions.count, fmt(b.minions.perMinion))
-        : rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill)),
-      expectedShown(rng) ? h("div", { class: "note", title: t("expectedHint") }, t("expectedShort", fmt(rng.expected))) : null),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, b.es > 0 ? t("lifeAndEs") : t("life")),
-      h("div", { class: "value" }, fmt(b.life), b.es > 0 ? h("span", { class: "to" }, ` + ${fmt(b.es)}`) : null),
-      b.es > 0 ? h("div", { class: "note" }, t("lifeEsNote")) : null),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("hitChance")), h("div", { class: "value" }, fmt(b.hitChance) + "%")),
-    h("div", { class: "card kpi" }, h("div", { class: "label" }, t("recovery")),
-      h("div", { class: "value" }, fmt(b.recoveryPerSecond), h("span", { class: "to" }, t("perSec"))),
-      h("div", { class: "note" }, b.recoveryPool === "es" ? t("esRecoveryNote") : t("whileAttacking"))));
+  // the build's numbers: one tile each, an icon and the number big
+  const tile = (ic, label, value, ...notes) => h("div", { class: "card kpi stat" },
+    h("div", { class: "stat-l" }, I(ic), label), h("div", { class: "stat-n" }, ...value),
+    ...notes.filter(Boolean).map((n) => h("div", { class: "stat-s" }, n)));
+  const kpi = [
+    tile("sword", b.minions ? t("dpsMinions") : t("dps"), [fmt(rng.low), rng.high > rng.low ? h("small", {}, ` … ${fmt(rng.high)}`) : null],
+      b.minions ? t("minionsNote", b.minions.count, fmt(b.minions.perMinion)) : rng.high > rng.low ? t("dpsRangeNote") : trName(r.build.mainSkill),
+      expectedShown(rng) ? h("span", { title: t("expectedHint") }, t("expectedShort", fmt(rng.expected))) : null),
+    tile("heart", b.es > 0 ? t("lifeAndEs") : t("life"),
+      [fmt(b.life), ...(b.es > 0 ? [h("span", { class: "plus" }, "+"), h("span", { class: "es" }, fmt(b.es))] : [])],
+      b.es > 0 ? t("lifeEsNote") : null),
+    tile("target", t("hitChance"), [fmt(b.hitChance) + "%"]),
+    tile("drop", t("recovery"), [fmt(b.recoveryPerSecond), h("small", {}, " " + t("perSec").trim())],
+      b.recoveryPool === "es" ? t("esRecoveryNote") : t("whileAttacking"))];
 
   // How much of the pool one typical monster hit takes: grows with difficulty (normal < crit < crit on a hard map),
   // which reads the way players think about danger. The raw "largest hit you survive" stays in the tooltip.
@@ -1271,8 +1272,11 @@ TABS.overview = async (view) => {
   // a part of the report that failed: the rest shows, and the player can send it
   const failed = (r.failed || []).length ? h("div", { class: "action" }, t("ovFailed", r.failed.join(", ")), " ",
     h("button", { class: "ghost small", onclick: () => reportError({ message: t("ovFailed", r.failed.join(", ")) }) }, "📨 ", t("errReport"))) : null;
-  return h("div", { class: "stack" }, failed, nextCard(r), levelingCard(), kpi,
-    foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null));
+  // what to do next beside the numbers; the way to the build under them, across the page
+  return h("div", { class: "stack" }, failed,
+    h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
+      foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
+    levelingCard());
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -1287,24 +1291,32 @@ const GATE_TAB = [[/резист/i, "gear"], [/не хватает (силы|л�
 function nextCard(r) {
   const gateText = (g) => LANG === "en" && g.title_en ? g.title_en : trFree(g.title);
   const detailText = (g) => LANG === "en" && g.detail_en ? g.detail_en : trFree(g.detail);
-  const goBtn = (fn) => h("button", { class: "ghost small nowrap next-go", onclick: fn }, t("nextGo"));
+  const goBtn = (fn) => h("button", { class: "go next-go", onclick: fn }, t("nextGo"));
   const tabOf = (g) => (GATE_TAB.find(([re]) => re.test(g.title)) || [null, null])[1];
   const goSlot = (slot) => () => {
     state.gear = { build: state.build.name, slot, set: /Swap/.test(slot) ? 2 : 1 };
     switchTab("gear");
   };
-  const row = (icon, label, what, extra, go) => h("li", { class: "next-row" },
+  // a step: its kind's picture, what it is, its gain in damage and defence big on the right, the hits under it
+  const BIG = METRIC.filter(([k]) => k === "dps" || k === "ehp");
+  const rest = METRIC.filter(([k]) => k !== "dps" && k !== "ehp");
+  const gains = (changes) => h("div", { class: "step-v" }, BIG.filter(([k]) => Math.abs(changes[k] || 0) >= 0.3).map(([k, label]) =>
+    h("span", { class: "metric", title: t("mh_" + k) }, h("span", { class: "metric-l" }, t(label)),
+      h("span", { class: "step-n " + (changes[k] > 0 ? "up" : "down") }, pct(changes[k])))));
+  const hitsOf = (changes) => (rest.some(([k]) => Math.abs(changes[k] || 0) >= 0.3) ? deltas(changes, rest, 0.3) : null);
+  const row = (icon, label, what, extra, go, changes) => h("li", { class: "next-row next-step" },
     h("span", { class: "next-ico" }, icon),
-    h("div", { class: "next-body" }, h("div", {}, h("span", { class: "muted small" }, label, ": "), h("b", {}, what)), extra),
-    go ? goBtn(go) : null);
+    h("div", { class: "next-body" }, h("div", { class: "step-k" }, label), h("div", { class: "step-t" }, what), extra, changes ? hitsOf(changes) : null),
+    changes ? gains(changes) : h("span"),
+    go ? goBtn(go) : h("span"));
   // what is broken and where the holes are: one line each, the explanation opens on a click
-  const ICON = { must: "⛔", priority: "⚠", warn: "ℹ" };
+  const ICON = { must: "broken", priority: "warn", warn: "info" };
   const order = { must: 0, priority: 1, warn: 2 };
   const gateRow = (g) => h("li", { class: "next-row next-gate " + g.level },
-    h("span", { class: "next-ico" }, ICON[g.level]),
-    h("details", { class: "next-body" }, h("summary", {}, h("span", { class: "muted small" }, t("lvl_" + g.level), ": "), h("b", {}, gateText(g))),
+    h("span", { class: "next-ico" }, I(ICON[g.level])),
+    h("details", { class: "next-body" }, h("summary", {}, h("span", { class: "al-k" }, t("lvl_" + g.level)), h("span", { class: "al-t" }, gateText(g))),
       h("div", { class: "small muted" }, detailText(g))),
-    tabOf(g) ? goBtn(() => switchTab(tabOf(g))) : null);
+    h("span"), tabOf(g) ? goBtn(() => switchTab(tabOf(g))) : h("span"));
   const list = h("ol", { class: "start-steps next-steps" });
   const gates = [...r.gates].sort((a, c) => order[a.level] - order[c.level]);
   list.append(...gates.filter((g) => g.level !== "warn").map(gateRow));
@@ -1315,10 +1327,10 @@ function nextCard(r) {
     ...Object.values(r.attributes.supportsAtRisk || {}).map((risk) => h("div", { class: "next-minor small" },
       h("span", { class: "muted" }, t("supportsAtRisk"), " "), risk.map((x) => `${trName(x.name)} ${pct(x.skill_dps_pct)}`).join(" · ")))];
   if (minor.length) {
-    list.append(h("li", { class: "next-row next-gate warn" }, h("span", { class: "next-ico" }, "ℹ"),
-      h("details", { class: "next-body" }, h("summary", {}, h("b", {}, t("nextMinor", minor.length))), ...minor)));
+    list.append(h("li", { class: "next-row next-gate warn" }, h("span", { class: "next-ico" }, I("info")),
+      h("details", { class: "next-body" }, h("summary", {}, h("span", { class: "al-t" }, t("nextMinor", minor.length))), ...minor)));
   }
-  const pending = h("li", { class: "next-row muted small" }, loading(t("nextLoading")));
+  const pending = h("li", { class: "next-wait muted small" }, loading(t("nextLoading")));
   list.append(pending);
 
   (async () => {
@@ -1330,29 +1342,28 @@ function nextCard(r) {
     const steps = [];  // [score, row]
     if (quest.status === "fulfilled" && quest.value) {
       const [q, o] = quest.value;
-      steps.push([o.score, row("🎁", t("nextQuest", questName(q)), optionTitle(q, q.options.indexOf(o)) || optionText(o),
-        h("div", {}, h("span", { class: "small muted" }, t("nextQuestNote", questWhere(q)), " "), deltas(o.changes, METRIC, 0.3)),
-        () => switchTab("profile"))]);
+      steps.push([o.score, row(I("chest", "c-gold"), t("nextQuest", questName(q)), optionTitle(q, q.options.indexOf(o)) || optionText(o),
+        h("div", { class: "small muted" }, t("nextQuestNote", questWhere(q)).replace(/\s*·\s*$/, "")), () => switchTab("profile"), o.changes)]);
     }
     const g = tree.status === "fulfilled" && tree.value.growth[0];
     if (g) {
-      steps.push([g.value, row("🌳", t("tab_tree"), trName(g.name),
-        h("div", {}, h("span", { class: "small muted" }, t("nextTreeNote", g.points), " "), deltas(g.changes, METRIC, 0.3)), () => switchTab("tree"))]);
+      steps.push([g.value, row(I("tree", "c-tree"), h("span", {}, h("b", {}, t("tab_tree")), " · ", t("nextTreeNote", g.points).replace(/\s*·\s*$/, "")),
+        trName(g.name), null, () => switchTab("tree"), g.changes)]);
     }
     if (gear.status === "fulfilled") {
       const c = gear.value.craftPath[0];
       if (c) {
-        steps.push([c.score, row("⚒", t("nextCraft", slotName(c.slot)),
+        steps.push([c.score, row(I("anvil", "c-gold"), t("nextCraft", slotName(c.slot)),
           (c.removed.length ? trMod(c.removed.join(" / ")) + " → " : t("craftAdd") + " ") + trMod(c.added.join(" / ")),
-          deltas(c.changes, METRIC, 0.3), goSlot(c.slot))]);
+          null, goSlot(c.slot), c.changes)]);
       }
       // the socket where a rune gains most over what sits there now
       const runes = gear.value.sockets.filter((s) => s.best.length).map((s) => [s.best[0].score - s.current_score, s]);
       const [gain, s] = runes.sort((a, b) => b[0] - a[0])[0] || [0, null];
       if (s && gain > 0) {
-        steps.push([gain, row("◆", t("nextRune", slotName(s.slot)), trName(s.best[0].name),
-          h("div", {}, s.current && s.current !== "None" ? h("span", { class: "small muted" }, t("nextRuneInstead", trName(s.current)), " ") : null,
-            deltas(s.best[0].changes, METRIC, 0.3)), goSlot(s.slot))]);
+        steps.push([gain, row(icon(s.best[0].name) || I("jewel", "c-gold"), t("nextRune", slotName(s.slot)), trName(s.best[0].name),
+          s.current && s.current !== "None" ? h("div", { class: "small muted" }, t("nextRuneInstead", trName(s.current)).replace(/\s*·\s*$/, "")) : null,
+          goSlot(s.slot), s.best[0].changes)]);
       }
     }
     steps.sort((a, b) => b[0] - a[0]);
@@ -1364,20 +1375,20 @@ function nextCard(r) {
       const measured = main ? main.gems.filter((x) => x.support && x.enabled && x.worth && !x.worthIf && key in x.worth) : [];
       const weakest = measured.sort((a, b) => (a.worth[key] || 0) - (b.worth[key] || 0))[0];
       if (weakest && (weakest.worth[key] || 0) < 1) {
-        steps.push([0, row("🔮", t("nextGem"), gemName(weakest.name),
+        steps.push([0, row(I("gem", "c-mana"), t("nextGem"), gemName(weakest.name),
           h("div", { class: "small muted" }, t("nextGemNote", pct(weakest.worth[key] || 0))), () => switchTab("skills"))]);
       }
     }
-    pending.replaceWith(...(steps.length ? steps.map((x) => x[1]) : [h("li", { class: "muted small" }, t("nextNone"))]));
+    pending.replaceWith(...(steps.length ? steps.map((x) => x[1]) : [h("li", { class: "next-wait muted small" }, t("nextNone"))]));
   })();
 
   // the upgrade path: mod after mod, each counted with the ones before it - folded to its first step
   const path = r.path.length ? h("details", { class: "next-path" },
-    h("summary", {}, h("b", {}, "📈 ", t("pathTitle")), " ", h("span", { class: "muted small" }, t("firstStep", trMod(r.path[0].mod)))),
+    h("summary", {}, I("chart", "c-gold"), " ", h("b", {}, t("pathTitle")), " ", h("span", { class: "muted small" }, t("firstStep", trMod(r.path[0].mod)))),
     h("div", { class: "small muted" }, t("pathSub")),
     h("ol", { class: "path-compact" }, r.path.map((x) => h("li", {}, h("span", { class: "mod" }, trMod(x.mod)), " ",
       deltas({ dps: x.dps, phys_hit: x.defence.Physical, chaos_hit: x.defence.Chaos, recovery: x.recovery }))))) : null;
-  return h("div", { class: "card start-card" }, h("h3", {}, t("nextTitle")),
+  return h("div", { class: "card start-card ornate ov-next" }, h("h3", {}, I("compass", "ic-l c-gold"), " ", t("nextTitle")),
     h("div", { class: "sub" }, t("nextSub", t("mode_" + state.mode))), list, path);
 }
 
