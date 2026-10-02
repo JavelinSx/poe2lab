@@ -358,8 +358,15 @@ def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 6, to
     by_id = {m.id: m for m in db.mods}
     wanted = [(by_lines.get(tuple(a.template)), a.score) for a in plan.affixes if a.score > 0.5]
     wanted += [(by_id.get(c.mod_id), c.score) for c in plan.candidates if c.score > 0.5]
+    return targets_of(db, [mod for mod, _ in sorted((w for w in wanted if w[0]), key=lambda w: -w[1])], base_tags,
+                      item_level, count, top_tiers)
+
+
+def targets_of(db: ModDB, mods: list[Mod], base_tags, item_level: int, count: int = 6, top_tiers: int = 3) -> list[Target]:
+    """The mods (most wanted first) as craft targets: each family once, at its top tiers for the item level; `count`
+    of them, at most three per side."""
     out, seen, sides = [], set(), Counter()
-    for mod, _ in sorted((w for w in wanted if w[0]), key=lambda w: -w[1]):
+    for mod in mods:
         key = (mod.group, mod.patterns)
         if key in seen or sides[mod.type] >= 3:
             continue

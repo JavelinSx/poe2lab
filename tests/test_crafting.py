@@ -153,3 +153,22 @@ def test_craft_endpoint(client):
     best = lambda x: max(s["per_base"] for s in x["strategies"])
     assert best(loose) > best(top)
     assert client.get("/api/craft?slot=Nowhere").status_code == 400
+
+
+def test_targets_of_given_mods():
+    """The mods of an item made for the build as craft targets: a family once, three a side at most, each at its
+    top tiers for the item level."""
+    from poe2lab.data.moddb import ModDB
+
+    def mod(mid, side, group, level, line):
+        return {"id": mid, "set": "Item", "type": side, "affix": "", "lines": [line], "level": level, "group": group,
+                "weightKey": ["default"], "weightVal": [1], "tags": [], "tradeHashes": []}
+    rows = [mod(f"P{g}{t}", "Prefix", f"P{g}", 80 - 10 * t, f"+{50 - 10 * t} to P{g}") for g in range(4) for t in range(3)]
+    rows += [mod("S0", "Suffix", "S", 60, "+5% to S")]
+    db = ModDB({"mods": rows, "bases": []})
+    by_id = {m.id: m for m in db.mods}
+    wanted = [by_id["P00"], by_id["P01"], by_id["P11"], by_id["P20"], by_id["P30"], by_id["S0"]]
+    targets = crafting.targets_of(db, wanted, ["default"], 75, top_tiers=2)
+    assert [(t.group, t.side) for t in targets] == [("P0", "Prefix"), ("P1", "Prefix"), ("P2", "Prefix"), ("S", "Suffix")]
+    # item level 75: tier 80 cannot roll; the top two below it, the second the least
+    assert targets[0].label == "+40 to P0" and targets[0].min_level == 60

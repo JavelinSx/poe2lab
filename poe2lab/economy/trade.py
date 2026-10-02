@@ -164,8 +164,7 @@ def pick_mods(db: ModDB, plan: dict, tags, level: int) -> list[dict]:
         must = worn and (bool(row.get("holds")) or any("Movement Speed" in l for l in row["lines"]))
         if row["score"] <= 0 and not must:
             continue
-        tiers = [m for m in db.tiers_of(mod, tags) if m.level <= wearable] or [mod]
-        low = _trade_value(tiers[min(2, len(tiers) - 1)].lines[0])
+        low = _low_roll(db, mod, tags, wearable)
         if low is None:
             continue
         if worn:
@@ -176,6 +175,30 @@ def pick_mods(db: ModDB, plan: dict, tags, level: int) -> list[dict]:
         out.append({"id": stat, "min": round(low), "line": row["lines"][0], "type": mod.type,
                     "score": row["score"], "must": must, "worn": worn})
     out.sort(key=lambda x: (not x["must"], -x["score"]))
+    return out
+
+
+def _low_roll(db: ModDB, mod, tags, wearable: int) -> float | None:
+    """The least a good roll of the mod is: the low roll of the third best tier an item the character wears has."""
+    tiers = [m for m in db.tiers_of(mod, tags) if m.level <= wearable] or [mod]
+    return _trade_value(tiers[min(2, len(tiers) - 1)].lines[0])
+
+
+def item_mods(db: ModDB, mods: list[tuple], tags, level: int) -> list[dict]:
+    """The mods of an item made for the build ((mod, its worth), most worth first) as the site's filters, as
+    pick_mods gives them: each stat once, at least the low roll of its third best tier the character can wear."""
+    known = {e["id"] for g in trade_data("en", "stats") for e in g["entries"]}
+    wearable = max(1, int(level / REQ_LEVEL_SHARE))
+    out = []
+    for mod, worth in mods:
+        if not mod.trade_hashes:
+            continue
+        stat = f"explicit.stat_{mod.trade_hashes[0]}"
+        low = _low_roll(db, mod, tags, wearable)
+        if stat not in known or low is None or any(x["id"] == stat for x in out):
+            continue
+        out.append({"id": stat, "min": round(low, 1) if low < 10 else round(low), "line": mod.lines[0],
+                    "type": mod.type, "score": worth, "must": False, "worn": False})
     return out
 
 

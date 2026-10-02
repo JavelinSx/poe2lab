@@ -152,15 +152,20 @@ def defences(engine, config: dict) -> list[dict]:
     return out
 
 
+def hit_shares(o: dict) -> dict:
+    """What the main skill's hit is made of (PoB's output `o`): each damage type's share of it, in %."""
+    hand = "MainHand." if any(k.startswith("MainHand.") and k.endswith("HitAverage") for k in o) else ""
+    hits = {t: o.get(f"{hand}{t}HitAverage", 0.0) for t in DAMAGE_TYPES}
+    total = sum(hits.values())
+    return {t: v / total * 100 for t, v in hits.items() if total and v > 0}
+
+
 def mana(engine, config: dict, group: dict, level: int | None = None) -> dict:
     """How the main skill's mana comes and goes, why leech takes little, and the supports that fix the balance."""
     with engine.main_skill_of(group["index"]):
         o = engine.what_if(config=config)
         src = engine.stat_sources(LEECH_STATS, flags=LEECH_FLAGS)
-    hand = "MainHand." if any(k.startswith("MainHand.") and k.endswith("HitAverage") for k in o) else ""
-    hits = {t: o.get(f"{hand}{t}HitAverage", 0.0) for t in DAMAGE_TYPES}
-    total = sum(hits.values())
-    shares = {t: v / total * 100 for t, v in hits.items() if total and v > 0}
+    shares = hit_shares(o)
     leech = [{"type": name.removesuffix("DamageManaLeech") or "All", "value": r["value"], "from": r["source"]["name"]}
              for name, per in src["stats"].items() for r in per.get("BASE", [])]
     spent, regen = o.get("ManaPerSecondCost", 0.0), o.get("ManaRegenRecovery", 0.0)

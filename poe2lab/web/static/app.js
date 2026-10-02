@@ -1424,7 +1424,7 @@ TABS.gear = async (view) => {
       return;
     }
     const edit = h("div", { class: "card" }, loading(t("counting")));
-    side.replaceChildren(...[edit, p ? slotCard(p) : null].filter(Boolean));
+    side.replaceChildren(...[edit, p ? slotCard(p) : null, adviceCard(slot)].filter(Boolean));
     try {
       const info = await api(`/api/gear/item?slot=${encodeURIComponent(slot)}&${buildQuery()}`);
       if (my === seq) gearEdit(edit, info, g);
@@ -1490,13 +1490,157 @@ const MK_KIND = { Armour: "mkKind_ar", Evasion: "mkKind_ev", "Energy Shield": "m
   "Armour/Energy Shield": "mkKind_ares", "Evasion/Energy Shield": "mkKind_eves", "Armour/Evasion/Energy Shield": "mkKind_all" };
 const mkKind = (k) => (MK_KIND[k] ? t(MK_KIND[k]) : trName(k));
 
-async function itemEditor(slot) {
+// What matters in a slot for this build (poe2lab.analysis.slotadvice): why (what the build is made of and what the
+// slot pays for), each mod priced in a good item, the best items made of them against the worn one - each can be
+// tried in the item window, crafted (the craft simulator) or looked up on the market - and what the build does not
+// need there.
+function adviceCard(slot) {
+  const inner = h("div", { class: "stack" });
+  const card = foldedCard(h("div", { class: "card" }, h("h3", {}, "🎯 ", t("saTitle", slotName(slot))), inner), "advice:" + slot,
+    t("saSum"));
+  const load = async () => {
+    if (inner.dataset.loaded) return;
+    inner.dataset.loaded = "1";
+    inner.replaceChildren(loading(t("saLoading")));
+    try {
+      const a = await cached(`advice:${slot}`, () => api(`/api/gear/advice?slot=${encodeURIComponent(slot)}&${buildQuery()}`));
+      inner.replaceChildren(...renderAdvice(a, slot));
+    } catch (e) { inner.replaceChildren(errorCard(e)); }
+  };
+  whenOpen(card, load);
+  return card;
+}
+
+const ELEMENTS = ["Fire", "Cold", "Lightning"];
+// a stat a link starts or ends at: a damage type, a defence; PoB's own name otherwise
+const linkStat = (k) => (["Physical", "Fire", "Cold", "Lightning", "Chaos"].includes(k) ? t("st_hit_" + k)
+  : ["All", "Elemental", "Evasion", "Armour", "Deflection", "Life", "EnergyShield", "Mana", "Random"].includes(k) ? t("saStat_" + k)
+  : k.includes("Or") ? k.split("Or").map(linkStat).join(t("saOr")) : k);
+const linkSource = (x) => {
+  const name = x.kind === "item" || x.kind === "jewel" ? trItem(x.name.split(",")[0])
+    : x.kind === "tree" && x.small ? t("exKind_small") : trName(x.name);
+  return `${name}${x.count > 1 ? ` ×${x.count}` : ""} ${fmt(x.value, 0)}%`;
+};
+
+// why, from the build itself: what the main skill's hit is made of, the links between stats (damage gained as
+// another type, evasion granting deflection) and where each comes from, the defences; then what the slot pays for
+// most, each with its reason - "the hit is mostly cold, and its cold comes from the staff's physical"
+function adviceWhy(a, slot) {
+  const f = a.facts;
+  if (!f) return null;
+  const hit = Object.entries(f.hit || {}).filter(([, v]) => v >= 1).sort((x, y) => y[1] - x[1]);
+  const rows = [];
+  if (hit.length) {
+    rows.push(h("div", {}, "⚔ ", f.skill ? gemName(f.skill) : null, " ", t("saHits"), " ",
+      hit.map(([k, v]) => h("span", { class: "chip tag", style: `border-color:${DMG_COLOR[k]}` }, `${t("st_hit_" + k)} ${fmt(v, 0)}%`))));
+  }
+  // links of one source and size together: "elemental → fire / cold / lightning 33%" (Painter's Servant)
+  const links = {};
+  for (const l of f.links || []) {
+    const key = [l.from, l.how, Math.round(l.value), l.sources.map((x) => x.name).join("|")].join("/");
+    (links[key] = links[key] || { ...l, tos: [] }).tos.push(l.to);
+  }
+  for (const l of Object.values(links).slice(0, 4)) {
+    const to = l.tos.map(linkStat).join(" / ");
+    rows.push(h("div", {}, "🔗 ", h("b", {}, l.how === "gain" ? t("saLinkGain", linkStat(l.from), fmt(l.value, 0), to)
+      : t("saLinkConvert", linkStat(l.from), fmt(l.value, 0), to)), " ",
+      h("span", { class: "muted small" }, "(", l.sources.map(linkSource).join(" · "), ")")));
+  }
+  const defs = Object.entries(f.defences || {}).sort((x, y) => y[1] - x[1]);
+  if (defs.length) {
+    rows.push(h("div", {}, "🛡 ", t("saDefence"), " ", defs.map(([k, v]) => `${t("exDefTitle_" + k)} ${fmt(v, 0)}`).join(" · "),
+      f.deflection >= 1 ? ` · ${t("saStat_Deflection")} ${fmt(f.deflection, 0)}%` : ""));
+  }
+  // the reason of each kind of mod the slot pays for, from the facts above
+  const share = (types) => types.reduce((s, k) => s + ((f.hit || {})[k] || 0), 0);
+  const fromPhys = (f.links || []).filter((l) => ["All", "Physical"].includes(l.from) && ELEMENTS.includes(l.to))
+    .reduce((s, l) => s + l.value, 0);
+  const defLink = (stat) => (f.links || []).find((l) => l.from === stat);
+  const biggest = defs.length ? defs[0][0] : null;
+  const reason = (k) => {
+    if (k === "phys") return fromPhys && share(["Physical"]) < 60 ? t("saWhy_physBase", fmt(fromPhys, 0)) : t("saWhy_share", t("st_hit_Physical"), fmt(share(["Physical"]), 0));
+    if (k === "elemental") return t("saWhy_share", t("saStat_Elemental"), fmt(share(ELEMENTS), 0));
+    if (k === "chaos") return t("saWhy_share", t("st_hit_Chaos"), fmt(share(["Chaos"]), 0));
+    if (k === "crit") return t("saWhy_crit", fmt(f.crit, 0));
+    if (k === "deflect") return f.deflection >= 1 ? t("saWhy_deflect", fmt(f.deflection, 0)) : "";
+    if (k === "gems" || k === "speed") return t("saWhy_" + k);
+    const stat = { evasion: "Evasion", armour: "Armour", es: "EnergyShield", life: "Life" }[k];
+    if (stat && defLink(stat)) return t("saWhy_defLink", linkStat(defLink(stat).to), fmt(defLink(stat).value, 0));
+    if (stat && stat === biggest) return t("saWhy_main");
+    return "";
+  };
+  if (a.why && a.why.length) {
+    rows.push(h("div", { class: "sa-why-slot" }, h("b", {}, "→ ", t("saConclusion", slotName(slot))),
+      h("ul", {}, a.why.map((w) => h("li", {}, h("b", {}, t("saKind_" + w.kind)), " ", deltas({ dps: w.dps, ehp: w.ehp }, METRIC, 0.1),
+        reason(w.kind) ? h("span", { class: "muted small" }, " — ", reason(w.kind)) : null)))));
+  }
+  return rows.length ? h("div", { class: "hint sa-why" }, h("div", { class: "small" }, h("b", {}, t("saWhyTitle"))), ...rows) : null;
+}
+
+function renderAdvice(a, slot) {
+  if (!a.base) return [h("p", { class: "muted" }, t("saNone"))];
+  const metric = (x) => deltas({ dps: x.dps, ehp: x.ehp }, METRIC, 0.1);
+  const out = [adviceWhy(a, slot)].filter(Boolean);
+  out.push(h("div", { class: "small muted" }, t(a.inItem ? "saSubInItem" : "saSub", trName(a.base), a.itemLevel),
+    a.forLevel ? " " + t("saForLevel", a.forLevel) : ""));
+  out.push(h("table", { class: "ex-table" }, h("tbody", {}, a.mods.slice(0, 10).map((m) => h("tr", {},
+    h("td", { class: "mod" }, m.lines.map(trMod).join(" / "), " ", h("span", { class: "muted small" }, m.type === "Prefix" ? t("saPrefix") : t("saSuffix"))),
+    h("td", { title: m.aloneDps !== undefined ? t("saAloneHint", fmt(m.aloneDps, 1), fmt(m.aloneEhp, 1)) : null }, metric(m)))))));
+  for (const [mode, b] of Object.entries(a.best || {})) {
+    const extra = h("div", {});
+    const open = (btn, fill) => async () => {
+      btn.disabled = true;
+      extra.replaceChildren(loading(t(btn.dataset.wait)));
+      try { extra.replaceChildren(await fill()); } catch (e) { extra.replaceChildren(h("p", { class: "bad small" }, e.message)); }
+      finally { btn.disabled = false; }
+    };
+    const craftBtn = h("button", { class: "ghost small", "data-wait": "crLoading" }, t("saCraft"));
+    craftBtn.onclick = open(craftBtn, async () => renderCraft(await cached(`advice-craft:${slot}:${mode}`,
+      () => api(`/api/gear/advice/craft?slot=${encodeURIComponent(slot)}&mode=${mode}&${buildQuery()}`))));
+    const marketBtn = h("button", { class: "ghost small", "data-wait": "saMarketSearching" }, t("saMarket"));
+    marketBtn.onclick = open(marketBtn, async () => adviceMarket(await api("/api/gear/advice/market",
+      { method: "POST", body: { slot, mode, status: tradeStatus() } })));
+    out.push(h("div", { class: "sk-better" },
+      h("div", {}, h("b", {}, mode === "damage" ? "⚔ " + t("saBestDamage") : "⚖ " + t("saBestBalanced")), " ",
+        h("span", { class: "small muted" }, a.uniqueWorn ? t("saVsUnique") : t("saVsWorn")), " ", metric(b)),
+      h("ul", { class: "item-lines small" }, b.lines.map((l) => h("li", {}, trMod(l)))),
+      h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => itemEditor(slot, b.text) }, t("saTry")), craftBtn, marketBtn),
+      extra));
+  }
+  if (a.play && a.play.length) out.push(h("div", { class: "hint" }, t("saPlay", a.play.map(trMod).join("; "))));
+  if (a.useless && a.useless.length) out.push(h("details", {}, h("summary", { class: "small" }, t("saUseless", a.useless.length)),
+    h("div", { class: "small muted" }, a.useless.map(trMod).join("; "))));
+  return out;
+}
+
+// the market for an item like the best one: what the search asked for, the price of the cheapest finds, and each
+// find put on the build by PoB (the ones better than the worn item first)
+function adviceMarket(r) {
+  const s = r.searches[0];
+  if (!s) return h("p", { class: "muted small" }, t("saMarketNone"));
+  const head = h("div", { class: "trade-head" }, h("span", { class: "muted small" }, t("trLeague", trName(r.league))), " ",
+    s.url ? h("a", { href: s.url, target: "_blank", rel: "noopener" }, t("trOpen", s.total)) : null);
+  const mods = h("div", { class: "trade-mods" }, s.mods.map((m) => h("span", { class: "chip tag", title: m.line }, tradeMin(m))));
+  if (s.error) return h("div", { class: "trade-search" }, head, mods, h("p", { class: "bad small" }, s.error));
+  if (!s.items.length) return h("div", { class: "trade-search" }, head, mods, h("p", { class: "muted small" }, t("saMarketNone")));
+  const ex = s.items.map((it) => (it.price || {}).ex).filter((v) => v > 0).sort((x, y) => x - y);
+  const good = s.items.filter((it) => it.better);
+  const rest = s.items.filter((it) => !it.better);
+  return h("div", { class: "trade-search" }, head, mods,
+    s.relaxed ? h("div", { class: "muted small" }, t("trRelaxed", s.relaxed, s.mods.length)) : null,
+    ex.length ? h("div", {}, "💰 ", h("b", {}, t("saMarketPrice", fmt(ex[0], 0), fmt(ex[ex.length - 1], 0))),
+      h("span", { class: "muted small" }, " ", t("saMarketFound", s.items.length, s.total))) : null,
+    good.length ? tradeList(good, true) : h("p", { class: "muted small" }, t("saMarketNoneBetter")),
+    rest.length ? h("details", {}, h("summary", { class: "muted small" }, t("trRest", rest.length)), tradeList(rest, false)) : null);
+}
+
+async function itemEditor(slot, prefill = "") {
   let cat;
   try { cat = await api(`/api/gear/create?slot=${encodeURIComponent(slot)}&${buildQuery()}`); } catch (e) { toast(e.message); return; }
   if (!cat.bases.length && !cat.uniques.length) { toast(t("mkNothingFits", slotName(slot))); return; }
   const now = gearMap(state.build.items)[slot] || null;
-  const ed = { tab: cat.bases.length ? "create" : "unique", base: null, fams: null, rarity: "rare", ilvl: cat.itemLevel,
-    quality: 20, iroll: 0.5, slots: { Prefix: [], Suffix: [] }, unique: null, roll: 0.5, text: "", q: "", kind: "all", breakeven: "" };
+  const ed = { tab: prefill ? "paste" : cat.bases.length ? "create" : "unique", base: null, fams: null, rarity: "rare", ilvl: cat.itemLevel,
+    quality: 20, iroll: 0.5, slots: { Prefix: [], Suffix: [] }, unique: null, roll: 0.5, text: prefill, q: "", kind: "all", breakeven: "" };
 
   const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
   const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };

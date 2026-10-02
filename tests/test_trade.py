@@ -180,3 +180,58 @@ def test_fewer_key_mods_when_nothing_has_them_all(client, monkeypatch):
     assert r["status"] == "available" and all(b["query"]["status"]["option"] == "available" for b in asked)
     assert key["relaxed"] in (2, 3) and key["items"]
 
+
+
+def test_an_item_made_for_the_build_as_filters(monkeypatch):
+    """Each stat once, at least the low roll of the third best tier the character can wear."""
+    from poe2lab.data.moddb import ModDB
+
+    def mod(mid, lines, hashes, group, level):
+        return {"id": mid, "set": "Item", "type": "Prefix", "affix": "", "lines": lines, "level": level, "group": group,
+                "weightKey": ["default"], "weightVal": [1], "tags": [], "tradeHashes": hashes}
+    db = ModDB({"mods": [mod("Ev4", ["+(80-90) to Evasion Rating"], ["1"], "Ev", 70),
+                         mod("Ev3", ["+(60-70) to Evasion Rating"], ["1"], "Ev", 50),
+                         mod("Ev2", ["+(40-50) to Evasion Rating"], ["1"], "Ev", 30),
+                         mod("Ev1", ["+(20-30) to Evasion Rating"], ["1"], "Ev", 10),
+                         mod("Cr1", ["+(3.81-4.4)% to Critical Hit Chance"], ["2"], "Cr", 60),
+                         mod("No1", ["+5 to Nothing"], [], "No", 1)], "bases": []})
+    monkeypatch.setattr(trade, "trade_data", lambda lang, kind: [{"entries": [{"id": "explicit.stat_1"},
+                                                                              {"id": "explicit.stat_2"}]}])
+    by_id = {m.id: m for m in db.mods}
+    mods = trade.item_mods(db, [(by_id["Ev4"], 9.0), (by_id["Cr1"], 5.0), (by_id["Ev3"], 4.0), (by_id["No1"], 3.0)],
+                           ["default"], 90)
+    assert [(m["id"], m["min"], m["score"]) for m in mods] == [("explicit.stat_1", 40, 9.0), ("explicit.stat_2", 3.8, 5.0)]
+    # a character of level 50 wears items of mods up to level 62: the third best of those is lower
+    assert trade.item_mods(db, [(by_id["Ev4"], 9.0)], ["default"], 50)[0]["min"] == 20
+
+
+def test_the_slot_advice_crafts_and_prices_its_best_item(client, monkeypatch):
+    """The best item of the slot's advice: the ways to craft it, and its price on the market (one search, the site
+    stood in for), each find put on the build by PoB."""
+    from poe2lab.web.server import session
+    client.post("/api/load", json={"name": "monk"}, headers=H)
+    known = [{"entries": [{"id": f"explicit.stat_{h}"} for m in session.db().mods for h in m.trade_hashes]}]
+    monkeypatch.setattr(trade, "trade_data", lambda lang, kind: known)
+    monkeypatch.setattr(session, "prices", lambda: PriceBook("Test League", {}, 500.0))
+    a = client.get("/api/gear/advice?slot=Weapon 1").json()
+    mode = next(iter(a["best"]))
+    best = a["best"][mode]
+    assert a["why"] and a["facts"]["hit"]
+
+    craft = client.get(f"/api/gear/advice/craft?slot=Weapon 1&mode={mode}&need=2").json()
+    assert craft["base"] == a["base"] and craft["need"] == 2 and craft["grade"] == "perfect"  # item level 82
+    assert 2 <= len(craft["targets"]) <= len(best["picks"]) and craft["strategies"]
+
+    asked = []
+
+    def search(league, body):
+        asked.append(body)
+        return {"id": f"q{len(asked)}", "total": 1, "result": ["a"]}
+    monkeypatch.setattr(trade, "search", search)
+    monkeypatch.setattr(trade, "fetch", lambda query_id, ids: [listing(best["lines"], base=a["base"], price=(2, "divine"))])
+    r = client.post("/api/gear/advice/market", json={"slot": "Weapon 1", "mode": mode}, headers=H).json()
+    assert len(asked) == 1 and [s["kind"] for s in r["searches"]] == ["key"]  # one search, no more
+    s = r["searches"][0]
+    assert 1 <= len(s["mods"]) <= trade.KEY_MODS and s["items"][0]["price"]["ex"] == 1000.0
+    assert s["items"][0]["score"] is not None and s["items"][0]["changes"]
+    assert client.post("/api/gear/advice/market", json={"slot": "Weapon 1", "mode": "nope"}, headers=H).status_code == 400

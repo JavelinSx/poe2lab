@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.explain import explain as explain_build, main_group
+from ..analysis import slotadvice
 from ..analysis.items import breakeven, compare
 from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view
 from ..analysis.uniques import suggest as suggest_uniques
@@ -977,6 +978,106 @@ def _slot_choice(slot: str) -> dict:
     return session.cached(("slot-choice", slot), compute)
 
 
+def _slot_advice(slot: str) -> dict:
+    """The slot's advice (poe2lab.analysis.slotadvice), computed once: for the end game on its bases, for a character
+    on every base of the slot it can wear (a levelling one too)."""
+    e, cfg = session.engine, session.profile.config()
+    level = session.level if session.main is not None else None
+
+    def compute():
+        names = set(e.slot_bases(slot))
+        bases = _slot_choice(slot)["bases"] if level is None else [b for b in _item_data()["bases"] if b["name"] in names]
+        return slotadvice.advise(e, session.db(), cfg, slot, bases, e.equipped_bases().get(slot),
+                                 main_socket_group=_damage_group(e, cfg), level=level)
+    return session.cached(("slot-advice", slot), compute)
+
+
+def _advice_item(slot: str, mode: str) -> tuple[dict, dict, list]:
+    """The advice's best item for `mode`: the advice, its base and its mods, the ones worth most first."""
+    a = _slot_advice(slot)
+    b = (a.get("best") or {}).get(mode)
+    if not b:
+        raise HTTPException(404, "для этого слота нет лучшей вещи в таком режиме")
+    base = next((x for x in _item_data()["bases"] if x["name"] == a["base"]), None)
+    if base is None:
+        raise HTTPException(404, f"нет базы {a['base']!r}")
+    worth = {m["id"]: slotadvice.MODES[mode](m["dps"], m["ehp"]) for m in a["mods"]}
+    by_id = {m.id: m for m in session.db().mods}
+    mods = [(by_id[i], worth.get(i, 0.0)) for i in sorted(b["picks"], key=lambda i: -worth.get(i, 0.0)) if i in by_id]
+    return a, base, mods
+
+
+@app.get("/api/gear/advice")
+def gear_advice(slot: str, build: str | None = None):
+    """What matters in the slot for this build: each mod its base rolls priced in a good item, the best items made
+    of them against the worn one, and why (poe2lab.analysis.slotadvice)."""
+    with session.lock:
+        session.require(build)
+        return _json(_slot_advice(slot))
+
+
+@app.get("/api/gear/advice/craft")
+def gear_advice_craft(slot: str, mode: str = "damage", need: int = 3, grade: str | None = None,
+                      quality: str = "good", build: str | None = None):
+    """How to craft the advice's best item: `need` of its mods (the ones worth most first) from a white or blue base
+    of its kind, the strategies with their chance and currency (perfect orbs from item level 65 by default)."""
+    if mode not in slotadvice.MODES:
+        raise HTTPException(400, f"неизвестная цель {mode!r}")
+    top_tiers = crafting.QUALITY_TIERS.get(quality, crafting.QUALITY_TIERS["good"])
+    with session.lock:
+        session.require(build)
+        e = session.engine
+        a, base, mods = _advice_item(slot, mode)
+        if grade is None:
+            grade = "perfect" if a["itemLevel"] >= 65 else ""
+        grade_ = {"greater": "Greater ", "perfect": "Perfect "}.get(grade.lower(), "")
+
+        def compute():
+            db = session.db()
+            targets = crafting.targets_of(db, [m for m, _ in mods], base["tags"], a["itemLevel"], top_tiers=top_tiers)
+            return {"slot": slot, "mode": mode} | _craft_ways(e, db, a["base"], base["type"], base["tags"], a["itemLevel"],
+                                                              targets, need, grade_)
+        return _json(session.cached(("advice-craft", slot, mode, need, grade_, top_tiers), compute))
+
+
+class AdviceMarket(BaseModel):
+    slot: str
+    mode: str = "damage"
+    status: str = "online"
+
+
+@app.post("/api/gear/advice/market")
+def gear_advice_market(req: AdviceMarket):
+    """What an item like the advice's best one costs on the trade site: one search for its four mods worth most (the
+    low roll of a good tier each; fewer of them when nothing has them all), each listing put on the build by PoB."""
+    if req.mode not in slotadvice.MODES:
+        raise HTTPException(400, f"неизвестная цель {req.mode!r}")
+    if req.status not in trade.STATUSES:
+        raise HTTPException(400, f"продавцы: {' или '.join(trade.STATUSES)}, а не {req.status!r}")
+    with session.lock:
+        session.require()
+        e, prof = session.engine, session.profile
+        a, base, mods = _advice_item(req.slot, req.mode)
+        cat = trade.category(base["type"], base["tags"])
+        if cat is None:
+            raise HTTPException(400, "такую вещь на рынке не ищу")
+        prices = session.prices()
+        league = prices.league if prices else (session.bp.league or "Standard")
+        level = int(e.info()["level"] or 1)
+        cfg, weights = prof.config(), defence_weights(survivable_hits(e, prof))
+        filters = trade.item_mods(session.db(), mods, base["tags"], level)
+        bare = e.what_if(config=cfg, remove_slot=req.slot)
+        attributes = {k.lower(): bare.get(k, 0) for k in ("Str", "Dex", "Int")}
+    if not filters:
+        raise HTTPException(400, "у модов этой вещи нет фильтров на сайте торговли")
+    searches = _trade_searches(league, [q for q in trade.queries(filters, cat, level, attributes, req.status)
+                                        if q["kind"] == "key"])
+    with session.lock:
+        session.require()
+        _trade_score(e, cfg, req.slot, searches, prices, req.mode, weights, 0.0)
+    return _json({"slot": req.slot, "mode": req.mode, "league": league, "status": req.status, "searches": searches})
+
+
 @app.get("/api/gear/create")
 def gear_create(slot: str, build: str | None = None):
     """What an item for the slot can be: the bases it takes, their uniques, the rarities' limits."""
@@ -1927,46 +2028,52 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quali
             item = next((i for i in e.equipped_item_details() if i["slot"] == slot), None)
             if item is None:
                 raise HTTPException(400, f"в слоте {slot} ничего не надето — не из чего взять базу")
-            db, prices = session.db(), session.prices()
+            db = session.db()
             weights = defence_weights(survivable_hits(e, prof))
             plan = plan_slot(e, db, prof.config(), item, mode, weights, top=8, check_mana=not prof.mana_sustained)
             targets = crafting.pick_targets(db, plan, item["tags"], item_level, top_tiers=top_tiers)
-            if not targets:
-                return {"slot": slot, "base": item["baseName"], "targets": [], "strategies": []}
-            # an essence (not Perfect/Corrupted: those work on rares) that guarantees a target at its wanted tier:
-            # for the most valuable target it can, the cheapest tier of it
-            by_id, essence = {m.id: m for m in db.mods}, None
-            usable = [(es["name"], by_id.get(es["mods"].get(item["type"], "")))
-                      for es in sorted(e.export_essences(), key=lambda x: x["tierLevel"])
-                      if not es["name"].startswith(("Perfect", "Corrupted"))]
-            for t in targets:
-                essence = next(((name, m) for name, m in usable if m and m.group == t.group and
-                                m.patterns == t.patterns and m.level >= t.min_level), None)
-                if essence:
-                    break
-            pool = crafting.Pool(db, item["tags"], item_level, item_type=item["type"])
-            desecrated = crafting.Pool(db, item["tags"], item_level, sets=("Desecrated",), item_type=item["type"])
-            wanted = max(1, min(need, len(targets)))
-            found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated,
-                                        crafting.bone_for(item["type"]))
-            crafting.price(found, prices)
-            # cheapest first when priced; otherwise the likeliest
-            found.sort(key=lambda x: (x.per_base == 0, x.cost if x.cost is not None and x.priced else 1e9,
-                                      -x.per_base))
-            priced = {}
-            for s_ in found:
-                for name in s_.use:
-                    price = prices.get(name) if prices else None
-                    priced[name] = prices.describe(price) if price else None
-            return {"slot": slot, "base": item["baseName"], "itemLevel": item_level, "grade": grade.strip().lower(),
-                    "need": wanted, "targets": [asdict(t) | {"patterns": list(t.patterns)} for t in targets],
-                    "essence": essence[0] if essence else None, "strategies": [asdict(x) for x in found],
-                    "prices": priced, "exaltedPerDivine": prices.exalted_per_divine if prices else None,
-                    "league": prices.league if prices else None,
-                    "estimatedWeights": not crafting.WEIGHTS_FILE.is_file(),
-                    "budget": crafting.BUDGET}
+            return {"slot": slot} | _craft_ways(e, db, item["baseName"], item["type"], item["tags"], item_level, targets,
+                                                need, grade)
 
         return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode), compute))
+
+
+def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets: list, need: int, grade: str) -> dict:
+    """Ways to craft an item with `need` of the targets from a white or blue base of its kind: the strategies played
+    out on the base's mod pool, with the chance, the currency and its price (see poe2lab.crafting)."""
+    if not targets:
+        return {"base": base, "targets": [], "strategies": []}
+    prices = session.prices()
+    # an essence (not Perfect/Corrupted: those work on rares) that guarantees a target at its wanted tier:
+    # for the most valuable target it can, the cheapest tier of it
+    by_id, essence = {m.id: m for m in db.mods}, None
+    usable = [(es["name"], by_id.get(es["mods"].get(item_type, "")))
+              for es in sorted(e.export_essences(), key=lambda x: x["tierLevel"])
+              if not es["name"].startswith(("Perfect", "Corrupted"))]
+    for t in targets:
+        essence = next(((name, m) for name, m in usable if m and m.group == t.group and
+                        m.patterns == t.patterns and m.level >= t.min_level), None)
+        if essence:
+            break
+    pool = crafting.Pool(db, tags, item_level, item_type=item_type)
+    desecrated = crafting.Pool(db, tags, item_level, sets=("Desecrated",), item_type=item_type)
+    wanted = max(1, min(need, len(targets)))
+    found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated, crafting.bone_for(item_type))
+    crafting.price(found, prices)
+    # cheapest first when priced; otherwise the likeliest
+    found.sort(key=lambda x: (x.per_base == 0, x.cost if x.cost is not None and x.priced else 1e9, -x.per_base))
+    priced = {}
+    for s_ in found:
+        for name in s_.use:
+            price = prices.get(name) if prices else None
+            priced[name] = prices.describe(price) if price else None
+    return {"base": base, "itemLevel": item_level, "grade": grade.strip().lower(),
+            "need": wanted, "targets": [asdict(t) | {"patterns": list(t.patterns)} for t in targets],
+            "essence": essence[0] if essence else None, "strategies": [asdict(x) for x in found],
+            "prices": priced, "exaltedPerDivine": prices.exalted_per_divine if prices else None,
+            "league": prices.league if prices else None,
+            "estimatedWeights": not crafting.WEIGHTS_FILE.is_file(),
+            "budget": crafting.BUDGET}
 
 
 @app.get("/api/craft/guide")
@@ -2280,8 +2387,19 @@ def trade_search(req: TradeRequest):
     if not mods:
         raise HTTPException(400, "не нашёл, по каким модам искать: PoB не видит у слота ценных модов")
 
+    searches = _trade_searches(league, trade.queries(mods, cat, level, attributes, req.status))
+    with session.lock:
+        session.require()
+        _trade_score(e, cfg, req.slot, searches, prices, req.mode, weights, req.threshold)
+    return _json({"slot": req.slot, "league": league, "threshold": req.threshold, "status": req.status,
+                  "searches": searches})
+
+
+def _trade_searches(league: str, queries: list[dict]) -> list[dict]:
+    """The searches run on the trade site (fewer of the mods when nothing has them all) and their cheapest
+    listings read."""
     searches = []
-    for q in trade.queries(mods, cat, level, attributes, req.status):
+    for q in queries:
         entry = {"kind": q["kind"], "mods": q["mods"], "relaxed": False, "total": 0, "url": None, "items": [],
                  "error": None}
         try:
@@ -2295,39 +2413,40 @@ def trade_search(req: TradeRequest):
         except trade.TradeError as err:
             entry["error"] = str(err)
         searches.append(entry)
+    return searches
 
-    with session.lock:
-        session.require()
-        if session.engine is not e:  # another build, or the same one read again: its numbers are not these
-            raise HTTPException(409, "пока шёл поиск, билд открыли заново — повтори поиск")
-        base = e.what_if(config=cfg)
-        for entry in searches:
-            for listing in entry.pop("listings", []):
-                it, text = listing.get("item", {}), trade.item_text(listing.get("item", {}))
-                row = {"name": trade.plain(it.get("name", "")), "base": trade.plain(it.get("baseType", "")),
-                       "rarity": it.get("rarity", ""), "ilvl": it.get("ilvl"), "corrupted": bool(it.get("corrupted")),
-                       "implicit": trade.mod_lines(it.get("implicitMods")) + trade.mod_lines(it.get("runeMods")),
-                       "explicit": trade.mod_lines(it.get("fracturedMods")) + trade.mod_lines(it.get("explicitMods"))
-                       + trade.mod_lines(it.get("desecratedMods")),
-                       "price": trade.price(listing.get("listing"), prices),
-                       "whisper": (listing.get("listing") or {}).get("whisper"),
-                       "seller": ((listing.get("listing") or {}).get("account") or {}).get("name"),
-                       "score": None, "changes": {}, "unmet": [], "better": False}
-                try:
-                    new = e.what_if(config=cfg, replace_item=(req.slot, text))
-                except PobError as err:
-                    row["error"] = f"PoB не прочитал предмет: {err}"
-                    entry["items"].append(row)
-                    continue
-                changes = metric_changes(new, base)
-                row["changes"], row["score"] = changes, report_score(SimpleNamespace(one=changes), req.mode, weights)
-                row["unmet"] = [a for a in ("Str", "Dex", "Int")
-                                if new.get(f"Req{a}", 0) - new.get(a, 0) > max(base.get(f"Req{a}", 0) - base.get(a, 0), 0)]
-                row["better"] = row["score"] >= req.threshold and not row["unmet"]
+
+def _trade_score(e, cfg: dict, slot: str, searches: list[dict], prices, mode: str, weights, threshold: float):
+    """Each listing of the searches put on the build in the slot by PoB: its changes and score, the attributes it
+    needs and the character lacks, better by the threshold or not; the better ones first, cheapest first."""
+    if session.engine is not e:  # another build, or the same one read again: its numbers are not these
+        raise HTTPException(409, "пока шёл поиск, билд открыли заново — повтори поиск")
+    base = e.what_if(config=cfg)
+    for entry in searches:
+        for listing in entry.pop("listings", []):
+            it, text = listing.get("item", {}), trade.item_text(listing.get("item", {}))
+            row = {"name": trade.plain(it.get("name", "")), "base": trade.plain(it.get("baseType", "")),
+                   "rarity": it.get("rarity", ""), "ilvl": it.get("ilvl"), "corrupted": bool(it.get("corrupted")),
+                   "implicit": trade.mod_lines(it.get("implicitMods")) + trade.mod_lines(it.get("runeMods")),
+                   "explicit": trade.mod_lines(it.get("fracturedMods")) + trade.mod_lines(it.get("explicitMods"))
+                   + trade.mod_lines(it.get("desecratedMods")),
+                   "price": trade.price(listing.get("listing"), prices),
+                   "whisper": (listing.get("listing") or {}).get("whisper"),
+                   "seller": ((listing.get("listing") or {}).get("account") or {}).get("name"),
+                   "score": None, "changes": {}, "unmet": [], "better": False}
+            try:
+                new = e.what_if(config=cfg, replace_item=(slot, text))
+            except PobError as err:
+                row["error"] = f"PoB не прочитал предмет: {err}"
                 entry["items"].append(row)
-            entry["items"].sort(key=lambda r: (not r["better"], (r["price"] or {}).get("ex") or 1e9))
-    return _json({"slot": req.slot, "league": league, "threshold": req.threshold, "status": req.status,
-                  "searches": searches})
+                continue
+            changes = metric_changes(new, base)
+            row["changes"], row["score"] = changes, report_score(SimpleNamespace(one=changes), mode, weights)
+            row["unmet"] = [a for a in ("Str", "Dex", "Int")
+                            if new.get(f"Req{a}", 0) - new.get(a, 0) > max(base.get(f"Req{a}", 0) - base.get(a, 0), 0)]
+            row["better"] = row["score"] >= threshold and not row["unmet"]
+            entry["items"].append(row)
+        entry["items"].sort(key=lambda r: (not r["better"], (r["price"] or {}).get("ex") or 1e9))
 
 
 def _profile_path() -> Path:

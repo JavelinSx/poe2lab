@@ -449,6 +449,27 @@ if skill then
 end
 return _poe2lab_json(out)""")
 
+    def stat_names(self, parts: tuple[str, ...]) -> list[str]:
+        """The names of the modifiers the main skill sees (its own and the character's) that contain one of `parts`:
+        PoB's links between stats, "DamageGainAsCold", "EvasionGainAsDeflection" - for stat_sources."""
+        wanted = ", ".join(lua_string(p) for p in parts)
+        return self._json(f"""
+local env = build.calcsTab.mainEnv
+local seen, out = {{}}, _poe2lab_array({{}})
+local function add(name)
+  if seen[name] then return end
+  for _, p in ipairs({{ {wanted} }}) do
+    if name:find(p, 1, true) then seen[name] = true out[#out + 1] = name return end
+  end
+end
+if env then
+  for name in pairs(env.player.modDB.mods) do add(name) end
+  local skill = env.player.mainSkill
+  if skill then for _, m in ipairs(skill.skillModList) do add(m.name) end end
+end
+table.sort(out)
+return _poe2lab_json(out)""")
+
     def _stat_set(self, group: int, name: str, index: int | None) -> list[dict]:
         """Show stat set `index` of a skill (its other parts: Elemental Expression's explosion, bolt and wave) in
         every later calculation; None puts back what the build had. Returns the skill's stat sets."""
