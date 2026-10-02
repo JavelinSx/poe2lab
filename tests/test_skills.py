@@ -237,3 +237,42 @@ def test_roles_say_what_each_skill_does_for_the_main_one(regex_only):
     # a skill PoB gives no damage because it is triggered: its damage from how often it goes off
     view = [{"group": 4, "skills": [{"name": "Whirling Assault", "dps": {"boss": [12.0, 20.0], "pack": [30.0, 30.0]}}]}]
     assert sk.roles(RolesStub(), {}, rows, view)["groups"][3]["own"] == pytest.approx(12)
+
+
+def test_what_makes_a_condition_and_a_dead_support(regex_only):
+    """Blindside waits for a Blinded enemy: a Blind support or a "chance to Blind" line makes it (Blindside itself
+    "cannot inflict Blind"); Rageforged with nothing that makes Rage does nothing, and the gems that would are named."""
+    def gem(name, description, support=True):
+        return {"name": name, "description": description, "stats": [], "tags": [], "types": [], "support": support,
+                "enabled": True}
+    groups = [{"index": 1, "enabled": True, "gems": [
+        gem("Strike", "Strike an enemy.", False),
+        gem("Blindside", "Supported Skills are more likely to Critically Hit Blinded Enemies, but cannot themselves "
+                         "inflict Blind."),
+        gem("Blind II", "Supports any skill that Hits enemies, causing them to Blind on Hit with increased effect.")]}]
+    lines = ["10% chance to Blind Enemies on Hit with Attacks", "+20 to Strength"]
+    assert sk.condition_makers("conditionEnemyBlinded", groups, lines, but="Blindside") == [
+        "Blind II", "10% chance to Blind Enemies on Hit with Attacks"]
+    assert sk.condition_makers("conditionEnemyShocked", groups, lines) == []
+    assert sk.condition_makers("conditionFullLife", groups, lines) == []  # one's own: not made by a gem
+    rageforged = gem("Rageforged", "Supports any damaging skill, causing it to spend Rage to deal more damage.")
+    catalog = [gem("Rage I", "Supports Melee Attacks, causing them to grant Rage on Hit.") | {"tier": 1},
+               gem("Fury", "Gain Rage on use.", False) | {"tier": 3}, gem("Other", "Nothing.") | {"tier": 1}]
+    dead = sk.dead_support(rageforged, set(), lines, catalog)
+    assert dead["mechanic"] == "rage" and dead["makers"] == ["Rage I", "Fury"]  # supports first
+    assert sk.dead_support(rageforged, {"rage"}, lines, catalog) is None  # something makes it
+    assert sk.dead_support(rageforged, set(), ["Gain 5 Rage on Melee Hit"], catalog) is None  # a passive makes it
+
+
+def test_a_support_waits_for_a_box_named_after_its_condition(titan):
+    """PoB's "Is the enemy Blinded?" names no condition (conditionEnemyBlinded): Blindside's wait for it is found."""
+    engine = titan
+    ids = {g["name"]: g["id"] for g in engine.gem_catalog()}
+    g = next(x for x in engine.skill_groups() if x["enabled"] and x["actives"])
+    engine.skills_snapshot("blindside")
+    try:
+        engine.set_gem(g["index"], None, ids["Blindside"])
+        index = len(engine.skill_groups()[g["index"] - 1]["gems"])
+        assert "conditionEnemyBlinded" in [c["var"] for c in engine.gem_conditions(g["index"], index)]
+    finally:
+        engine.skills_restore("blindside")

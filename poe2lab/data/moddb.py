@@ -2,6 +2,7 @@
 
 Spawn weights in PoB's data are availability flags (0/1), not real drop weights, so this answers "can it roll"
 and "which tier", not "how likely"."""
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -97,6 +98,17 @@ class ModDB:
             for m in exported["mods"] if m["type"] in ("Prefix", "Suffix") and m["lines"]
         ]
         self.bases = {b["name"]: b for b in exported["bases"]}
+
+    def fingerprint(self) -> str:
+        """A short hash of the gear mods that can roll (ids, sides, levels, families, spawn weights): it changes
+        exactly when a game patch changes the mod pool - what the craft journal's draws and weights belong to."""
+        if getattr(self, "_fingerprint", None) is None:
+            h = hashlib.sha1()
+            for m in sorted((m for m in self.mods if m.set == "Item"), key=lambda m: m.id):
+                h.update(f"{m.id}|{m.type}|{m.level}|{m.group}|{','.join(m.weight_key)}|"
+                         f"{','.join(map(str, m.weight_val))}\n".encode())
+            self._fingerprint = h.hexdigest()[:12]
+        return self._fingerprint
 
     @classmethod
     def from_engine(cls, engine, sets=("Item", "Desecrated")) -> "ModDB":

@@ -52,6 +52,37 @@ def estimate_path() -> Path:
     return _user_dir() / "craft_estimate.json"
 
 
+def pools_path() -> Path:
+    return _user_dir() / "craft_pools.json"
+
+
+def write_atomic(path: Path, text: str):
+    """Write a file whole or not at all: a crash or a full disk mid-write leaves the old file, never half of one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+# ---------- the game version the records belong to ----------
+
+def pool_since(fingerprint: str) -> float:
+    """When this mod pool (ModDB.fingerprint) was first seen. A game patch that changes the mods makes a new one:
+    the records made before it belong to the old pool - their draws and the weights from them say nothing of the
+    new one. The first pool ever seen counts from the start (records kept before pools were)."""
+    try:
+        known = json.loads(pools_path().read_text(encoding="utf-8"))
+        known = known if isinstance(known, list) else []
+    except (OSError, ValueError):
+        known = []
+    for k in known:
+        if isinstance(k, dict) and k.get("fp") == fingerprint:
+            return float(k.get("since", 0.0))
+    since = time.time() if known else 0.0
+    write_atomic(pools_path(), json.dumps(known + [{"fp": fingerprint, "since": since}]))
+    return since
+
+
 # ---------- the journal file ----------
 
 def entries() -> list[dict]:
@@ -88,11 +119,20 @@ def add(text: str, source: str = "manual", grade: str = "") -> dict:
 
 
 def remove(entry_id: str) -> bool:
+    """Take a record out: the journal is written anew whole (the previous one kept as .bak), or not at all."""
     with _write:
         all_ = entries()
         kept = [e for e in all_ if e.get("id") != entry_id]
-        journal_path().write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in kept), encoding="utf-8")
-    return len(kept) < len(all_)
+        if len(kept) == len(all_):
+            return False
+        path = journal_path()
+        try:
+            backup = path.with_name(path.name + ".bak")
+            backup.write_bytes(path.read_bytes())
+        except OSError:
+            pass  # no backup is no reason not to remove
+        write_atomic(path, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in kept))
+    return True
 
 
 # ---------- recording the clipboard (Windows) ----------
@@ -447,19 +487,36 @@ class Sample:
     grade: str = ""  # "greater" / "perfect": drawn by those orbs (a minimum mod level), "" regular
 
 
-def interpret(records: list[dict], db: ModDB, names: Names, cache: dict | None = None):
+def _parse_safe(text: str, db: ModDB, names: Names) -> "Parsed":
+    """A record that cannot be read is one unread record, not a journal that cannot be shown."""
+    try:
+        return parse(text, db, names)
+    except Exception as err:  # noqa: BLE001 - whatever a strange text does to the parser
+        p = Parsed()
+        p.problems.append(f"не разобрал запись: {err}")
+        return p
+
+
+def interpret(records: list[dict], db: ModDB, names: Names, cache: dict | None = None, since: float = 0.0):
     """Each record with how it counts, and the draws. Records are read in order. Players craft in batches (six
     bases transmuted, then all six augmented...), so every item seen stays open: a copy continues the most recent
     open item of the same base and item level it can come from - one or two mods added (augmentation, regal,
     exalt) or one swapped on a rare (chaos). A copy with exactly the text of an open item is a repeat; two items
-    may well roll the same mod, so the same mods alone are not."""
+    may well roll the same mod, so the same mods alone are not. Records made before `since` (pool_since: a patch
+    changed the mods since) are shown but not counted."""
     cache = {} if cache is None else cache
     state: dict[tuple, list[dict]] = {}  # (base, item level) -> open items: {"p": Parsed, "text": str}
     out, samples = [], []
     for r in records:
+        if not isinstance(r, dict) or not isinstance(r.get("text"), str) or "id" not in r:
+            continue  # not a record poe2lab wrote
         if r["id"] not in cache:
-            cache[r["id"]] = parse(r["text"], db, names)
+            cache[r["id"]] = _parse_safe(r["text"], db, names)
         p = cache[r["id"]]
+        if r.get("t", 0) < since:
+            out.append({"id": r["id"], "t": r.get("t", 0), "source": r.get("source", ""), "parsed": p, "how": "old_pool",
+                        "detail": "", "draws": 0, "grade": r.get("grade", "")})
+            continue
         items = state.setdefault(p.key, [])
         how, drawn, parent = _read(p, r["text"].strip(), items, db)
         if drawn and how[0] != "fresh_rare":  # an alchemy has no grades
@@ -663,9 +720,13 @@ def estimate(db: ModDB, samples: list[Sample]) -> dict:
         kinds[kind_of(s.item_class)] += len(s.added)
     items = [m for m in db.mods if m.set == "Item"]
     weights = {k: {m.id: model._w(m, k) for m in items} for k in model.b}
+    # a fit gone astray (too few or contradictory draws) is not saved as weights
+    if not all(math.isfinite(v) and v > 0 for w in weights.values() for v in w.values()) \
+            or not all(math.isfinite(b) for b in model.b.values()):
+        raise ValueError("оценка не сошлась: слишком мало или противоречивые пробы — запиши ещё и посчитай снова")
     # a tier's weight halves every N levels (None: high tiers are no rarer); with the draws each kind had
     half = {k: (-math.log(2) * 100 / b if b < 0 else None) for k, b in model.b.items()}
-    return {"time": time.time(), "draws": sum(len(s.added) for s in samples), "samples": len(samples),
+    return {"time": time.time(), "pool": db.fingerprint(), "draws": sum(len(s.added) for s in samples), "samples": len(samples),
             "halfLevel": half, "kindDraws": kinds, "families": families, "classes": classes, "weights": weights,
             "thresholds": thresholds(model, graded)}
 
@@ -786,9 +847,11 @@ def plan(rows: list[dict], samples: list[Sample]) -> list[dict]:
     return goals
 
 
+MIN_APPLY_DRAWS = 100  # regular draws an estimate needs before the crafting simulator uses its weights
+
+
 def save_estimate(result: dict):
-    estimate_path().parent.mkdir(parents=True, exist_ok=True)
-    estimate_path().write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    write_atomic(estimate_path(), json.dumps(result, ensure_ascii=False))
 
 
 def load_estimate() -> dict | None:

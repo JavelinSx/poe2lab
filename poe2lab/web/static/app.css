@@ -444,6 +444,28 @@ details > summary .ico { margin-left: 2px; }
 .sk-support .item-lines { margin-top: 2px; }
 /* the main skill's group: across the grid, its supports side by side */
 .sk-group.wide { grid-column: 1 / -1; }
+/* a group's head: its skills, then its numbers on the right */
+.sk-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sk-head h3 { margin: 0; }
+.sk-head-nums { margin-left: auto; font-size: 13px; color: var(--muted); }
+.sk-head-nums b { color: var(--text); }
+/* supports as pills: the value coloured by what it means */
+.sk-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sk-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; }
+.sk-pill-v { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--bg); cursor: help; }
+.sk-pill.pos .sk-pill-v { color: var(--good); }
+.sk-pill.neg .sk-pill-v { color: var(--bad); }
+.sk-pill.if .sk-pill-v { color: var(--warn); }
+.sk-pill.mana .sk-pill-v { color: var(--cold); }
+.sk-pill.none .sk-pill-v { color: var(--muted); }
+.sk-pill.dead { border-color: var(--bad); }
+.sk-pill.dead .sk-pill-v { color: var(--bad); }
+.sk-pill.off { opacity: .55; }
+.sk-more { margin-top: 8px; }
+.sk-role-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.sk-more > summary { cursor: pointer; }
+.sk-better.sk-better-line { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .sk-group.wide .sk-supports { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 .sk-group.wide .sk-supports > .muted { grid-column: 1 / -1; }
 .sk-link { padding: 8px 0; border-bottom: 1px solid var(--line); }

@@ -50,24 +50,36 @@ def is_weapon(item_type: str) -> bool:
     return item_type in WEAPONS
 
 
-def _weights(kind: str) -> dict[str, float]:
-    """The applied journal weights for "weapon" or "other" items ({} when none)."""
+def applied(pool: str | None = None) -> dict:
+    """The applied journal weights ({} when none), only when they belong to the mod pool `pool`
+    (ModDB.fingerprint): after a patch that changed the mods, weights of the old ones are not used."""
     try:
         data = json.loads(WEIGHTS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return data.get(kind, {}) if isinstance(data.get(kind), dict) else {}
+    if not isinstance(data, dict) or (pool and data.get("pool") and data["pool"] != pool):
+        return {}
+    return data
 
 
-def grade_rule(grade: str) -> tuple[int, bool]:
+def _weights(kind: str, pool: str | None = None) -> dict[str, float]:
+    """The applied journal weights for "weapon" or "other" items ({} when none or of another mod pool); a weight
+    that is not a positive number is left out."""
+    data = applied(pool).get(kind)
+    if not isinstance(data, dict):
+        return {}
+    return {k: float(v) for k, v in data.items() if isinstance(v, (int, float)) and math.isfinite(v) and v > 0}
+
+
+def grade_rule(grade: str, pool: str | None = None) -> tuple[int, bool]:
     """(minimum mod level, can mods with no tier that high still roll) for "", "Greater ", "Perfect " currency:
-    measured by the craft journal once applied, else the guide's level and "yes"."""
+    measured by the craft journal once applied (for this mod pool), else the guide's level and "yes"."""
+    data = applied(pool).get("grades")
+    rule = (data.get(grade.strip().lower()) if isinstance(data, dict) else None) or {}
     try:
-        data = json.loads(WEIGHTS_FILE.read_text(encoding="utf-8")).get("grades", {})
-    except (OSError, ValueError, AttributeError):
-        data = {}
-    rule = data.get(grade.strip().lower()) or {}
-    return int(rule.get("minLevel", MIN_LEVEL[grade])), bool(rule.get("lowFamilies", True))
+        return int(rule.get("minLevel", MIN_LEVEL[grade])), bool(rule.get("lowFamilies", True))
+    except (TypeError, ValueError):
+        return MIN_LEVEL[grade], True
 
 
 def tier_weight(level: int, weapon: bool = False) -> float:
@@ -102,7 +114,8 @@ class Pool:
 
     def __init__(self, db: ModDB, base_tags, item_level: int, sets=("Item",), item_type: str = ""):
         weapon = is_weapon(item_type)
-        weights = _weights("weapon" if weapon else "other")
+        self.fingerprint = db.fingerprint()
+        weights = _weights("weapon" if weapon else "other", self.fingerprint)
         self.mods = [m for m in db.rollable(base_tags, item_level, sets)]
         self.weight = {m.id: float(weights.get(m.id, tier_weight(m.level, weapon))) for m in self.mods}
         self.family_top = {}
@@ -213,7 +226,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
                desecrated: Pool | None = None, bone: str | None = None) -> list[Strategy]:
     """The candidate strategies for reaching `need` of the targets. `essence`: (essence name, mod) guaranteeing a
     target on this item class, if one exists; `desecrated`: the desecrated pool (bones) for this class."""
-    lvl, low = grade_rule(grade)
+    lvl, low = grade_rule(grade, getattr(pool, "fingerprint", None))
     out = []
 
     def finish_with_exalts(item: Item, rng, used, greater: bool) -> bool:

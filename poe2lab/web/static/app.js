@@ -1030,11 +1030,19 @@ function fillRoles(box, rr) {
       if (r.ehp <= -1) chips.push(chip("tag", t("rlLosesEhp", pct(r.ehp))));
       for (const m of r.gives) chips.push(chip("tag", t("rlGives", (LANG === "en" && MECH_EN[m.key]) || m.name, mainName)));
       if (r.own >= 1) chips.push(chip("util", t("rlOwn", fmt(r.own, r.own < 10 ? 1 : 0), mainName)));
-      if (r.dps > -1 && r.ehp > -1 && !r.gives.length) chips.push(h("span", { class: "muted small" }, t("rlNothing", mainName)));
+      if (!chips.length) chips.push(h("span", { class: "chip", title: t("rlNothing", mainName) }, t("rlNothingShort")));
     }
     const copies = r.copies.map((c) => h("div", { class: "small" }, "🔁 ", t("rlCopy", trName(c.skill), c.group), " ",
       h("span", { class: "muted" }, t("rlHere"), " ", how(r), "; ", t("rlThere"), " ", how(c)),
       r.only.length ? [" · ", t("rlOnly", r.only.map(trName).join(", "))] : null));
+    // in a skills card's head (seen folded too): the role chips before the numbers; the copies under the head
+    const sk = card.querySelector(".sk-head");
+    if (sk) {
+      const roleBox = h("span", { class: "sk-role-chips", title: t("rlHint") }, ...chips);
+      sk.insertBefore(roleBox, sk.querySelector(".sk-head-nums, .fold-sum"));
+      if (copies.length) sk.parentNode.insertBefore(h("div", { class: "sk-role" }, ...copies), sk.nextSibling);
+      continue;
+    }
     const line = h("div", { class: "sk-role", title: t("rlHint") }, h("div", { class: "row" }, ...chips), ...copies);
     const head = card.querySelector(".row, h3");
     (head ? head.parentNode : card).insertBefore(line, head ? head.nextSibling : card.firstChild);
@@ -1650,6 +1658,13 @@ function renderAdvice(a, slot) {
     // a character going toward its build: the item against what the character wears; a build alone: against its own
     const against = a.you ? h("span", {}, h("span", { class: "small muted" }, a.you.uniqueWorn ? t("saYouVsUnique") : t("saYouVsWorn")), " ", metric(b.you))
       : h("span", {}, h("span", { class: "small muted" }, a.uniqueWorn ? t("saVsUnique") : t("saVsWorn")), " ", metric(b));
+    // the best a character of its level can make is weaker than what it wears: no swap to offer
+    if (b.wornBetter) {
+      out.push(h("div", { class: "sk-better worn-better" },
+        h("div", {}, h("b", {}, mode === "damage" ? "⚔ " + t("saBestDamage") : "⚖ " + t("saBestBalanced")), " ", chip("ok", t("saWornBetter")), " ", against),
+        h("div", { class: "small muted" }, t("saWornBetterHint", a.itemLevel))));
+      continue;
+    }
     out.push(h("div", { class: "sk-better" },
       h("div", {}, h("b", {}, mode === "damage" ? "⚔ " + t("saBestDamage") : "⚖ " + t("saBestBalanced")), " ", against),
       h("ul", { class: "item-lines small" }, b.lines.map((l) => h("li", {}, trMod(l)))),
@@ -3613,12 +3628,12 @@ function betterSupports(root) {
       if (!card) continue;
       // the weakest by damage may be there for defence or a mechanic PoB does not count: said, not hidden
       const blind = Math.abs(x.weakestWorth) < 0.5;
-      card.append(h("div", { class: "sk-better", title: t("skBetterHint") },
-        h("div", {}, h("b", {}, "💡 ", t("skBetter")), " ", h("span", { class: "muted small" },
+      const more = card.querySelector(".sk-more");
+      card.insertBefore(h("div", { class: "sk-better sk-better-line", title: t("skBetterHint") },
+        h("b", {}, "💡 "), h("span", { class: "muted small" },
           t("skBetterInstead", trName(x.weakest), pct(x.weakestWorth)),
-          x.weakestEhp >= 0.5 ? " " + t("skBetterDefends", pct(x.weakestEhp)) : blind ? " " + t("skBetterBlind") : "")),
-        h("div", { class: "row" }, x.better.map((b) => h("span", { class: "sk-better-gem" }, gemName(b.name), " ",
-          h("b", { class: "pos" }, pct(b.net)))))));
+          x.weakestEhp >= 0.5 ? " " + t("skBetterDefends", pct(x.weakestEhp)) : blind ? " " + t("skBetterBlind") : "", ":"),
+        ...x.better.map((b) => h("span", { class: "sk-better-gem" }, gemName(b.name), " ", h("b", { class: "pos" }, pct(b.net))))), more);
     }
   }).catch(() => {});
 }
@@ -4579,18 +4594,57 @@ function renderSkillsBuild(r) {
     const supports = g.gems.filter((x) => x.support).length;
     return n ? `DPS ${fmt(n.dps)}` : supports ? t("skSupportsN", supports) : null;
   };
+  // a support as a pill: its name (the game's description on hover) and what it gives the skill, by colour -
+  // green a gain (with a tick when it waits for a condition the build itself makes), amber a gain waiting for a
+  // condition nothing in the build makes, blue the mana it keeps, red one that does nothing (nothing in the build
+  // makes what it spends), grey nothing PoB sees; the reason on hover over the value
+  const supportPill = (gem, g) => {
+    const shown = (LANG === "en" && gem.unseenEn ? gem.unseenEn : gem.unseen).filter((u) => LANG === "en" || !/^[A-Za-z0-9%+]+(_[A-Za-z0-9%+]+)+$/.test(u));
+    const fits = (LANG === "en" && gem.becauseEn ? gem.becauseEn : gem.because).join(", ");
+    const measured = t(g.measured === "own" ? "skWorthOwn" : g.measured === "hit" ? "skWorthHit" : "skWorthMain");
+    let cls = "none", value = "—", why = t("skPillNone");
+    const d = gem.worth ? gem.worth.dps || 0 : 0, e = gem.worth ? gem.worth.ehp || 0 : 0;
+    if (!gem.enabled) { cls = "off"; value = t("skDisabled"); why = ""; }
+    else if (gem.dead) {
+      cls = "dead"; value = t("skPillDead");
+      why = t("skPillDeadHint", gem.dead.name.toLowerCase(), gem.dead.makers.map(trName).join(", ") || "—");
+    } else if (gem.worthIf) {
+      const v = gem.worthIf.worth.dps || gem.worthIf.worth.ehp || 0;
+      const made = (gem.worthIf.byBuild || []).length > 0;
+      cls = made ? "pos" : "if"; value = `${pct(v)} ${made ? "✓" : "⚠"}`;
+      why = t("skWorthIf", gem.worthIf.conditions.map((c) => `«${conditionLabel(c)}»`).join(", ")) + " " + pct(v) + ". " +
+        (made ? t("skPillMakers", gem.worthIf.byBuild.map((n) => (/\s/.test(n) && n.length > 30 ? trMod(n) : trName(n))).join(", ")) : t("skPillNoMakers"));
+    } else if (gem.mana) { cls = "mana"; value = t("skPillMana", fmt(gem.mana)); why = t("skPillManaHint"); }
+    else if (Math.abs(d) >= 0.5) { cls = d > 0 ? "pos" : "neg"; value = pct(d); why = measured; }
+    else if (Math.abs(e) >= 0.5) { cls = e > 0 ? "pos" : "neg"; value = `eHP ${pct(e)}`; why = measured; }
+    const title = [why, fits ? t("skFits", fits) : "", shown.length ? `${t("skUnseen")} ${shown.join("; ")}` : ""].filter(Boolean).join("\n");
+    return h("span", { class: `sk-pill ${cls}` }, gemName(gem.name), h("b", { class: "sk-pill-v", title }, value));
+  };
+  // a skill's own numbers in a line: its damage per second, crit, how often
+  const headNums = (g) => {
+    const n = (r.numbers || []).find((x) => x.group === g.index && x.dps > 0);
+    if (!n) return null;
+    return h("span", { class: "sk-head-nums" }, "DPS ", h("b", {}, fmt(n.dps)),
+      n.crit > 0 ? ` · ${t("skCrit")} ${fmt(n.crit, 0)}%` : "", n.speed > 0 ? ` · ${fmt(n.speed, 1)}/${t("exSec")}` : "");
+  };
+  // each group: a head (its skills, numbers), its role (filled in when counted), what a meta gem and a trigger do,
+  // the supports as pills; the rest - skill kinds, terms, mechanics, each gem's full row - under "more"
   const cards = r.groups.filter((g) => g.gems.length).sort((a, b) => b.main - a.main).map((g) => {
+    const supports = g.gems.filter((x) => x.support);
+    const nums = headNums(g);
     const card = h("div", { class: "card sk-group" + (g.enabled ? "" : " off") + (g.main ? " wide" : ""), "data-group": g.index },
-      h("div", { class: "row" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
+      h("div", { class: "sk-head" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
         g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
-        g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null),
-      g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
+        g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null, nums),
       metaBlock(g),
       triggerBlock(g),
-      g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
-      g.gems.some((x) => x.support) ? h("div", { class: "sk-supports" }, h("div", { class: "muted small" }, t("skSupports")),
-        g.gems.filter((x) => x.support).map((x) => gemRow(x, g))) : null);
-    return g.main ? card : foldedCard(card, "group:" + g.actives.map((a) => a.name).join("+"), groupSum(g));
+      supports.length ? h("div", { class: "sk-pills" }, supports.map((x) => supportPill(x, g))) : null,
+      h("details", { class: "sk-more" }, h("summary", { class: "muted small" }, t("skMore")),
+        g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
+        g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
+        supports.length ? h("div", { class: "sk-supports" }, supports.map((x) => gemRow(x, g))) : null));
+    // folded, the head shows the numbers: the summary only for a skill without them (triggered, supports only)
+    return g.main ? card : foldedCard(card, "group:" + g.actives.map((a) => a.name).join("+"), nums ? null : groupSum(g));
   });
   const items = (r.items || []).length ? foldedCard(h("div", { class: "card" }, h("h3", {}, t("skUniques")), h("div", { class: "sub" }, t("skUniquesSub")),
     h("div", { class: "grid two" }, r.items.map((it) => h("div", { class: "sk-item" },
@@ -4929,7 +4983,7 @@ function modSearch(onPick) {
 
 // ---------- craft journal: mods rolled in game -> the hidden mod weights ----------
 const HOW_CHIP = { unread: "must", skip: "warn", white: "warn", repeat: "warn", same_mods: "warn", rare_unknown: "warn",
-  nothing: "warn" };
+  nothing: "warn", old_pool: "warn" };
 
 // A page of its own (from the sidebar), not a build tab: the journal is about the game, not about one build.
 async function renderJournal() {
@@ -5000,14 +5054,23 @@ async function journalPage(view) {
     try { await api("/api/journal/estimate", { method: "POST" }); renderJournal(); }
     catch (e) { toast(e.message); estimateBtn.disabled = false; estimateBtn.textContent = t("jnEstimate"); }
   } }, t("jnEstimate"));
-  const applyBtn = est ? h("button", { class: "ghost", onclick: async () => {
-    try { await api("/api/journal/apply", { method: j.applied ? "DELETE" : "POST" }); resetCache(); renderJournal(); }
-    catch (e) { toast(e.message); }
-  } }, j.applied ? t("jnUnapply") : t("jnApply")) : null;
+  // weights reach the crafting simulator only of this game version's mods and from enough draws
+  const tooFew = est && !j.applied && est.draws < j.minApply;
+  const applyBtn = est ? h("button", { class: "ghost", disabled: (tooFew || j.estimateOld) && !j.applied,
+    title: tooFew ? t("jnApplyFew", est.draws, j.minApply) : j.estimateOld ? t("jnEstimateOld") : null, onclick: async () => {
+      try { await api("/api/journal/apply", { method: j.applied ? "DELETE" : "POST" }); resetCache(); renderJournal(); }
+      catch (e) { toast(e.message); }
+    } }, j.applied ? t("jnUnapply") : t("jnApply")) : null;
   const seen = est ? est.families.filter((f) => f.seen > 0) : [];
+  const warns = [
+    j.oldRecords ? t("jnOldRecords", j.oldRecords) : null,
+    j.estimateOld ? t("jnEstimateOld") : null,
+    j.appliedOld ? t("jnAppliedOld") : null,
+    tooFew && !j.estimateOld ? t("jnApplyFew", est.draws, j.minApply) : null].filter(Boolean);
   body.append(h("div", { class: "card" }, h("h3", {}, t("jnWeightsTitle")), h("div", { class: "sub" }, t("jnWeightsSub")),
     h("div", { class: "row", style: "gap:10px;flex-wrap:wrap;margin-bottom:10px" }, estimateBtn, applyBtn,
       j.applied ? chip("ok", t("jnApplied")) : null),
+    warns.length ? h("div", { class: "hint", style: "margin-bottom:8px" }, warns.map((w) => h("div", {}, "⚠ ", w))) : null,
     est ? h("div", {},
       h("p", { class: "small" }, t("jnEstimated", est.draws, new Date(est.time * 1000).toLocaleString(locale())),
         est.kindDraws ? ["weapon", "other"].filter((k) => est.kindDraws[k]).map((k) =>

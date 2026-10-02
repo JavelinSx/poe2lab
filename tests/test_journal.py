@@ -191,7 +191,7 @@ def client(tmp_path, monkeypatch):
     session.engine = None
 
 
-def test_journal_endpoints(client, db):
+def test_journal_endpoints(client, db, monkeypatch):
     session.engine = None  # the journal needs no build open: it brings its own mod data
     assert client.get("/api/journal").json()["total"] == 0
     assert client.post("/api/journal/add", json={"text": "not an item"}, headers=H).status_code == 400
@@ -201,12 +201,24 @@ def test_journal_endpoints(client, db):
     assert j["total"] == 2 and j["draws"] == 2 and j["classes"]["Gloves"]["draws"] == 2
     assert j["entries"][0]["how"] == "augment" and j["entries"][0]["base"] == BASE
     est = client.post("/api/journal/estimate", headers=H).json()
-    assert est["draws"] == 2 and "weights" not in est
+    assert est["draws"] == 2 and "weights" not in est and est["pool"] == db.fingerprint()
+    # two draws are too few for the crafting simulator to use
+    refused = client.post("/api/journal/apply", headers=H)
+    assert refused.status_code == 400 and "мало проб" in refused.json()["detail"] and not crafting.WEIGHTS_FILE.is_file()
+    monkeypatch.setattr(journal, "MIN_APPLY_DRAWS", 2)
     assert client.post("/api/journal/apply", headers=H).json()["applied"] and crafting.WEIGHTS_FILE.is_file()
     assert client.get("/api/journal").json()["applied"]
+    assert crafting.applied(db.fingerprint())["pool"] == db.fingerprint() and crafting.applied("another pool") == {}
     assert not client.delete("/api/journal/apply", headers=H).json()["applied"]
+    # an estimate of the mods before a patch is not applied
+    stale = journal.load_estimate() | {"pool": "old"}
+    journal.save_estimate(stale)
+    assert client.get("/api/journal").json()["estimateOld"]
+    assert client.post("/api/journal/apply", headers=H).status_code == 400
+    # removing a record: the journal anew, the previous one kept
     assert client.delete(f"/api/journal/entry/{j['entries'][0]['id']}", headers=H).status_code == 200
     assert client.get("/api/journal").json()["total"] == 1
+    assert journal.journal_path().with_name("craft_journal.jsonl.bak").is_file()
     assert client.get("/api/journal/export").status_code == 200
     assert client.post("/api/journal/grade", json={"grade": "perfect"}, headers=H).json()["grade"] == "perfect"
     assert client.post("/api/journal/grade", json={"grade": "divine"}, headers=H).status_code == 400
@@ -214,3 +226,24 @@ def test_journal_endpoints(client, db):
     j = client.get("/api/journal").json()
     assert j["grade"] == "perfect" and j["entries"][0]["grade"] == "perfect" and j["plan"]
     client.post("/api/journal/grade", json={"grade": ""}, headers=H)
+
+
+def test_a_patch_leaves_the_old_records_out(db, names, tmp_path, monkeypatch):
+    """Records made before the mod pool changed (a game patch) are shown, not counted; a record that breaks the
+    parser is one unread record, not a journal that cannot be read."""
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    assert journal.pool_since("first") == 0.0  # the first pool counts from the start
+    since = journal.pool_since("second")  # a patch: a new pool from now on
+    assert since > 0 and journal.pool_since("first") == 0.0 and journal.pool_since("second") == since
+    records = [{"id": "1", "t": since - 10, "text": ru_item(db, "magic", ["IncreasedLife2"])},
+               {"id": "2", "t": since + 10, "text": ru_item(db, "magic", ["Strength1"])},
+               {"id": "3", "t": since + 20, "text": "Rarity: Magic\nbroken"}, "not a record"]
+    def parse(text, db_, names_):
+        if "broken" in text:
+            raise IndexError("list index out of range")
+        return real(text, db_, names_)
+    real = journal.parse
+    monkeypatch.setattr(journal, "parse", parse)
+    rows, samples = journal.interpret(records, db, names, since=since)
+    assert [r["how"] for r in rows] == ["old_pool", "fresh_magic", "unread"] and len(samples) == 1
+    assert "не разобрал" in rows[2]["parsed"].problems[0]

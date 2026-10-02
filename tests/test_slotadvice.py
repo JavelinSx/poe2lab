@@ -50,8 +50,10 @@ def test_a_character_gets_what_it_can_wear(monk):
     base = next(b for b in all_bases if b["name"] == a["base"])
     assert base["level"] <= 40 and a["itemLevel"] == 40 and a["forLevel"] == 40
     assert a["you"]["worn"] == worn and a["best"]
-    for b in a["best"].values():  # the same build: the same change
+    for mode, b in a["best"].items():  # the same build: the same change; weaker than the worn one - said so
         assert b["you"]["dps"] == pytest.approx(b["dps"]) and b["you"]["ehp"] == pytest.approx(b["ehp"])
+        assert b["wornBetter"] == (slotadvice.MODES[mode](b["you"]["dps"], b["you"]["ehp"]) < 0)
+    assert all("youEhp" in m for m in a["mods"])  # each mod priced on the character too
 
 
 def test_links_and_kinds_from_pobs_names():

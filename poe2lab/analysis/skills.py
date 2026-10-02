@@ -348,6 +348,84 @@ def _gains(engine, config, g: dict, m: dict, ids: list[str]) -> dict:
     return out
 
 
+# an enemy condition PoB's Configuration box names (conditionEnemyBlinded) as the verb a gem that makes it uses
+_CONDITION_VERB = {"Frozen": "freeze", "Ignited": "ignite", "Bleeding": "bleed", "Pinned": "pin", "Dazed": "daze",
+                   "Hindered": "hinder", "Intimidated": "intimidate", "Electrocuted": "electrocute",
+                   "Unnerved": "unnerve", "Poisoned": "poison", "Withered": "wither", "Cursed": "curse"}
+
+
+def condition_makers(var: str, groups: list[dict], lines: list[str], but: str = "") -> list[str]:
+    """What in the build makes an enemy condition a Configuration box stands for ("conditionEnemyBlinded"): its
+    enabled gems (but `but`) whose text inflicts it - "causing them to Blind on Hit" - and the allocated passives'
+    and worn items' `lines` that do. Empty for a condition of one's own or one nothing makes."""
+    state = var[len("conditionEnemy"):] if var.startswith("conditionEnemy") else None
+    if not state:
+        return []
+    verb = _CONDITION_VERB.get(state) or (state[:-2] if state.endswith("ed") else state).lower()
+    forms = rf"{verb}|{verb}s|{verb}es|{verb}ing"
+    makes = re.compile(rf"(?:inflict\w*|chance to|apply|applies|caus\w*|to)\b.{{0,25}}\b(?:{forms})\b(?! enem\w* (?:hit|that))"
+                       rf"|\b(?:{forms}) (?:on hit|nearby enem|enem)|\b{verb}_on_hit|chance_to_{verb}", re.I)
+    never = re.compile(rf"(?:cannot|can't|never)\b.{{0,30}}\b{verb}", re.I)
+    out = []
+    for g in groups:
+        if not g["enabled"]:
+            continue
+        for x in g["gems"]:
+            text = _text(x)
+            if x["enabled"] and x["name"] != but and makes.search(text) and not never.search(text):
+                out.append(x["name"])
+    out += [l for l in lines if makes.search(l) and not never.search(l)]
+    return list(dict.fromkeys(out))
+
+
+def build_lines(engine) -> list[str]:
+    """The allocated passives' and the worn items' lines: what in the build may make a condition or a mechanic."""
+    lines = [line for n in engine.tree_graph()["nodes"] if n["alloc"] for line in n["stats"]]
+    return lines + [l["line"] for it in engine.equipped_item_details() for k in ("implicit", "explicit", "runes", "enchant")
+                    for l in it.get(k, [])]
+
+
+def conditional_worth(engine, config, g: dict, m: dict, gem: dict, base: dict, base_hit: float, groups: list[dict],
+                      lines: list[str]) -> dict | None:
+    """A support PoB gives nothing until a Configuration box is ticked (Blindside: "Is the enemy Blinded?"): what it
+    gives then, the boxes, and what in the build makes them true - then its worth is that, not nothing."""
+    conditions = engine.gem_conditions(g["index"], gem["index"])
+    if not conditions:
+        return None
+    worth = _worth(engine, config, g, m, gem, base, base_hit, {c["var"]: True for c in conditions})
+    if max(map(abs, worth.values()), default=0.0) < NOISE_PCT:
+        return None
+    makers = [n for c in conditions for n in condition_makers(c["var"], groups, lines, but=gem["name"])]
+    return {"worth": worth, "conditions": [c["label"] for c in conditions], "byBuild": list(dict.fromkeys(makers))}
+
+
+def dead_support(gem: dict, created: set, lines: list[str], catalog: list[dict]) -> dict | None:
+    """A support that spends a mechanic nothing in the build makes - Rageforged with no Rage - does nothing: the
+    mechanic and the gems that make it (supports and skills, the commonest first). Passives' and items' lines that
+    make it count as makers."""
+    by = {m.key: m for m in MECHANICS}
+    for key in mechanics_of(gem)["uses"]:
+        mech = by.get(key)
+        if not mech or mech.used_by_tags or key in created or any(re.search(mech.creates, l, re.I) for l in lines):
+            continue
+        makers = sorted((c for c in catalog if key in mechanics_of(c)["creates"] and not c.get("lineage")),
+                        key=lambda c: (not c["support"], c.get("tier") or 99))
+        return {"mechanic": key, "name": mech.name, "makers": [c["name"] for c in makers[:4]]}
+    return None
+
+
+MANA_KEEP = 3.0  # mana a second a support must hold to be counted as keeping the skill going
+
+
+def mana_kept(engine, config, g: dict, m: dict, gem: dict, base: dict) -> float:
+    """The mana a second the measured skill's balance (regenerated and leeched less spent) loses without a support:
+    Oisin's Oath, Efficiency - no damage, but the skill runs on it."""
+    def net(o):
+        return o.get("ManaRegenRecovery", 0.0) + o.get("ManaLeechRate", 0.0) - o.get("ManaPerSecondCost", 0.0)
+    without = engine.what_if(config=config, disable_gems=[(g["index"], gem["index"])], main_socket_group=m["group"])
+    return net(base) - net(without)
+
+
 def _worth(engine, config, g: dict, m: dict, gem: dict, base: dict, base_hit: float, more=None) -> dict:
     """What a support carries: the change of the measured skill's DPS and defences without it, or, for a skill
     read by its hit, the share of one hit's damage (as its DPS is that hit times how often it is triggered, the
@@ -364,6 +442,7 @@ def _worth(engine, config, g: dict, m: dict, gem: dict, base: dict, base_hit: fl
 
 
 BETTER_MIN = 2.0  # % of the skill's damage a support must give over its weakest one to be suggested
+MAKER_SHARE = 0.1  # a skill making the main one's mechanic is a damage skill too from this share of its damage
 BETTER_TOP = 3
 
 
@@ -375,9 +454,20 @@ def better_supports(engine, config, level: int | None = None) -> list[dict]:
     most. The weakest support's defence is told: PoB may see no damage in it, and it may be there for defence."""
     groups = engine.skill_groups()
     used = {x["name"] for g in groups if g["enabled"] for x in g["gems"] if x["support"] and x["enabled"]}
-    found, skills = [], {}
+    found, skills, lines, makers = [], {}, None, None
+    # a skill that makes what the main one spends (Profane Ritual's power charges) and hardly hits is there for that:
+    # supports for its own damage are not what it needs
+    from .explain import main_group  # explain imports this module
+    rows = engine.skill_damage(config)
+    main = main_group(engine, groups, rows)
+    main_uses = {k for x in (main["gems"] if main else []) if x["enabled"] for k in mechanics_of(x)["uses"]}
+    main_dps = max((r["dps"] for r in rows if main and r["group"] == main["index"]), default=0.0)
     for g in groups:
         if not g["enabled"] or not g["actives"]:
+            continue
+        own_dps = max((r["dps"] for r in rows if r["group"] == g["index"]), default=0.0)
+        if main and g["index"] != main["index"] and own_dps < MAKER_SHARE * main_dps and any(
+                set(mechanics_of(x)["creates"]) & main_uses for x in g["gems"] if not x["support"] and x["enabled"]):
             continue
         m = _measure_group(engine, config, g)
         own = [x for x in g["gems"] if x["support"] and x["enabled"]]
@@ -386,7 +476,29 @@ def better_supports(engine, config, level: int | None = None) -> list[dict]:
         base = engine.what_if(config=config, main_socket_group=m["group"])
         base_hit = _hit(engine, config, m) if m["how"] == "hit" else 0.0
         worth = {x["name"]: _worth(engine, config, g, m, x, base, base_hit) for x in own}
-        weakest = min(own, key=lambda x: worth[x["name"]]["dps"])
+        # a support waiting for a condition the build itself makes (Blindside and a Blind support) is worth what it
+        # gives then: not the weakest for seeming to give nothing
+        keeps = set()  # supports kept whatever their damage: a condition another support waits for, the mana
+        for x in own:
+            if max(map(abs, worth[x["name"]].values()), default=0.0) < NOISE_PCT:
+                lines = lines if lines is not None else build_lines(engine)
+                cond = conditional_worth(engine, config, g, m, x, base, base_hit, groups, lines)
+                if cond and cond["byBuild"]:
+                    worth[x["name"]] = cond["worth"]
+                elif m["how"] != "hit" and mana_kept(engine, config, g, m, x, base) >= MANA_KEEP:
+                    keeps.add(x["name"])
+        if makers is None:  # the gems that make a condition some support of the build waits for
+            makers = set()
+            for h in groups:
+                for y in h["gems"]:
+                    if y["support"] and y["enabled"] and h["enabled"]:
+                        for c in engine.gem_conditions(h["index"], y["index"]):
+                            lines = lines if lines is not None else build_lines(engine)
+                            makers |= set(condition_makers(c["var"], groups, [], but=y["name"]))
+        free = [x for x in own if x["name"] not in keeps and x["name"] not in makers]
+        if not free:
+            continue
+        weakest = min(free, key=lambda x: worth[x["name"]]["dps"])
         floor = worth[weakest["name"]]["dps"]
         families = {x.get("family") or x["name"] for x in own}
         cands = [c for c in engine.support_candidates(g["index"]) if c["name"] not in used
@@ -537,6 +649,7 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             "unseen": [u.get("textLocal") or u.get("text") or [u["stat"]] for st in s["statSets"]
                        for u in st["unmapped"] if u["value"]],
             "unseenEn": [u.get("text") or [u["stat"]] for st in s["statSets"] for u in st["unmapped"] if u["value"]]}
+    lines = build_lines(engine)
     for g in groups:
         m = _measure_group(engine, config, g)
         g["measured"] = m["how"]
@@ -551,17 +664,16 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             for key in ("unseen", "unseenEn"):
                 gem[key] = [" / ".join(u) if isinstance(u, list) else u for u in gem[key]][:4]
             gem["terms"] = kw.find([gem["description"], *gem["lines"]])
-            gem["worth"] = gem["worthIf"] = None
+            gem["worth"] = gem["worthIf"] = gem["mana"] = None
             if gem["support"] and gem["enabled"] and g["enabled"]:
                 gem["worth"] = _worth(engine, config, g, m, gem, base, base_hit)
                 # a support waiting for a Configuration box (Retreat: "Have you Melee Hit Recently?") is worth
                 # nothing until it is ticked: what it gives when it holds
                 if max(map(abs, gem["worth"].values()), default=0.0) < NOISE_PCT:
-                    conditions = engine.gem_conditions(g["index"], gem["index"])
-                    if conditions:
-                        worth = _worth(engine, config, g, m, gem, base, base_hit, {c["var"]: True for c in conditions})
-                        if max(map(abs, worth.values()), default=0.0) >= NOISE_PCT:
-                            gem["worthIf"] = {"worth": worth, "conditions": [c["label"] for c in conditions]}
+                    gem["worthIf"] = conditional_worth(engine, config, g, m, gem, base, base_hit, groups, lines)
+                    if not gem["worthIf"] and m["how"] != "hit":
+                        kept = mana_kept(engine, config, g, m, gem, base)
+                        gem["mana"] = kept if kept >= MANA_KEEP else None
         for a in g["actives"]:
             a["typesRu"] = [TYPE_RU[t] for t in a["types"] if t in TYPE_RU]
             a["typeTags"] = [{"key": t, "ru": TYPE_RU[t]} for t in a["types"] if t in TYPE_RU]
@@ -580,6 +692,16 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
     for g in groups:
         for x in g["gems"]:
             x["mechanics"]["uses"] = [k for k in x["mechanics"]["uses"] if k not in generic or k in created]
+    # a support that gives nothing and spends what nothing in the build makes: dead, and what would make it
+    catalog = None
+    for g in groups:
+        for x in g["gems"]:
+            x["dead"] = None
+            if x["support"] and x["enabled"] and g["enabled"] and not x.get("worthIf") and not x.get("mana") \
+                    and x.get("worth") is not None \
+                    and max(map(abs, x["worth"].values()), default=0.0) < NOISE_PCT:
+                catalog = catalog if catalog is not None else engine.gem_catalog()
+                x["dead"] = dead_support(x, created, lines, catalog)
     found = links(groups, items)
     meta_view(groups)
     terms = {t for g in groups for x in g["gems"] for t in x["terms"]} | {t for it in items for t in it["terms"]}

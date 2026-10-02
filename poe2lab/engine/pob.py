@@ -564,8 +564,13 @@ local function wanted(cond, set)
 end
 local out, seen = _poe2lab_array({{}}), {{}}
 for _, opt in ipairs(require("Modules.ConfigOptions")) do
+  -- a box that names no condition is named after it: conditionEnemyBlinded is the enemy's Blinded
+  local byEnemy = opt.var and opt.var:match("^conditionEnemy(.+)$")
+  local byOwn = opt.var and not byEnemy and opt.var:match("^condition(.+)$")
   if opt.type == "check" and opt.var and not seen[opt.var] and not build.configTab.input[opt.var]
-     and (wanted(opt.ifCond, own) or wanted(opt.ifEnemyCond, enemy)) then
+     and (wanted(opt.ifCond, own) or wanted(opt.ifEnemyCond, enemy)
+          or (opt.ifEnemyCond == nil and byEnemy and enemy[byEnemy])
+          or (opt.ifCond == nil and byOwn and own[byOwn])) then
     seen[opt.var] = true
     out[#out + 1] = {{ var = opt.var, label = StripEscapes(opt.label or opt.var) }}
   end

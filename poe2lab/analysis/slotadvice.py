@@ -11,7 +11,9 @@ best, and is the unique a must?", worked out by PoB on the build itself.
 - Each mod in context: what it is worth inside that good item, not on an empty one.
 - A player's character goes toward its build: everything above is worked out on the build (the guide) - what it
   needs - of what the character can find and wear at its level; the best items are then tried on the character
-  too, against what it wears.
+  too, against what it wears. The balanced item's effective life is the character's own, though: its resistances
+  and attributes are what it needs now (a guide's unique may need none from the slot, the character's rare three
+  resistances), its damage the build's. An item weaker than the worn one is said to be so, not offered.
 - Why, from the build itself: what the main skill's hit is made of, the links PoB counts between stats (damage
   gained as another type, evasion granting deflection) with where each comes from, the character's defences; and
   the kinds of mod the slot pays for most - "the hit is 77% cold and its cold comes from the staff's physical: the
@@ -163,7 +165,21 @@ def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | 
         return metric_changes(engine.what_if(config=config, replace_item=(slot, text_of(picks)),
                                              main_socket_group=main_socket_group), now)
 
+    if player:
+        p_engine, p_config, p_group, p_worn = player
+        p_now = p_engine.what_if(config=p_config, main_socket_group=p_group)
+
+    def measure_you(picks: list[str]) -> dict:
+        return metric_changes(p_engine.what_if(config=p_config, replace_item=(slot, text_of(picks)),
+                                               main_socket_group=p_group), p_now)
+
+    def worth(mode: str, g: dict, y: dict | None) -> float:
+        """A mode's score of an item: by the build; for a character going toward it, the balanced one's effective
+        life by the character itself (`y`)."""
+        return MODES[mode](g["dps"], (y or g)["ehp"])
+
     empty = measure([])
+    empty_you = measure_you([]) if player else None
     mods = []
     for f in fams:
         top = next((t for t in f["tiers"] if t["open"]), None)
@@ -173,13 +189,21 @@ def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | 
             c = measure([top["id"]])
         except itemcraft.CraftError:
             continue
-        mods.append({"id": top["id"], "type": f["type"], "group": f["group"], "tier": top["tier"],
-                     "lines": top["lines"], "dps": c["dps"] - empty["dps"], "ehp": c["ehp"] - empty["ehp"]})
+        m = {"id": top["id"], "type": f["type"], "group": f["group"], "tier": top["tier"],
+             "lines": top["lines"], "dps": c["dps"] - empty["dps"], "ehp": c["ehp"] - empty["ehp"]}
+        if player:
+            y = measure_you([top["id"]])
+            m |= {"youDps": y["dps"] - empty_you["dps"], "youEhp": y["ehp"] - empty_you["ehp"]}
+        mods.append(m)
     group_of = {m["id"]: m["group"] for m in mods}
     best = {}
-    for mode, score in MODES.items():
-        pool = sorted(mods, key=lambda m: -score(m["dps"], m["ehp"]))[:POOL]
-        picks, sides = [], {"Prefix": 0, "Suffix": 0}
+    for mode in MODES:
+        own = bool(player) and mode == "balanced"  # the character's own effective life counts
+
+        def alone(m):
+            return worth(mode, m, {"dps": m["youDps"], "ehp": m["youEhp"]} if own else None)
+        pool = sorted(mods, key=lambda m: -alone(m))[:POOL]
+        picks, sides, best_s, best_c = [], {"Prefix": 0, "Suffix": 0}, None, None
         for _ in range(6):
             found = None
             for m in pool:
@@ -187,13 +211,14 @@ def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | 
                         or any(group_of[p] == m["group"] for p in picks)):
                     continue
                 c = measure(picks + [m["id"]])
-                if found is None or score(c["dps"], c["ehp"]) > score(found[1]["dps"], found[1]["ehp"]):
-                    found = (m, c)
-            if found is None or (picks and score(found[1]["dps"], found[1]["ehp"]) <= score(best_c["dps"], best_c["ehp"])):
+                score = worth(mode, c, measure_you(picks + [m["id"]]) if own else None)
+                if found is None or score > found[1]:
+                    found = (m, score, c)
+            if found is None or (picks and found[1] <= best_s):
                 break
             picks.append(found[0]["id"])
             sides[found[0]["type"]] += 1
-            best_c = found[1]
+            best_s, best_c = found[1], found[2]
         if picks and not any(sorted(b["picks"]) == sorted(picks) for b in best.values()):
             text = text_of(picks)
             best[mode] = {"text": text, "lines": mod_lines(text), "picks": picks, "dps": best_c["dps"], "ehp": best_c["ehp"]}
@@ -224,13 +249,11 @@ def advise(engine, db, config: dict, slot: str, bases: list[dict], worn: dict | 
                 continue
             m["dps"], m["ehp"] = c["dps"] - ref_c["dps"], c["ehp"] - ref_c["ehp"]
     you = None
-    if player:  # the best items on the character itself, against what it wears now
-        p_engine, p_config, p_group, p_worn = player
-        p_now = p_engine.what_if(config=p_config, main_socket_group=p_group)
-        for b in best.values():
-            c = metric_changes(p_engine.what_if(config=p_config, replace_item=(slot, b["text"]),
-                                                main_socket_group=p_group), p_now)
+    if player:  # the best items on the character itself, against what it wears now: weaker - said so, not offered
+        for mode, b in best.items():
+            c = measure_you(b["picks"])
             b["you"] = {"dps": c["dps"], "ehp": c["ehp"]}
+            b["wornBetter"] = MODES[mode](c["dps"], c["ehp"]) < 0
         you = {"worn": p_worn, "uniqueWorn": bool(p_worn and p_worn.get("rarity") == "UNIQUE")}
     mods.sort(key=lambda m: -(m["dps"] + m["ehp"]))
     counted = [m for m in mods if abs(m["dps"]) >= 0.1 or abs(m["ehp"]) >= 0.1]

@@ -2728,10 +2728,12 @@ def _journal_db() -> ModDB:
 
 
 def _journal_rows():
+    """The journal's records read, and the draws of the current mod pool: records from before a patch that changed
+    the mods are shown, not counted."""
     db = _journal_db()
     if "names" not in _bare:
         _bare["names"] = journal.Names(db)  # names do not depend on the build
-    return journal.interpret(journal.entries(), db, _bare["names"], _parsed)
+    return journal.interpret(journal.entries(), db, _bare["names"], _parsed, since=journal.pool_since(db.fingerprint()))
 
 
 def _estimate_summary(est):
@@ -2740,11 +2742,17 @@ def _estimate_summary(est):
 
 @app.get("/api/journal")
 def journal_view(limit: int = 40):
-    out = {"recording": recorder.on, "available": recorder.available(), "recordedNow": recorder.count,
-           "hotkey": recorder.hotkey, "grade": recorder.grade,
-           "estimate": _estimate_summary(journal.load_estimate()), "applied": crafting.WEIGHTS_FILE.is_file()}
     with session.lock:
         rows, samples = _journal_rows()
+        pool = _journal_db().fingerprint()
+    est = journal.load_estimate()
+    out = {"recording": recorder.on, "available": recorder.available(), "recordedNow": recorder.count,
+           "hotkey": recorder.hotkey, "grade": recorder.grade, "estimate": _estimate_summary(est),
+           # weights of the mods before a patch: kept, not used by the crafting simulator
+           # (an estimate from before pools were kept counts as this pool's, like the records it came from)
+           "estimateOld": bool(est and est.get("pool") not in (None, pool)),
+           "applied": bool(crafting.applied(pool)), "appliedOld": crafting.WEIGHTS_FILE.is_file() and not crafting.applied(pool),
+           "oldRecords": sum(1 for r in rows if r["how"] == "old_pool"), "minApply": journal.MIN_APPLY_DRAWS}
     classes = {}
     for s in samples:
         c = classes.setdefault(s.item_class, {"records": 0, "draws": 0})
@@ -2816,8 +2824,11 @@ def journal_estimate():
     with session.lock:
         _, samples = _journal_rows()
         if not samples:
-            raise HTTPException(400, "в журнале нет ни одной пробы — сначала запиши несколько вещей")
-        result = journal.estimate(_journal_db(), samples)
+            raise HTTPException(400, "в журнале нет ни одной пробы этой версии игры — сначала запиши несколько вещей")
+        try:
+            result = journal.estimate(_journal_db(), samples)
+        except ValueError as err:  # a fit gone astray: said, the previous estimate kept
+            raise HTTPException(400, str(err))
     journal.save_estimate(result)
     return _json(_estimate_summary(result))
 
@@ -2830,15 +2841,21 @@ def _drop_craft_results():
 @app.post("/api/journal/apply")
 def journal_apply():
     est = journal.load_estimate()
-    if not est:
+    if not est or not isinstance(est.get("weights"), dict):
         raise HTTPException(400, "сначала посчитай веса")
-    crafting.WEIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    applied = dict(est["weights"])
+    with session.lock:
+        pool = _journal_db().fingerprint()
+    if est.get("pool") not in (None, pool):  # None: estimated before pools were kept - of the records this pool counts
+        raise HTTPException(400, "веса посчитаны для прошлой версии игры (моды с тех пор изменились) — посчитай заново")
+    if est.get("draws", 0) < journal.MIN_APPLY_DRAWS:
+        raise HTTPException(400, f"мало проб для крафта: {est.get('draws', 0)} из {journal.MIN_APPLY_DRAWS} — "
+                                 "с меньшим числом веса почти случайны; запиши ещё")
+    applied = dict(est["weights"]) | {"pool": pool}
     # measured thresholds of Greater / Perfect orbs, once there are enough draws to trust them
     applied["grades"] = {g: {"minLevel": journal.crafting_level(t),
                              "lowFamilies": True if t["lowFamilies"] is None else t["lowFamilies"]}
                          for g, t in (est.get("thresholds") or {}).items() if t["draws"] >= journal.MIN_GRADE_DRAWS}
-    crafting.WEIGHTS_FILE.write_text(json.dumps(applied), encoding="utf-8")
+    journal.write_atomic(crafting.WEIGHTS_FILE, json.dumps(applied))
     with session.lock:
         _drop_craft_results()
     return {"applied": True}
