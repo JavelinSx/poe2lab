@@ -17,7 +17,7 @@ from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.explain import explain as explain_build, main_group
 from ..analysis import slotadvice
 from ..analysis.items import breakeven, compare
-from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view
+from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view, roles as skill_roles
 from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
 from ..analysis.report import score as report_score
@@ -1263,11 +1263,21 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
     """The build's skills: each with its support gems and the links between skills ("build"), or when each gem can
     be had and what to socket meanwhile while levelling ("leveling"; of="target": the levelling of the build's
     target - the guide the player follows)."""
-    if view not in ("build", "leveling", "uniques", "supports", "explain"):
+    if view not in ("build", "leveling", "uniques", "supports", "explain", "roles"):
         raise HTTPException(400, f"неизвестный вид {view!r}")
     with session.lock:
         session.require(build)
         e, cfg = session.engine, session.profile.config()
+        if view == "roles":
+            # what each skill does for the main one (poe2lab.analysis.skills.roles); of="guide": the guide's skills
+            if of == "guide" and session.main is not None:
+                def guide_roles():
+                    _, ref, rbp = _reference(RECORDED)
+                    rcfg = MapProfile(rage=rbp.rage, mana_sustained=rbp.mana_sustained).config()
+                    return skill_roles(ref, rcfg, ref.skill_damage(rcfg))
+                return _json(session.cached(("skill-roles", "guide"), guide_roles))
+            numbers = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
+            return _json(session.cached(("skill-roles",), lambda: skill_roles(e, cfg, numbers)))
         if view in ("build", "uniques"):
             m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
             data = session.cached(("skills", "build"), lambda: skill_build_view(

@@ -471,6 +471,56 @@ def meta_view(groups: list[dict]) -> None:
         g["meta"] = info
 
 
+def roles(engine, config: dict, rows: list[dict]) -> dict:
+    """What each skill group does for the build - for a player asking why a build has three damage skills, or the
+    same skill twice. The main skill (poe2lab.analysis.explain.main_group); each other group: its own damage as a
+    share of the main one's, what the main skill's damage and the effective life lose without it (its active gems
+    turned off: a buff of the main skill, a defence), the mechanics it creates that the main skill uses (power charges:
+    PoB counts them full, so their maker shows no damage), and nothing of these - a role PoB does not count. A skill
+    in two groups: how each copy is used (by itself, through a meta gem, granted by an item) and the supports only
+    that copy has."""
+    from .explain import main_group  # explain imports this module
+
+    groups = engine.skill_groups()
+    main = main_group(engine, groups, rows)
+    if main is None:
+        return {"main": None, "skill": None, "groups": []}
+    meta_view(groups)
+    by_index = {g["index"]: g for g in groups}
+    names = {m.key: m.name for m in MECHANICS}
+
+    def own(index):
+        return max((r["dps"] for r in rows if r["group"] == index), default=0.0)
+
+    main_dps = own(main["index"])
+    base = engine.what_if(config=config, main_socket_group=main["index"])
+    main_uses = {k for x in main["gems"] if x["enabled"] for k in mechanics_of(x)["uses"]}
+    out = []
+    for g in groups:
+        actives = [x for x in g["gems"] if not x["support"] and x["enabled"]]
+        if not g["enabled"] or not actives:
+            continue
+        entry = {"group": g["index"], "main": g["index"] == main["index"], "skills": [x["name"] for x in actives],
+                 "meta": g["meta"]["gem"] if g.get("meta") else None, "slot": g.get("slot") or None}
+        if not entry["main"]:
+            without = engine.what_if(config=config, main_socket_group=main["index"],
+                                     disable_gems=[(g["index"], x["index"]) for x in actives])
+            c = metric_changes(without, base)
+            made = dict.fromkeys(k for x in actives for k in mechanics_of(x)["creates"] if k in main_uses)
+            entry |= {"own": own(g["index"]) / main_dps * 100 if main_dps else 0.0, "dps": c["dps"], "ehp": c["ehp"],
+                      "gives": [{"key": k, "name": names[k]} for k in made]}
+        out.append(entry)
+    for e in out:
+        mine = set(e["skills"]) - {e["meta"]}
+        supports = {x["name"] for x in by_index[e["group"]]["gems"] if x["support"] and x["enabled"]}
+        copies = [o for o in out if o is not e and mine & set(o["skills"])]
+        theirs = {x["name"] for o in copies for x in by_index[o["group"]]["gems"] if x["support"] and x["enabled"]}
+        e["copies"] = [{"group": o["group"], "skill": sorted(mine & set(o["skills"]))[0], "meta": o["meta"],
+                        "slot": o["slot"]} for o in copies]
+        e["only"] = sorted(supports - theirs) if copies else []
+    return {"main": main["index"], "skill": main["actives"][0]["name"] if main["actives"] else None, "groups": out}
+
+
 def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques: list[dict] = (),
                item_gaps: list[dict] = ()) -> dict:
     """Every socket group with its gems, what each support is worth, the unique items and the mechanics they take

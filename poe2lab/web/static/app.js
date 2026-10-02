@@ -1011,6 +1011,36 @@ function errorCard(e) {
     h("div", { class: "row" }, h("button", { class: "primary small", onclick: () => reportError(e) }, "📨 ", t("errReport"))));
 }
 
+// What each skill does for the build (poe2lab.analysis.skills.roles): the main damage; what the main skill loses
+// without it (a buff), what the effective life loses (a defence), its own damage, the charges it makes for the main
+// skill - or nothing PoB counts; the same skill in two groups: how each copy is used and the supports only it has.
+// Put into each group's card in `box` (by data-group) once they come.
+function fillRoles(box, rr) {
+  if (!rr || !rr.main) return;
+  const mainName = trName(rr.skill || "");
+  const pct = (v) => `${v > 0 ? "+" : ""}${fmt(v, 1)}%`;
+  const how = (x) => (x.meta ? t("rlHowMeta", trName(x.meta)) : x.slot ? t("rlHowItem", slotName(x.slot)) : t("rlHowSelf"));
+  for (const r of rr.groups) {
+    const card = box.querySelector(`[data-group="${r.group}"]`);
+    if (!card) continue;
+    const chips = [];
+    if (r.main) chips.push(chip("ok", t("rlMain")));
+    else {
+      if (r.dps <= -1) chips.push(chip("tag", t("rlLoses", mainName, pct(r.dps))));
+      if (r.ehp <= -1) chips.push(chip("tag", t("rlLosesEhp", pct(r.ehp))));
+      for (const m of r.gives) chips.push(chip("tag", t("rlGives", (LANG === "en" && MECH_EN[m.key]) || m.name, mainName)));
+      if (r.own >= 1) chips.push(chip("util", t("rlOwn", fmt(r.own, r.own < 10 ? 1 : 0), mainName)));
+      if (r.dps > -1 && r.ehp > -1 && !r.gives.length) chips.push(h("span", { class: "muted small" }, t("rlNothing", mainName)));
+    }
+    const copies = r.copies.map((c) => h("div", { class: "small" }, "🔁 ", t("rlCopy", trName(c.skill), c.group), " ",
+      h("span", { class: "muted" }, t("rlHere"), " ", how(r), "; ", t("rlThere"), " ", how(c)),
+      r.only.length ? [" · ", t("rlOnly", r.only.map(trName).join(", "))] : null));
+    const line = h("div", { class: "sk-role", title: t("rlHint") }, h("div", { class: "row" }, ...chips), ...copies);
+    const head = card.querySelector(".row, h3");
+    (head ? head.parentNode : card).insertBefore(line, head ? head.nextSibling : card.firstChild);
+  }
+}
+
 // a weapon tried on: each skill's damage now and with it, in a few lines
 function skillsWith(rows) {
   return h("div", { class: "sk-quick" }, h("b", {}, "⚔ ", t("mkSkillsTitle")),
@@ -1084,12 +1114,15 @@ const SIDE_VIEWS = {
     };
     const cards = s.ref.filter((g) => g.gems.length).map((g) => {
       const [m0, l0] = [missing, lower];
-      const card = h("div", { class: "card vs-group" + (g.main ? " main" : "") },
+      const card = h("div", { class: "card vs-group" + (g.main ? " main" : ""), "data-group": g.index },
         h("h3", {}, g.actives.map((a) => trName(a.name)).join(" + ") || g.label || t("vsGroup", g.index), g.main ? " " : null, g.main ? chip("ok", t("vsMainGroup")) : null),
         h("div", { class: "vs-gems" }, g.gems.map(row)));
       const [m, l] = [missing - m0, lower - l0];
       return m || l || g.main ? card : foldedCard(card, "vs" + g.index, "✓");
     });
+    const grid = h("div", { class: "grid two" }, cards);
+    cached("skills:roles:guide", () => api(`/api/skills?view=roles&of=guide&${buildQuery()}`))
+      .then((rr) => fillRoles(grid, rr)).catch(() => {});
     const extra = [...have.keys()].filter((n) => !theirs.has(n));
     // how the guide works: its crit, mana and meta gems (the character's are on the Main side)
     const explained = h("div", { class: "grid two" }, loading(t("exLoading")));
@@ -1098,7 +1131,7 @@ const SIDE_VIEWS = {
       .catch((e) => explained.replaceChildren(errorCard(e)));
     return h("div", { class: "stack" }, h("div", { class: "card" }, h("h3", {}, t("vsSkillsTitle")), h("div", { class: "sub" }, t("vsSkillsSum", missing, lower))),
       h("div", { class: "section-title" }, "🔍 ", t("exTitleGuide")), explained,
-      h("div", { class: "grid two" }, cards),
+      grid,
       extra.length ? h("div", { class: "card" }, h("h3", {}, t("vsSkillsExtra")), h("div", { class: "vs-gems" }, extra.map((n) => h("div", { class: "vs-gem" }, gemName(n))))) : null);
   },
   // the build's gear on the dolls next to the character's
@@ -4526,7 +4559,9 @@ function renderSkillsBuild(r) {
         h("span", { class: "muted small" }, slotName(it.slot))),
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
       mechChips(it), termChips(it.terms))))), "uniques", t("skUniquesSum", r.items.length)) : null;
-  return [links, items, h("div", { class: "grid cards" }, cards)].filter(Boolean);
+  const grid = h("div", { class: "grid cards" }, cards);
+  cached("skills:roles", () => api(`/api/skills?view=roles&${buildQuery()}`)).then((rr) => fillRoles(grid, rr)).catch(() => {});
+  return [links, items, grid].filter(Boolean);
 }
 
 // uniques of the whole game that go with the build's skills (mechanics, skill kinds, damage types, shared terms)

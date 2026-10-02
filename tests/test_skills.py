@@ -185,3 +185,52 @@ def test_unique_prices(monkeypatch):
         return {"lines": []}
     monkeypatch.setattr(ninja, "_get", fake)
     assert ninja.unique_prices("Standard") == {"Cloak of Flame": {"div": 0.02, "listings": 40}}  # the cheapest line
+
+
+class RolesStub:
+    """A build of a main strike, a buff of it, a defence, a skill of its own damage and a charge maker in two
+    groups (cast by hand with Unleash, and through Cast on Critical with Boundless Energy)."""
+    def __init__(self):
+        def g(index, gems, main=False, slot=""):
+            gems = [{"index": i + 1, "enabled": True, "level": 20, **x} for i, x in enumerate(gems)]
+            return {"index": index, "main": main, "enabled": True, "slot": slot, "label": "",
+                    "actives": [{"name": x["name"], "types": x.get("types", [])} for x in gems if not x["support"]],
+                    "gems": gems}
+        strike = {"name": "Flicker Strike", "support": False, "types": ["Attack"],
+                  "description": "Teleport to an enemy and Strike them. Consumes Power Charges to perform additional "
+                                 "teleporting Strikes on nearby enemies."}
+        ritual = {"name": "Profane Ritual", "support": False, "types": ["Spell"],
+                  "description": "Mark a Corpse with a profane rune. When the ritual is complete the Corpse is "
+                                 "consumed and you gain a Power Charge."}
+        self.groups = [
+            g(1, [strike], main=True),
+            g(2, [{"name": "Charged Staff", "support": False, "types": ["Buff"], "description": "A buff."}]),
+            g(3, [{"name": "Wind Dancer", "support": False, "types": ["Buff"], "description": "More evasion."}]),
+            g(4, [{"name": "Whirling Assault", "support": False, "types": ["Attack"], "description": "Spin."}]),
+            g(5, [ritual, {"name": "Unleash", "support": True}, {"name": "Charge Profusion II", "support": True}]),
+            g(6, [{"name": "Cast on Critical", "support": False, "types": ["Meta", "Triggers", "GeneratesEnergy"],
+                   "description": "Triggers socketed Spells on reaching maximum Energy."}, ritual,
+                  {"name": "Boundless Energy II", "support": True}, {"name": "Charge Profusion II", "support": True}])]
+
+    def skill_groups(self):
+        import copy
+        return copy.deepcopy(self.groups)
+
+    def what_if(self, config=None, main_socket_group=None, disable_gems=()):
+        off = {g for g, _ in disable_gems}
+        return {"CombinedDPS": 100.0 * (0.8 if 2 in off else 1.0), "TotalEHP": 1000.0 * (0.75 if 3 in off else 1.0)}
+
+
+def test_roles_say_what_each_skill_does_for_the_main_one(regex_only):
+    rows = [{"group": 1, "name": "Flicker Strike", "dps": 100.0}, {"group": 4, "name": "Whirling Assault", "dps": 3.0}]
+    r = sk.roles(RolesStub(), {}, rows)
+    assert r["main"] == 1 and r["skill"] == "Flicker Strike"
+    by = {g["group"]: g for g in r["groups"]}
+    assert by[1]["main"]
+    assert by[2]["dps"] == pytest.approx(-20) and by[2]["ehp"] == 0  # a buff of the main skill
+    assert by[3]["ehp"] == pytest.approx(-25) and by[3]["dps"] == 0  # a defence
+    assert by[4]["own"] == pytest.approx(3) and by[4]["dps"] == 0 and not by[4]["gives"]  # nothing PoB counts for the main
+    assert [m["key"] for m in by[5]["gives"]] == ["power"]  # the charges the main skill spends
+    # the same skill twice: how each copy is used and the supports only it has
+    assert by[5]["copies"] == [{"group": 6, "skill": "Profane Ritual", "meta": "Cast on Critical", "slot": None}]
+    assert by[5]["only"] == ["Unleash"] and by[6]["only"] == ["Boundless Energy II"] and by[6]["meta"] == "Cast on Critical"

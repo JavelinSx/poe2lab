@@ -134,6 +134,9 @@ main { padding: 12px 28px 60px; min-width: 0; height: 100vh; overflow-y: auto; }
 .sa-why-slot ul { margin: 4px 0 0; padding-left: 18px; }
 .sa-why-slot li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 2px 0; }
 .sa-hit-from { margin: 4px 0 0; padding-left: 18px; }
+/* a skill's role in the build: what it gives the main skill */
+.sk-role { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 6px; }
+.sk-role .row { gap: 6px; flex-wrap: wrap; }
 .sa-hit-from li { margin: 2px 0; }
 @media (max-width: 900px) { .ai-grid { grid-template-columns: 1fr; } }
 .build-header {
