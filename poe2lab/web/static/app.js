@@ -3312,7 +3312,8 @@ function drawLeveling(card, d) {
     h("span", { class: "lr-tick-l" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)))));
   const tips = [t(a.pace === "safe" ? "lrTipSafe" : "lrTipFast"), t(a.trade ? "lrTipTrade" : "lrTipSsf")];
   card.replaceChildren(...[head, banner, why, before,
-    track, h("div", { class: "lr-stages" }, r.stages.map(stage)),
+    // the track and the stages in one grid, a column each: every mark stands over its stage
+    h("div", { class: "lr-timeline", style: `--n:${r.stages.length}` }, track, h("div", { class: "lr-stages" }, r.stages.map(stage))),
     h("ul", { class: "small lr-tips" }, tips.map((x) => h("li", {}, x))),
     h("div", { class: "row" }, edit(t("lrEdit"), "ghost small"),
       h("span", { class: "muted small" }, t("lrAnswers", lrWayTitle(r.way), t(a.trade ? "lrTradeShort" : "lrSsfShort"), t(a.pace === "safe" ? "lrSafeShort" : "lrFastShort"))),

@@ -942,11 +942,20 @@ tr.dense .fit-chips { margin-top: 2px; }
 .lr-skill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: var(--panel-2); font-size: 13px; }
 .lr-skill.until { opacity: .75; border: 1px dashed var(--line); }
 .lr-lvl { color: var(--muted); font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--bg); }
-.lr-stages { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; align-items: start; }
-/* the track over the stages: a line with each stage's mark */
-.lr-track { display: flex; align-items: flex-start; margin: 4px 0 2px; position: relative; }
-.lr-track::before { content: ""; position: absolute; left: 14px; right: 14px; top: 13px; height: 2px; background: var(--line); }
-.lr-tick { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; min-width: 0; }
+/* the track over the stages, one column a stage in both: a mark stands over its own stage; narrow - scrolls aside */
+.lr-timeline { --gap: 10px; --col: 190px; overflow-x: auto; padding-bottom: 4px; }
+.lr-track, .lr-stages { display: grid; grid-template-columns: repeat(var(--n), minmax(var(--col), 1fr)); gap: var(--gap);
+  min-width: calc(var(--n) * var(--col) + (var(--n) - 1) * var(--gap)); }
+.lr-stages { align-items: start; }
+.lr-track { margin: 4px 0 8px; position: relative; }
+/* the line from the first mark's centre to the last one's */
+.lr-track::before { content: ""; position: absolute; top: 13px; height: 2px; background: var(--line);
+  left: calc((100% - (var(--n) - 1) * var(--gap)) / var(--n) / 2); right: calc((100% - (var(--n) - 1) * var(--gap)) / var(--n) / 2); }
+.lr-tick { display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; min-width: 0; }
+/* a short stem down to the stage card */
+.lr-tick::after { content: ""; width: 2px; height: 8px; background: var(--line); margin-bottom: -8px; }
+.lr-tick.here::after { background: var(--good); }
+.lr-tick.switch::after { background: var(--gold); }
 .lr-tick-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: var(--panel-2); border: 2px solid var(--line); font-weight: 700; font-size: 13px; }
 .lr-tick-l { font-size: 11px; color: var(--muted); white-space: nowrap; }
