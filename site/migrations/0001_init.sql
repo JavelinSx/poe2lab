@@ -11,7 +11,7 @@ CREATE TABLE users (
   links       TEXT NOT NULL DEFAULT '[]',          -- [{"kind": "twitch" | "youtube", "url"}]
   role        TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'mod', 'owner')),
   lang        TEXT NOT NULL DEFAULT 'ru',
-  notify      TEXT NOT NULL DEFAULT '{"reviews":true,"replies":true,"follows":false}',
+  notify      TEXT NOT NULL DEFAULT '{"reviews":true,"replies":true,"follows":true}',
   banned_at   INTEGER,
   created_at  INTEGER NOT NULL
 );

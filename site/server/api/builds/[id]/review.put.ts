@@ -1,8 +1,9 @@
 // One review per account, written or changed: stars (needed), criteria (if given), the text, the reviewer's
 // character. The build's author cannot review their own build; the build's rating follows; the author is notified.
 import { CLASS_KEYS } from "~~/shared/catalog";
+import { CRIT } from "~~/shared/api";
 
-const CRIT = ["dmg", "tank", "budget", "ease"];
+const CRIT_KEYS: string[] = CRIT.map((c) => c.key);
 
 export default defineEventHandler(async (e) => {
   const user = await requireUser(e);
@@ -12,7 +13,7 @@ export default defineEventHandler(async (e) => {
   if (!(stars >= 1 && stars <= 5)) throw createError({ statusCode: 400, statusMessage: "Оценка — от 1 до 5" });
   const text = String(b.text ?? "").replace(/\r/g, "").trim();
   if (!text || text.length > 1000) throw createError({ statusCode: 400, statusMessage: "Отзыв — от 1 до 1000 знаков" });
-  const crit = Object.fromEntries(Object.entries(b.crit ?? {}).filter(([k, v]) => CRIT.includes(k) && Number.isInteger(v) && v >= 1 && v <= 5));
+  const crit = Object.fromEntries(Object.entries(b.crit ?? {}).filter(([k, v]) => CRIT_KEYS.includes(k) && Number.isInteger(v) && v >= 1 && v <= 5));
   const cls = b.cls && CLASS_KEYS.includes(b.cls as never) ? b.cls : null;
   const level = Number.isInteger(b.level) && b.level! >= 1 && b.level! <= 100 ? b.level! : null;
   const build = await first<{ author_id: string }>(e, "SELECT author_id FROM builds WHERE id = ? AND status = 'published'", id);

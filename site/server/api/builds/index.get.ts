@@ -1,11 +1,12 @@
 // The catalog: builds by the filters and words of the page's address, a page of them, how many there are, and the
-// counts beside the chosen class's ascendancies.
+// counts beside the chosen class's ascendancies. `fav=1`: only the signed-in one's favourites.
 export default defineEventHandler(async (e) => {
   const c = readQuery(getQuery(e));
+  if (c.fav) c.favOf = (await requireUser(e)).id;
   const w = where(c);
   const from = "FROM builds b JOIN users u ON u.id = b.author_id";
   const [rows, total, ascs] = await Promise.all([
-    all<CardRow>(e, `SELECT ${CARD_COLUMNS} ${from} WHERE ${w.sql} ORDER BY ${SORTS[c.sort]} LIMIT ? OFFSET ?`, ...w.args, c.limit, c.offset),
+    all<CardRow>(e, `SELECT ${CARD_COLUMNS} ${from} WHERE ${w.sql} ORDER BY ${ORDER_BY[c.sort]} LIMIT ? OFFSET ?`, ...w.args, c.limit, c.offset),
     first<{ n: number }>(e, `SELECT COUNT(*) AS n ${from} WHERE ${w.sql}`, ...w.args),
     c.cls ? (() => { const wa = where(c, "asc"); return all<{ asc: string; n: number }>(e, `SELECT b.asc, COUNT(*) AS n ${from} WHERE ${wa.sql} GROUP BY b.asc`, ...wa.args); })() : [],
   ]);

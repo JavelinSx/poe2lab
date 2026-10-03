@@ -1,4 +1,7 @@
 // A build's reviews, sorted (helpful, new, high, low), ten at a time; each with whether the one asking found it helpful.
+import type { ClassKey } from "~~/shared/catalog";
+import type { ReviewItem, ReviewsData } from "~~/shared/api";
+
 const ORDER: Record<string, string> = { helpful: "r.helpful_n DESC, r.created_at DESC", new: "r.created_at DESC", high: "r.stars DESC, r.created_at DESC", low: "r.stars ASC, r.created_at DESC" };
 
 export default defineEventHandler(async (e) => {
@@ -15,9 +18,9 @@ export default defineEventHandler(async (e) => {
   const mine = me ? await first<{ stars: number; crit: string; text: string; char_cls: string | null; char_level: number | null }>(e,
     "SELECT stars, crit, text, char_cls, char_level FROM reviews WHERE build_id = ? AND user_id = ?", id, me.id) : null;
   return {
-    items: rows.map((r) => ({ id: r.id, nick: r.nick, hue: r.hue, avatar: r.avatar, stars: r.stars, crit: parseJson(r.crit, {}), text: r.text,
-      cls: r.char_cls, level: r.char_level, helpful: r.helpful_n, voted: Boolean(r.voted), own: r.user_id === me?.id,
-      reply: r.reply ? { text: r.reply, at: r.reply_at } : null, at: r.created_at })),
-    mine: mine ? { ...mine, crit: parseJson(mine.crit, {}) } : null,
-  };
+    items: rows.map((r): ReviewItem => ({ id: r.id, nick: r.nick, hue: r.hue, avatar: r.avatar, stars: r.stars, crit: parseJson(r.crit, {}), text: r.text,
+      cls: r.char_cls as ClassKey | null, level: r.char_level, helpful: r.helpful_n, voted: Boolean(r.voted), own: r.user_id === me?.id,
+      reply: r.reply ? { text: r.reply, at: r.reply_at ?? r.created_at } : null, at: r.created_at })),
+    mine: mine ? { ...mine, char_cls: mine.char_cls as ClassKey | null, crit: parseJson(mine.crit, {}) } : null,
+  } satisfies ReviewsData;
 });

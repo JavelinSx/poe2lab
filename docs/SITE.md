@@ -81,15 +81,17 @@
   - `GET /api/builds` — фильтры, сортировка, курсор, 24 на страницу; `GET /api/builds/:id`;
   - `POST /api/builds` — публикация из приложения по токену; повторная с тем же `key` обновляет билд;
   - `PATCH /api/builds/:id` — на сайте: название, теги, обложка, описание;
-  - `POST /api/builds/:id/hide`, `DELETE /api/builds/:id`.
+  - `POST /api/builds/:id/state` — `published` / `hidden` / `removed` (удаление насовсем);
+  - `GET /api/builds/:id/pob` — код PoB по кнопке; `GET /api/me/builds` — кабинет.
 - **Поиск:** `GET /api/search/suggest?q=` — теги, скиллы, билды, авторы.
 - **Отзывы:**
   - `GET /api/builds/:id/reviews`, `PUT /api/builds/:id/review`;
   - `POST /api/reviews/:id/helpful`, `POST /api/reviews/:id/reply`.
 - **Прочее:**
-  - `POST|DELETE /api/favorites/:id`, `POST|DELETE /api/follows/:authorId`;
-  - `GET /api/notifications`, `POST /api/notifications/read`;
-  - `GET /api/authors/:nick`, `PATCH /api/me`;
+  - `POST|DELETE /api/favorites/:id` (список — `GET /api/builds?fav=1`), `POST|DELETE /api/follows/:nick`;
+  - `GET /api/notifications`, `POST /api/notifications/read` — видны те виды, что включены в настройках;
+  - `GET /api/home`, `GET /api/authors/:nick`, `GET /api/nick?n=` (ник свободен?);
+  - `GET /api/me/settings`, `PATCH /api/me`, `DELETE /api/me/apps/:id`, `DELETE /api/me` (аккаунт насовсем);
   - `POST /api/reports`; `GET /api/mod/reports`, `POST /api/mod/action` — только модератор.
 
 Защита:
@@ -128,10 +130,11 @@
    страницы главная, каталог, билд, автор, кабинет, правка, вход, подключение, состояния на моковых данных; сверка
    с макетами снимками.
 1. **API и база:** схема D1 (миграции), билды, поиск, фильтры; локально `wrangler` / `nitro-cloudflare-dev`.
+   Готово, страницы работают от API; проверки — `npm test`, `npm run smoke`, `npm run typecheck`.
 2. **Вход:** Discord OAuth, сессии, выбор ника. Нужно приложение Discord: client id и secret заводит владелец.
 3. **Приложение:** пакет публикации (`poe2lab/publish.py`), код устройства, окно «Опубликовать», ссылка
    `poe2lab://`.
-4. **Отзывы и оценки**, «полезно», ответы автора, избранное, подписки, уведомления.
+4. **Отзывы и оценки**, «полезно», ответы автора, избранное, подписки, уведомления. Готово (вместе с этапом 1).
 5. **Модерация:** жалобы, скрытие, блокировка; правила сайта и конфиденциальность.
 6. **Выкладка** на Cloudflare с аккаунта владельца, домен — только с его «да».
 

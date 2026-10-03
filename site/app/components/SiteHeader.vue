@@ -21,7 +21,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", slash));
       <NuxtLink class="logo" to="/">poe2<span>lab</span></NuxtLink>
       <nav class="sh-nav" aria-label="Разделы">
         <NuxtLink :class="on('catalog')" to="/catalog"><Ic name="grid4" />Каталог</NuxtLink>
-        <NuxtLink :class="on('a')" to="/a/MapMama"><Ic name="crown" />Авторы</NuxtLink>
+        <NuxtLink :class="on('a')" to="/#authors"><Ic name="crown" />Авторы</NuxtLink>
         <NuxtLink to="/#app"><Ic name="download" />Приложение</NuxtLink>
       </nav>
       <label class="search sh-search"><Ic name="search" />
@@ -32,7 +32,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", slash));
         <div class="lang"><button class="is-on" type="button">RU</button><button type="button">EN</button></div>
         <template v-if="me">
           <div class="bell"><NuxtLink class="icon-btn" to="/me/settings" :aria-label="`Уведомления: ${me.unread} новых`"><Ic name="bell" /></NuxtLink><span v-if="me.unread" class="bell-n">{{ me.unread }}</span></div>
-          <NuxtLink class="sh-me" to="/me"><Ava :nick="me.nick" :hue="me.hue" size="s" /><span class="nick">{{ me.nick }}</span><Ic name="chev" /></NuxtLink>
+          <NuxtLink class="sh-me" to="/me"><Ava :nick="me.nick" :hue="me.hue" :src="me.avatar ?? undefined" size="s" /><span class="nick">{{ me.nick }}</span><Ic name="chev" /></NuxtLink>
         </template>
         <NuxtLink v-else class="btn btn-sm btn-ghost" to="/login"><Ic name="login" />Войти</NuxtLink>
       </div>

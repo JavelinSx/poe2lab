@@ -3,7 +3,7 @@
 // name ([[kind:key]] in the saved text; Backspace takes it in one go). "@" opens a search at the caret (Enter puts
 // the piece in, Esc leaves "@" as text); a piece from the panel is dragged in (where it drops) or clicked (where the
 // caret is). Pasted text comes in as plain paragraphs. The counter: grey to 1400, yellow to 1500, red past it.
-import type { Card } from "~~/mock/page";
+import type { Card } from "~~/shared/package";
 import type { GameThing } from "~~/mock/game";
 
 const props = defineProps<{ modelValue: string; cards: Record<string, Card>; max?: number }>();
@@ -21,7 +21,7 @@ function chip(key: string) {
   el.contentEditable = "false";
   el.dataset.tok = key;
   if (c?.img && c.kind !== "term") { const img = document.createElement("img"); img.src = gameArt(c.img); img.alt = ""; el.append(img); }
-  el.append(c?.name ?? key.split(":")[1]);
+  el.append(c?.name ?? key.split(":")[1] ?? key);
   return el;
 }
 function fill(text: string) {
@@ -32,8 +32,9 @@ function fill(text: string) {
     let last = 0;
     for (const m of para.matchAll(TOKEN)) {
       if (m.index! > last) p.append(para.slice(last, m.index));
-      p.append(chip(m[1]), " ");
       last = m.index! + m[0].length;
+      // a space only at the paragraph's end, for the caret to go after the piece (the saved text keeps none there)
+      p.append(chip(m[1]!), ...(last === para.length ? [" "] : []));
     }
     if (last < para.length) p.append(para.slice(last));
     if (!p.childNodes.length) p.append(document.createElement("br"));
@@ -129,7 +130,7 @@ function onPaste(e: ClipboardEvent) {
     let last = 0;
     for (const m of line.matchAll(TOKEN)) {
       if (m.index! > last) nodes.push(document.createTextNode(line.slice(last, m.index)));
-      nodes.push(props.cards[m[1]] ? chip(m[1]) : document.createTextNode(m[0]));
+      nodes.push(props.cards[m[1]!] ? chip(m[1]!) : document.createTextNode(m[0]));
       last = m.index! + m[0].length;
     }
     if (last < line.length) nodes.push(document.createTextNode(line.slice(last)));

@@ -1,19 +1,20 @@
 <script setup lang="ts">
-// The main page: what the site is, the search, the classes, the shelves, the best authors, the app.
-import { AUTHORS, BUILDS, CLASSES } from "~~/mock/builds";
+// The main page: what the site is, the search, the classes, the shelves, the best authors, the app. The numbers,
+// shelves and authors come from /api/home in one answer.
+import { CLASSES } from "~~/shared/catalog";
+import type { HomeData } from "~~/shared/api";
 
 const router = useRouter();
 const q = ref("");
 const find = (text = q.value) => router.push({ path: "/catalog", query: text.trim() ? { q: text.trim() } : {} });
-const count = (k: string) => BUILDS.filter((b) => b.cls === k).length;
-const shelves = [
-  { icon: "chart", title: "Популярное за неделю", sub: "Чаще всего открывали в poe2lab", query: { sort: "popular" },
-    builds: [...BUILDS].sort((a, b) => b.opens - a.opens).slice(0, 4) },
-  { icon: "flag", title: "Для старта лиги", sub: "Дёшево, без редких уников, уверенно до карт", query: { tag: "старт лиги" },
-    builds: BUILDS.filter((b) => b.tags.includes("старт лиги")).slice(0, 4) },
-  { icon: "clock", title: "Новое", sub: "Опубликовано и обновлено за последние дни", query: { sort: "new" },
-    builds: [...BUILDS].sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, 4) },
-];
+const { data, status } = useFetch<HomeData>("/api/home", { key: "home" });
+const count = (k: string) => data.value?.classes[k] ?? 0;
+const shelves = computed(() => [
+  { icon: "chart", title: "Популярное за неделю", sub: "Чаще всего открывали в poe2lab", query: { sort: "popular" }, builds: data.value?.shelves.popular ?? [] },
+  { icon: "flag", title: "Для старта лиги", sub: "Дёшево, без редких уников, уверенно до карт", query: { tag: "старт лиги" }, builds: data.value?.shelves.start ?? [] },
+  { icon: "clock", title: "Новое", sub: "Опубликовано и обновлено за последние дни", query: { sort: "new" }, builds: data.value?.shelves.fresh ?? [] },
+]);
+const loading = computed(() => status.value === "pending" && !data.value);
 const tries = [{ icon: "cold", color: "var(--cold)", text: "холод чары" }, { icon: "skull", text: "миньоны" },
   { icon: "c-monk", text: "удар посох" }, { icon: "lock", text: "SSF" }];
 useHead({ title: "poe2lab — билды Path of Exile 2" });
@@ -48,27 +49,30 @@ useHead({ title: "poe2lab — билды Path of Exile 2" });
     <div class="ctiles">
       <NuxtLink v-for="c in CLASSES" :key="c.key" :class="['ctile', `k-${c.key}`]" :to="{ path: '/catalog', query: { cls: c.key } }">
         <span class="cls"><Ic :name="`c-${c.key}`" /></span><b>{{ c.name }}</b><small>{{ c.ascs.join(" · ") }}</small>
-        <span class="n"><b>{{ count(c.key) }}</b> {{ plural(count(c.key), "билд", "билда", "билдов") }}</span>
+        <span class="n"><template v-if="data"><b>{{ count(c.key) }}</b> {{ plural(count(c.key), "билд", "билда", "билдов") }}</template><span v-else class="skel" style="width: 56px" /></span>
       </NuxtLink>
     </div>
 
     <template v-for="s in shelves" :key="s.title">
+      <template v-if="loading || s.builds.length">
       <div class="shead"><div><h2><Ic :name="s.icon" />{{ s.title }}</h2><p>{{ s.sub }}</p></div>
         <NuxtLink class="go" :to="{ path: '/catalog', query: s.query }">Все<Ic name="arrow-r" /></NuxtLink></div>
-      <div class="shelf"><BuildTile v-for="b in s.builds" :key="b.id" :b="b" /></div>
+      <div v-if="loading" class="shelf"><BuildSkel v-for="i in 4" :key="i" /></div>
+      <div v-else class="shelf"><BuildTile v-for="b in s.builds" :key="b.id" :b="b" /></div>
+      </template>
     </template>
 
-    <div class="shead"><div><h2><Ic name="crown" />Лучшие авторы</h2><p>По средней оценке билдов</p></div>
-      <NuxtLink class="go" to="/a/MapMama">Все<Ic name="arrow-r" /></NuxtLink></div>
+    <template v-if="data?.authors.length">
+    <div id="authors" class="shead"><div><h2><Ic name="crown" />Лучшие авторы</h2><p>По средней оценке билдов</p></div></div>
     <div class="agrid">
-      <NuxtLink v-for="a in AUTHORS" :key="a.nick" class="acard" :to="`/a/${a.nick}`">
-        <Ava :nick="a.nick" :hue="a.hue" size="l" /><b>{{ a.nick }}</b>
+      <NuxtLink v-for="a in data.authors" :key="a.nick" class="acard" :to="`/a/${a.nick}`">
+        <Ava :nick="a.nick" :hue="a.hue" :src="a.avatar ?? undefined" size="l" /><b>{{ a.nick }}</b>
         <span class="clss"><span v-for="k in a.classes" :key="k" :class="['cls', `k-${k}`]"><Ic :name="`c-${k}`" /></span></span>
         <span class="meta"><span><Ic name="star" />{{ fmtRating(a.rating) }}</span><span>{{ a.builds }} {{ plural(a.builds, "билд", "билда", "билдов") }}</span></span>
-        <span v-if="'following' in a && a.following" class="btn btn-sm follow is-on"><Ic name="check" />Вы подписаны</span>
-        <span v-else class="btn btn-sm btn-ghost">Подписаться</span>
+        <span class="btn btn-sm btn-ghost">Билды автора</span>
       </NuxtLink>
     </div>
+    </template>
 
     <section id="app" class="card ornate appban">
       <div>

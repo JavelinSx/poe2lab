@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // A thing's card as the game shows it: its name and kind, tags, numbers, mods, runes, a quote; and where the text
 // comes from when it is the game's own data.
-import type { Card } from "~~/mock/page";
+import type { Card } from "~~/shared/package";
 const props = defineProps<{ card: Card }>();
 const head = computed(() => (props.card.kind === "support" ? "skill" : props.card.kind));
 </script>

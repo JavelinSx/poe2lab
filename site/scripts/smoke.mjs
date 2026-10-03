@@ -32,7 +32,7 @@ check("catalog: odd words are only words", odd.status === 200 && odd.data.total 
 const home = await anon.call("GET", "/api/home");
 check("home: classes, shelves, authors", home.status === 200 && home.data.shelves.popular.length === 4 && home.data.authors.length > 0);
 
-const one = (await anon.call("GET", "/api/builds?q=" + encodeURIComponent("Колокол бури"))).data.builds[0];
+const one = (await anon.call("GET", "/api/builds?author=Inverno&patch=all")).data.builds[0];  // the seed's "Ледяной удар" (its title the run changes)
 const page = await anon.call("GET", `/api/builds/${one.id}`);
 check("a build's page: package, reviews, author", page.status === 200 && page.data.page.gear.length > 5 && page.data.reviews.n > 0 && page.data.author.nick === "Inverno");
 const missing = await anon.call("GET", "/api/builds/nope1234");
@@ -105,6 +105,69 @@ check("a bad package and a wrong token are refused", bad.status === 400 && noTok
 await authorC.call("POST", `/api/builds/${pub.data.id}/state`, { state: "removed" });
 const gone = await anon.call("GET", `/api/builds/${pub.data.id}`);
 check("deleted for good", gone.status === 404);
+
+// favourites, follows and what follows from them
+const favNoLogin = await anon.call("GET", "/api/builds?fav=1");
+await reader.call("POST", `/api/favorites/${one.id}`);
+await reader.call("POST", `/api/favorites/${one.id}`);
+const favs = await reader.call("GET", "/api/builds?fav=1");
+const marked = await reader.call("GET", `/api/builds/${one.id}`);
+await reader.call("DELETE", `/api/favorites/${one.id}`);
+const unfav = await reader.call("GET", "/api/builds?fav=1");
+check("favourites: need signing in, kept once, taken off", favNoLogin.status === 401 && favs.data.total === 1 && marked.data.favorite === true && unfav.data.total === 0);
+const selfFollow = await authorC.call("POST", "/api/follows/Inverno");
+await reader.call("POST", "/api/follows/Inverno");
+const followed = await reader.call("GET", `/api/builds/${one.id}`);
+const pub3 = await app.call("POST", "/api/builds", { ...body, key: "smoke-2", title: "Проверка подписки" }, { authorization: `Bearer ${tok.data.token}` });
+const news = await reader.call("GET", "/api/notifications");
+check("following: not oneself; a new build reaches the followers", selfFollow.status === 400 && followed.data.author.following === true
+  && news.data.some((n) => n.kind === "follow" && n.build?.id === pub3.data.id && n.actor === "Inverno"));
+await authorC.call("POST", `/api/builds/${pub3.data.id}/state`, { state: "removed" });
+await reader.call("DELETE", "/api/follows/Inverno");
+const pob = await anon.call("GET", `/api/builds/${one.id}/pob`);
+check("the PoB code on asking", pob.status === 200 && typeof pob.data.pob === "string" && pob.data.pob.length > 0);
+
+// notifications: the author sees a new review and reads them all; the kinds they do not want are not counted
+const fresh = new Client();
+await fresh.call("POST", "/api/dev/login", { nick: "SmokeNotice" });
+await fresh.call("PUT", `/api/builds/${one.id}/review`, { stars: 4, text: "Свежий отзыв" });
+const authorNews = await authorC.call("GET", "/api/notifications");
+const unreadBefore = (await authorC.call("GET", "/api/me")).data.unread;
+await authorC.call("PATCH", "/api/me", { notify: { reviews: false, replies: true, follows: false } });
+const unreadOff = (await authorC.call("GET", "/api/me")).data.unread;
+await authorC.call("PATCH", "/api/me", { notify: { reviews: true, replies: true, follows: true } });
+await authorC.call("POST", "/api/notifications/read");
+await fresh.call("DELETE", "/api/me");
+const unreadAfter = (await authorC.call("GET", "/api/me")).data.unread;
+check("notifications: shown, filtered by the settings, read", authorNews.data.some((n) => n.kind === "review" && n.actor === "SmokeNotice" && n.fresh)
+  && unreadBefore > 0 && unreadOff < unreadBefore && unreadAfter === 0);
+
+// settings: a nick taken, links only of their sites, the app taken off
+const taken = await reader.call("PATCH", "/api/me", { nick: "inverno" });
+const badLink = await reader.call("PATCH", "/api/me", { links: [{ kind: "youtube", url: "javascript:alert(1)" }] });
+const okLink = await reader.call("PATCH", "/api/me", { bio: "Проверка", links: [{ kind: "twitch", url: "twitch.tv/smoke" }] });
+const st = await reader.call("GET", "/api/me/settings");
+const nickFree = await anon.call("GET", "/api/nick?n=" + encodeURIComponent("Свободный_ник"));
+const nickTaken = await anon.call("GET", "/api/nick?n=MapMama");
+check("settings: nick taken, a bad link refused, a good one kept", taken.status === 409 && badLink.status === 400 && okLink.status === 200
+  && st.data.links[0]?.url === "https://twitch.tv/smoke" && nickFree.data.free === true && nickTaken.data.free === false);
+const apps = (await authorC.call("GET", "/api/me/settings")).data.apps;
+const smokeApp = apps.find((x) => x.name === "poe2lab на SMOKE-PC");
+await authorC.call("DELETE", `/api/me/apps/${smokeApp.id}`);
+const revoked = await app.call("POST", "/api/builds", body, { authorization: `Bearer ${tok.data.token}` });
+check("an app taken off cannot publish", revoked.status === 401);
+
+// an account deleted: its review leaves the rating, its session ends
+const temp = new Client();
+await temp.call("POST", "/api/dev/login", { nick: "SmokeTemp" });
+const ratingBefore = (await anon.call("GET", `/api/builds/${one.id}`)).data.card;
+await temp.call("PUT", `/api/builds/${one.id}/review`, { stars: 1, text: "Удалюсь" });
+await temp.call("DELETE", "/api/me");
+const ratingAfter = (await anon.call("GET", `/api/builds/${one.id}`)).data.card;
+const tempMe = await temp.call("GET", "/api/me");
+check("an account deleted: its review leaves the rating", ratingAfter.reviews === ratingBefore.reviews && Math.abs(ratingAfter.rating - ratingBefore.rating) < 1e-9 && !tempMe.data);
+await reader.call("POST", "/api/logout");
+check("signed out", !(await reader.call("GET", "/api/me")).data);
 
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

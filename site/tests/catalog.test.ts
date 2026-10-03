@@ -4,7 +4,7 @@ import { readQuery, where } from "~~/server/utils/catalog";
 describe("the catalog's query", () => {
   it("keeps only known values from the address", () => {
     const q = readQuery({ cls: "paladin", dmg: ["cold", "void"], tag: ["SSF", "имба"], weapon: "лук", sort: "evil", limit: "999" });
-    expect(q).toMatchObject({ cls: undefined, dmg: ["cold"], tag: ["SSF"], weapon: ["лук"], sort: "rating", limit: 48, patch: "current" });
+    expect(q).toMatchObject({ cls: undefined, dmg: ["cold"], tag: ["SSF"], weapon: ["лук"], sort: "rating", limit: 240, patch: "current", fav: false });
   });
   it("turns known words into filters and the rest into a search, all as parameters", () => {
     const w = where(readQuery({ q: "холод посох каскад", cls: "monk" }));
@@ -18,6 +18,11 @@ describe("the catalog's query", () => {
     const w = where(readQuery({ q: "100%_x'" }));
     expect(w.sql).not.toContain("100");
     expect(w.args).toContain("%100\\%\\_x'%");
+  });
+  it("keeps to the favourites of the one asking", () => {
+    const w = where({ ...readQuery({ fav: "1" }), favOf: "u1" });
+    expect(w.sql).toContain("FROM favorites f WHERE f.build_id = b.id AND f.user_id = ?");
+    expect(w.args).toContain("u1");
   });
   it("leaves the ascendancies out for their own counts", () => {
     const c = readQuery({ cls: "monk", asc: ["Заклинатель"] });

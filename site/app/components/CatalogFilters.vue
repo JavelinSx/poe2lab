@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // The catalog's filters: in the side panel on a computer, in the bottom sheet on a phone. A choice applies at once.
-import { CLASSES, CURRENT_PATCH, DMG, TAGS, WEAPONS } from "~~/mock/builds";
-const { state, set, toggle, countWith } = useCatalog();
+// `counts`: how many builds each ascendancy of the chosen class gives with the other filters as they are.
+import { CLASSES, CURRENT_PATCH, DMG, TAGS, WEAPONS } from "~~/shared/catalog";
+defineProps<{ counts: Record<string, number> }>();
+const { state, set, toggle } = useCatalog();
 const skill = ref(state.value.text);
 const cls = computed(() => CLASSES.find((c) => c.key === state.value.cls));
 const pickClass = (k: string) => set({ cls: state.value.cls === k ? undefined : k, asc: undefined });
@@ -18,7 +20,7 @@ watch(skill, (v) => { clearTimeout(timer); timer = setTimeout(() => set({ q: v.t
     </div>
     <div v-if="cls" class="asclist">
       <label v-for="a in cls.ascs" :key="a" :class="['ascr', { 'is-on': state.asc.includes(a) }]" @click.prevent="toggle('asc', a)">
-        <span class="cbox"><Ic v-if="state.asc.includes(a)" name="check" /></span>{{ a }}<span class="n">{{ countWith({ asc: [a] }) }}</span></label>
+        <span class="cbox"><Ic v-if="state.asc.includes(a)" name="check" /></span>{{ a }}<span class="n">{{ counts[a] ?? 0 }}</span></label>
     </div>
   </div>
   <div class="fgrp">

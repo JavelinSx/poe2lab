@@ -11,7 +11,8 @@
     "postinstall": "nuxt prepare",
     "test": "vitest run",
     "smoke": "node scripts/smoke.mjs",
-    "db:migrate": "wrangler d1 migrations apply poe2lab --local"
+    "db:migrate": "wrangler d1 migrations apply poe2lab --local",
+    "typecheck": "nuxi typecheck"
   },
   "dependencies": {
     "nuxt": "^4.5.2",
@@ -20,7 +21,9 @@
   },
   "devDependencies": {
     "nitro-cloudflare-dev": "^0.2.2",
+    "typescript": "^5.9.3",
     "vitest": "^5.0.3",
+    "vue-tsc": "^3.3.12",
     "wrangler": "^4.147.0"
   }
 }

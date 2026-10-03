@@ -1,11 +1,16 @@
 <script setup lang="ts">
 // The catalog: filters on the left (a sheet on a phone), the search words as plates, the builds found as cards or
-// lines, "show more"; everything in the address.
-import { DMG } from "~~/mock/builds";
+// lines, "show more"; everything in the address. The builds come from the API; while the first answer is on its way,
+// the cards' skeletons; a later change keeps the cards shown (dimmed) until the new ones come.
+import { DMG } from "~~/shared/catalog";
 
-const { state, set, found, applied, words, knownWord } = useCatalog();
-const shown = computed(() => found.value.slice(0, state.value.n));
-const left = computed(() => Math.max(0, found.value.length - shown.value.length));
+const { state, set, applied, words, knownWord } = useCatalog();
+const { data, status, error, refresh } = useCatalogResults();
+const shown = computed(() => data.value.builds);
+const total = computed(() => data.value.total);
+const left = computed(() => Math.max(0, total.value - shown.value.length));
+const first = computed(() => status.value === "pending" && !shown.value.length);
+const me = useMe();
 
 // the search field: the known words as plates, the rest typed; Backspace in an empty field takes the last plate off
 const plates = computed(() => words.value.map((w) => ({ w, k: knownWord(w) })).filter((x) => x.k));
@@ -37,14 +42,14 @@ const plateIcon = (k: ReturnType<typeof knownWord>) => (k?.kind === "dmg" ? DMG.
 // the phone's sheet: its changes add up and apply on "show N builds" (here they apply at once; the button closes it)
 const sheet = ref(false);
 const sorts = SORTS;
-useHead({ title: "Каталог билдов — poe2lab" });
+useHead(() => ({ title: state.value.fav ? "Избранное — poe2lab" : "Каталог билдов — poe2lab" }));
 </script>
 
 <template>
   <div class="wrap">
-    <nav class="crumbs" aria-label="Путь"><NuxtLink to="/">Главная</NuxtLink><Ic name="chev-r" /><span>Каталог билдов</span></nav>
+    <nav class="crumbs" aria-label="Путь"><NuxtLink to="/">Главная</NuxtLink><Ic name="chev-r" /><span>{{ state.fav ? "Избранное" : "Каталог билдов" }}</span></nav>
     <div class="cat">
-      <aside class="fpanel" aria-label="Фильтры"><CatalogFilters /></aside>
+      <aside class="fpanel" aria-label="Фильтры"><CatalogFilters :counts="data.ascendancies" /></aside>
 
       <section aria-label="Найденные билды">
         <div class="cat-top">
@@ -54,7 +59,7 @@ useHead({ title: "Каталог билдов — poe2lab" });
               @input="onInput" @keydown="onBack" @keydown.enter="commit(draft)" />
             <button v-if="words.length" class="btn btn-sm btn-quiet" type="button" aria-label="Очистить поиск" @click="clear"><Ic name="x" /></button></label>
           <div class="cat-bar">
-            <span class="found">Найдено <b>{{ found.length }}</b> {{ plural(found.length, "билд", "билда", "билдов") }}</span>
+            <span class="found">Найдено <b>{{ total }}</b> {{ plural(total, "билд", "билда", "билдов") }}</span>
             <button class="btn btn-sm btn-ghost only-phone" type="button" @click="sheet = true"><Ic name="sliders" />Фильтры
               <span v-if="applied.length" class="pill-n gold" style="height: 18px; min-width: 18px; font-size: 11px">{{ applied.length }}</span></button>
             <span v-for="a in applied" :key="a.label" class="chip applied no-phone">
@@ -72,21 +77,30 @@ useHead({ title: "Каталог билдов — poe2lab" });
           </div>
         </div>
 
-        <StatePanel v-if="!found.length" icon="search" title="Ничего не нашли"
+        <StatePanel v-if="state.fav && !me" icon="star-o" title="Избранное — после входа" text="Отмечай билды звёздочкой, и они соберутся здесь.">
+          <NuxtLink class="btn btn-primary" :to="{ path: '/login', query: { next: '/catalog?fav=1' } }"><Ic name="login" />Войти</NuxtLink>
+        </StatePanel>
+        <LoadError v-else-if="error && !shown.length" :error="error" @retry="refresh()" />
+        <div v-else-if="first" class="bgrid"><BuildSkel v-for="i in 6" :key="i" /></div>
+        <StatePanel v-else-if="state.fav && !total && !applied.slice(1).length && !state.text" icon="star-o" title="В избранном пусто"
+          text="Открой билд и нажми «В избранное» — он появится здесь.">
+          <NuxtLink class="btn btn-primary" to="/catalog"><Ic name="grid4" />В каталог</NuxtLink>
+        </StatePanel>
+        <StatePanel v-else-if="!total" icon="search" title="Ничего не нашли"
           :text="state.text ? `По запросу «${state.text}» с этими фильтрами билдов нет. Убери один фильтр:` : 'С этими фильтрами билдов нет. Убери один фильтр:'">
           <div v-if="applied.length" class="chips" style="justify-content: center">
             <span v-for="a in applied" :key="a.label" class="chip applied">{{ a.label }}<button class="x" type="button" aria-label="Убрать" @click="a.drop()"><Ic name="x" /></button></span>
           </div>
-          <button class="btn btn-quiet" type="button" @click="clear(); set({ cls: undefined, asc: undefined, dmg: undefined, weapon: undefined, tag: undefined, patch: undefined })">Сбросить всё</button>
+          <button class="btn btn-quiet" type="button" @click="clear(); set({ cls: undefined, asc: undefined, dmg: undefined, weapon: undefined, tag: undefined, patch: undefined, fav: undefined })">Сбросить всё</button>
         </StatePanel>
-        <template v-else>
+        <div v-else :style="status === 'pending' ? { opacity: 0.55, transition: 'opacity .2s' } : undefined">
           <div v-if="state.view === 'grid'" class="bgrid no-phone"><BuildTile v-for="b in shown" :key="b.id" :b="b" /></div>
           <div :class="['blist', state.view === 'grid' ? 'only-phone' : '']"><BuildRow v-for="b in shown" :key="b.id" :b="b" /></div>
           <div v-if="left" class="more">
             <button class="btn btn-ghost btn-lg" type="button" @click="set({ n: state.n + PAGE })">Показать ещё<span class="faint">· {{ left }}</span></button>
-            <small>Показано {{ shown.length }} из {{ found.length }}</small>
+            <small>Показано {{ shown.length }} из {{ total }}</small>
           </div>
-        </template>
+        </div>
       </section>
     </div>
 
@@ -96,9 +110,9 @@ useHead({ title: "Каталог билдов — poe2lab" });
         <div class="sheet-grab" />
         <div class="sheet-h"><b>Фильтры</b><span v-if="applied.length" class="badge gold">{{ applied.length }}</span><span class="spacer" />
           <button class="icon-btn" type="button" aria-label="Закрыть" @click="sheet = false"><Ic name="x" /></button></div>
-        <div class="sheet-b"><CatalogFilters /></div>
+        <div class="sheet-b"><CatalogFilters :counts="data.ascendancies" /></div>
         <div class="sheet-f"><button class="btn btn-quiet" type="button" @click="set({ cls: undefined, asc: undefined, dmg: undefined, weapon: undefined, tag: undefined })">Сбросить</button>
-          <button class="btn btn-primary" type="button" @click="sheet = false">Показать {{ found.length }} {{ plural(found.length, "билд", "билда", "билдов") }}</button></div>
+          <button class="btn btn-primary" type="button" @click="sheet = false">Показать {{ total }} {{ plural(total, "билд", "билда", "билдов") }}</button></div>
       </div>
     </template>
   </div>

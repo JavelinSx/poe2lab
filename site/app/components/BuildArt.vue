@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The main skill's picture; until it is there, its frame with the damage type's glyph.
-import type { BuildCard } from "~~/mock/builds";
+import type { BuildCard } from "~~/shared/api";
 defineProps<{ b: Pick<BuildCard, "icon" | "dmg">; cls?: string }>();
 </script>
 

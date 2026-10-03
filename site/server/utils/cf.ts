@@ -19,7 +19,7 @@ export interface R2Bucket {
 export interface Env { DB: D1Database; PACKAGES: R2Bucket }
 
 export function cf(event: H3Event): Env {
-  const env = (event.context as { cloudflare?: { env?: Env } }).cloudflare?.env;
+  const env = (event.context as unknown as { cloudflare?: { env?: Env } }).cloudflare?.env;
   if (!env?.DB || !env?.PACKAGES) throw createError({ statusCode: 503, statusMessage: "База сайта недоступна" });
   return env;
 }

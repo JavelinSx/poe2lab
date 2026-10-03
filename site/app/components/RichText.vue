@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The author's text: paragraphs, and the pieces of the game written into it as tokens ([[skill:ice-strike]]) shown
 // with their pictures and cards. Everything else is plain text (the page never takes the author's HTML).
-import type { Card } from "~~/mock/page";
+import type { Card } from "~~/shared/package";
 const props = defineProps<{ text: string; cards: Record<string, Card>; inline?: boolean }>();
 const TOKEN = /\[\[([a-z]+:[^[\]\n]{1,200})\]\]/g;
 const paragraphs = computed(() => props.text.split(/\n+/).map((p) => {
@@ -9,8 +9,8 @@ const paragraphs = computed(() => props.text.split(/\n+/).map((p) => {
   let last = 0;
   for (const m of p.matchAll(TOKEN)) {
     if (m.index! > last) parts.push({ text: p.slice(last, m.index) });
-    const card = props.cards[m[1]];
-    parts.push(card ? { card, key: m[1] } : { text: m[1].split(":")[1] });
+    const key = m[1]!, card = props.cards[key];
+    parts.push(card ? { card, key } : { text: key.split(":")[1] ?? key });
     last = m.index! + m[0].length;
   }
   if (last < p.length) parts.push({ text: p.slice(last) });

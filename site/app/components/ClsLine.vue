@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // "◎ Монах · Заклинатель": the class's sign, its name, the ascendancy.
-import { className, type ClassKey } from "~~/mock/builds";
+import { className, type ClassKey } from "~~/shared/catalog";
 defineProps<{ cls: ClassKey; asc: string }>();
 </script>
 

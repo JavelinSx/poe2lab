@@ -52,3 +52,8 @@ export function knownWord(w: string): { kind: "tag" | "dmg" | "weapon" | "cls"; 
 // what a build is found by: its title, skill, class, ascendancy, weapon, tags and its skill's tags, lower-case
 export const searchText = (b: { title: string; mainSkill: string; cls: string; asc: string; weapon: string; tags: string[]; skillTags?: string[] }) =>
   norm([b.title, b.mainSkill, className(b.cls), b.asc, b.weapon, ...b.tags, ...(b.skillTags ?? [])].join(" "));
+
+// a nick: 3-24 letters, digits, _ and -; a few are kept for the site itself
+export const NICK = /^[A-Za-zА-Яа-яЁё0-9_-]{3,24}$/;
+const RESERVED = ["admin", "administrator", "moderator", "mod", "poe2lab", "support", "ggg", "system"];
+export const nickOk = (n: string) => NICK.test(n) && !RESERVED.includes(n.toLowerCase());

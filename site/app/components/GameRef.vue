@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // A piece of the game in a text: its picture and name; its card on hover or focus (Tab reaches it).
-import type { Card } from "~~/mock/page";
+import type { Card } from "~~/shared/package";
 defineProps<{ card: Card; pop?: "below" | "left" | "right" | "" }>();
 </script>
 

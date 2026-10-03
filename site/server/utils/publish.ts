@@ -25,6 +25,9 @@ export async function publish(e: H3Event, userId: string, pkg: BuildPackage, raw
       package_key, dps, life, es, description, search, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id, userId, pkg.key, pkg.title, pkg.cls, pkg.asc, pkg.mainSkill, pkg.skillIcon ?? null, pkg.dmg, pkg.weapon, JSON.stringify(pkg.tags),
     pkg.cover ?? null, pkg.tint ?? null, pkg.patch, version, key, pkg.numbers.dps, pkg.numbers.life, pkg.numbers.es, pkg.description, search, t, t);
+    // a new build: the author's followers are told (each sees it if they want, notifications/index.get.ts)
+    await run(e, `INSERT INTO notifications (id, user_id, kind, actor_id, build_id, created_at)
+      SELECT lower(hex(randomblob(6))), user_id, 'follow', ?, ?, ? FROM follows WHERE author_id = ?`, userId, id, t, userId);
   }
   return { id, version, url: `/b/${id}`, updated: Boolean(old) };
 }

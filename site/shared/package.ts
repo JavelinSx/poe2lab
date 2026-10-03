@@ -83,7 +83,7 @@ export function checkPackage(p: unknown, raw?: string): string[] {
   if (!isStr(b.description, 20_000)) errs.push("описание — строка");
   else if (cards && typeof cards === "object") {
     if (visibleLength(b.description!, cards) > LIMITS.description) errs.push(`описание длиннее ${LIMITS.description} знаков`);
-    const missing = [...b.description!.matchAll(TOKEN)].map((m) => m[1]).filter((k) => !(k in cards));
+    const missing = [...b.description!.matchAll(TOKEN)].map((m) => m[1]!).filter((k) => !(k in cards));
     if (missing.length) errs.push(`в описании иконка без карточки: ${missing[0]}`);
   }
   if (!b.main || !isStr(b.main.name, 80) || !Array.isArray(b.main.supports) || b.main.supports.length > LIMITS.supports) errs.push("главная связка неверная");
