@@ -27,9 +27,6 @@ const reviews = computed(() => {
   if (rsort.value === "low") list.sort((a, c) => a.stars - c.stars);
   return list;
 });
-const votes = reactive<Record<string, boolean>>({});
-const voted = (nick: string, base?: boolean) => votes[nick] ?? !!base;
-const helpful = (r: { nick: string; helpful: number; voted?: boolean }) => r.helpful + (voted(r.nick, r.voted) ? 1 : 0) - (r.voted ? 1 : 0);
 const stars = ref(4);
 const crit = reactive<Record<string, number>>({ "Урон": 5, "Живучесть": 3, "Бюджет": 0, "Лёгкость игры": 0 });
 const text = ref("");
@@ -212,21 +209,7 @@ function openInApp() {
 
       <div class="rv-grid" style="margin-top: 14px">
         <div class="rv-list">
-          <article v-for="r in reviews" :key="r.nick" class="rv">
-            <Ava :nick="r.nick" :hue="r.hue" />
-            <div style="min-width: 0">
-              <div class="rv-h"><b>{{ r.nick }}</b><span class="rv-char"><span :class="['cls', `k-${r.cls}`]"><Ic :name="`c-${r.cls}`" /></span>{{ r.clsName }} · {{ r.level }} ур.</span><Stars :r="r.stars" /><span class="rv-date">{{ r.when }}</span></div>
-              <div v-if="r.crit" class="rv-crit"><span v-for="[k, v] in r.crit" :key="k">{{ k }} <b>{{ v }}</b></span></div>
-              <p class="rv-t">{{ r.text }}</p>
-              <div class="rv-f">
-                <button :class="['btn', 'btn-quiet', { 'is-on': voted(r.nick, r.voted) }]" type="button" @click="votes[r.nick] = !voted(r.nick, r.voted)"><Ic name="thumb" />Полезно · {{ helpful(r) }}</button>
-                <button class="btn btn-quiet" type="button" aria-label="Пожаловаться на отзыв"><Ic name="flag" /></button></div>
-              <div v-if="r.reply" class="rv-reply">
-                <div class="rv-h"><Ava :nick="b.author" :hue="b.hue" size="xs" /><b>{{ b.author }}</b><span class="badge gold">автор</span><span class="rv-date">{{ r.reply.when }}</span></div>
-                <p class="rv-t">{{ r.reply.text }}</p>
-              </div>
-            </div>
-          </article>
+          <ReviewCard v-for="r in reviews" :key="r.nick" :r="r" :author="{ nick: b.author, hue: b.hue }" />
           <div v-if="p.reviews.n > reviews.length" class="more" style="margin-top: 8px"><button class="btn btn-ghost" type="button">Показать ещё {{ p.reviews.n - reviews.length }} {{ plural(p.reviews.n - reviews.length, "отзыв", "отзыва", "отзывов") }}</button></div>
         </div>
 

@@ -30,3 +30,7 @@ a.chip { text-decoration: none; }
   .br-t { min-width: 0; overflow: hidden; }
   .br-t .clsline { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* ".from-app span" makes every span a block - the button's hint (a span too) would always show: it shows on hover */
+.from-app .hov > .pop { display: none; }
+.from-app .hov:hover > .pop, .from-app .hov:focus-within > .pop { display: block; }
