@@ -1395,6 +1395,25 @@ return _poe2lab_json({{ sockets = item.itemSocketCount, runes = runes, corrupted
   socketLimit = item.base.socketLimit or 0, itemType = item.base.type or "", catalyst = item.catalyst or 0,
   catalystQuality = item.catalystQuality or 0 }})""")
 
+    def rune_catalog(self) -> list[dict]:
+        """Every rune, soul core and other augment PoB knows: its name, the level it asks for, and its lines for
+        each kind of item it goes into (weapon, armour, caster...)."""
+        return self._json("""
+local out = _poe2lab_array({})
+for name, rune in pairs(data.itemMods.Runes or {}) do
+  local targets, level = {}, 0
+  for target, mod in pairs(rune) do
+    if type(mod) == "table" then
+      local lines = _poe2lab_array({})
+      for i, l in ipairs(mod) do lines[i] = l end
+      if #lines > 0 then targets[target] = lines end
+      level = math.max(level, mod.levelReq or 0)
+    end
+  end
+  out[#out + 1] = { name = name, level = level, targets = targets }
+end
+return _poe2lab_json(out)""")
+
     def _local_describer(self, statdesc_dir: Path) -> bool:
         """A second copy of PoB's StatDescriber reading description files from `statdesc_dir` (same layout as
         Data/StatDescriptions, texts in another language). Kept per directory; False if it cannot be built."""

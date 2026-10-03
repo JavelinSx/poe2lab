@@ -449,6 +449,7 @@ async function renderNewBuild() {
   $("#view").replaceChildren(box);
 }
 $("#new-build").addEventListener("click", renderNewBuild);
+$("#author-btn").addEventListener("click", () => authorToggle());
 
 // the constructor's steps above the tabs of a build it made: what is done, what comes next
 const CTOR_STEPS = [["class", null], ["skill", "skills"], ["gear", "gear"], ["tree", "tree"], ["mech", "profile"], ["polish", "overview"], ["save", null]];
@@ -866,6 +867,7 @@ function renderChanges() {
 // forms that replace the build view (add, update, feedback) hide everything tied to the open build
 function hideBuildChrome() {
   for (const id of ["#build-header", "#bh-controls", "#tabs", "#changes", "#build-notice", "#ctor-bar", "#plan-strip"]) $(id).classList.add("hidden");
+  if (AU.edit) authorToggle(false, false);  // no build: nothing to write about
 }
 
 document.addEventListener("click", (e) => {
@@ -1005,6 +1007,8 @@ async function switchTab(tab) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   if (!state.build) return;
   renderCtorBar();
+  await authorLoad();
+  auButton();
   const view = $("#view");
   const token = Symbol();
   switchTab.token = token;
@@ -1273,7 +1277,7 @@ TABS.overview = async (view) => {
   const failed = (r.failed || []).length ? h("div", { class: "action" }, t("ovFailed", r.failed.join(", ")), " ",
     h("button", { class: "ghost small", onclick: () => reportError({ message: t("ovFailed", r.failed.join(", ")) }) }, "📨 ", t("errReport"))) : null;
   // what to do next beside the numbers; the way to the build under them, across the page
-  return h("div", { class: "stack" }, failed,
+  return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")),
     h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
       foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
     levelingCard());
@@ -1465,6 +1469,10 @@ TABS.gear = async (view) => {
   for (const s of [...g.sockets.filter((x) => x.best.length), ...g.craftPath]) {
     badges[s.slot] = { cls: "better", sym: "▲", title: t("gearBadge") };
   }
+  for (const id of Object.keys(AU.blocks)) {  // the author wrote about the slot
+    const slot = id.startsWith("gear:") && id.slice(5);
+    if (slot && !badges[slot]) badges[slot] = { cls: "author", sym: "✎", title: t("auHasNote") };
+  }
   const dollBox = h("div", { class: "stack" }), side = h("div", { class: "stack" });
   const pick = (slot) => { gs.slot = slot; draw(); };
   const draw = () => {
@@ -1491,14 +1499,15 @@ TABS.gear = async (view) => {
     const slot = gs.slot, my = ++seq;
     const p = g.slots.find((x) => x.slot === slot);
     if (!slot) return;
+    const note = auCard("gear:" + slot, t("auGearTitle", slotName(slot)), t("auGearPh"));
     if (!items[slot]) {
-      side.replaceChildren(h("div", { class: "card stack" }, h("div", { class: "muted small" }, slotName(slot)), h("p", { class: "muted" }, t("slotEmpty")),
+      side.replaceChildren(...[note].filter(Boolean), h("div", { class: "card stack" }, h("div", { class: "muted small" }, slotName(slot)), h("p", { class: "muted" }, t("slotEmpty")),
         h("button", { class: "primary mk-btn", onclick: () => itemEditor(slot) }, h("span", { class: "mk-ico" }, "✎"),
           h("span", {}, h("b", {}, t("mkBig")), h("span", { class: "mk-sub" }, t("mkBigSub", slotName(slot)))))));
       return;
     }
     const edit = h("div", { class: "card" }, loading(t("counting")));
-    side.replaceChildren(...[edit, p ? slotCard(p) : null, adviceCard(slot)].filter(Boolean));
+    side.replaceChildren(...[note, edit, p ? slotCard(p) : null, adviceCard(slot)].filter(Boolean));
     try {
       const info = await api(`/api/gear/item?slot=${encodeURIComponent(slot)}&${buildQuery()}`);
       if (my === seq) gearEdit(edit, info, g);
@@ -2708,8 +2717,12 @@ TABS.tree = async (view) => {
 
   const best = r.growth[0];
   const filled = jw.error ? 0 : jw.sockets.filter((s) => s.item).length;
+  const lvTree = auBlock("tree:leveling").list;
   return h("div", { class: "stack" },
     mapBox, stale,
+    auCard("tree:about", t("auTreeTitle"), t("auTreePh")),
+    AU.edit || lvTree ? h("div", { class: "card au-card" }, h("h3", {}, I("pencil", "c-gold"), " ", t("auTreeLv")),
+      h("div", { class: "sub" }, t("auTreeLvSub")), h("div", { class: "lr-sec-v au-tree-lv" }, ...auList("tree:leveling", [], [], ["passive"]))) : null,
     planCard(r.plan, r.points),
     asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error))
       : foldedCard(ascendancyCard(asc, graph), "ascendancy", asc.ascendancy ? t("tvAscPoints", asc.points, asc.maxPoints) : null),
@@ -3312,7 +3325,8 @@ function drawLeveling(card, d) {
     blind.length ? h("div", { class: "small muted" }, t("lrBlind", blind.map((p) => trItem(p.name.split(",")[0])).join(", "))) : null);
   const until = r.way.skills.filter((s) => !sw.level || s.level < sw.level || r.way.id === "build");
   const before = h("div", { class: "lr-before" }, h("span", { class: "section-title" }, t("lrUntil")),
-    h("span", { class: "lr-way" }, lrWayIcon(r.way), " ", lrWayTitle(r.way)), ...until.slice(0, 6).map(lrSkill));
+    h("span", { class: "lr-way" }, lrWayIcon(r.way), " ", lrWayTitle(r.way)),
+    ...auList("lv:before", until.slice(0, 6).map((x) => "gem:" + x.name), until.slice(0, 6).map(lrSkill), ["gem"]));
   // a section of a stage: a small label over its items
   const sec = (key, items, cls = "") => (items.length ? h("div", { class: "lr-sec " + cls },
     h("div", { class: "lr-sec-k" }, t("lrSec_" + key)), h("div", { class: "lr-sec-v" }, ...items)) : null);
@@ -3320,7 +3334,9 @@ function drawLeveling(card, d) {
   const line = (icon, text) => h("div", { class: "lr-line", title: text }, h("span", { class: "lr-line-ico" }, icon), h("span", { class: "lr-line-t" }, text));
   const stage = (s) => {
     const to = s.switch ? sw.parts.filter((p) => p.core && !["unique", "spirit", "snapshot"].includes(p.kind)) : [];
-    const tree = s.tree.length ? [hoverTip(h("div", { class: "lr-line pk-node" }, h("span", { class: "lr-line-ico" }, "🌳"),
+    const lv = (part) => `lv:${s.key}:${part}`;
+    const ownTree = !!auBlock(lv("tree")).list;
+    const tree = s.tree.length && !ownTree && !AU.edit ? [hoverTip(h("div", { class: "lr-line pk-node" }, h("span", { class: "lr-line-ico" }, "🌳"),
       h("span", { class: "lr-line-t" }, t("lrTree", s.tree.length, trName(s.tree[0].name)))),
     () => h("div", { class: "stack" }, h("b", {}, t("lrTreeTip")), h("ol", { class: "small" }, s.tree.map((n) => h("li", {}, trName(n.name), h("span", { class: "muted" }, ` · ~${n.points}`))))))] : [];
     return h("div", { class: "lr-stage" + (s.switch ? " switch" : "") + (s.here ? " here" : ""), "data-stage": s.key },
@@ -3330,12 +3346,15 @@ function drawLeveling(card, d) {
       s.here || s.switch ? h("div", { class: "lr-badges" }, s.here ? h("span", { class: "chip ok" }, t("lrHere")) : null,
         s.switch ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null) : null,
       sec("switch", to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name))), "lr-sec-to"),
-      sec("skills", s.skills.map(lrSkill)),
-      sec("gems", s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name)))),
+      sec("skills", auList(lv("skills"), s.skills.map((x) => "gem:" + x.name), s.skills.map(lrSkill), ["gem"])),
+      sec("gems", auList(lv("gems"), s.gems.map((g) => "gem:" + g.name), s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name))), ["gem", "support"])),
+      sec("gear", auList(lv("gear"), [], [], ["unique", "base", "rune"])),
+      sec("tree", auList(lv("tree"), s.tree.map((n) => `passive:${n.id}|${n.name}`), [], ["passive"])),
       s.supportTier.length ? h("div", { class: "lr-line muted" }, h("span", { class: "lr-line-ico" }, "🔹"), h("span", { class: "lr-line-t" }, t("lrSupportTier", s.supportTier.join(", ")))) : null,
       sec("growth", [...tree, ...s.ascendancy.map((x) => line("👑", t("lrAsc", x.trial, trName(x.name)))),
         ...s.uniques.map((u) => line(u.defence ? "🛡" : "💰", trItem(u.name.split(",")[0])))]),
       h("div", { class: "lr-rewards" }),
+      auNote(lv("note"), t("auStagePh")),
       a.novice && t("lrNov_" + s.key) !== "lrNov_" + s.key ? h("div", { class: "hint" }, t("lrNov_" + s.key)) : null,
       a.novice && s.switch ? h("div", { class: "hint" }, t("lrNovSwitch")) : null);
   };
@@ -3344,7 +3363,7 @@ function drawLeveling(card, d) {
     title: lrStageName(s.key) }, h("span", { class: "lr-tick-dot" }, s.switch ? "🚩" : lrStageMark(s.key)),
     h("span", { class: "lr-tick-l" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)))));
   const tips = [t(a.pace === "safe" ? "lrTipSafe" : "lrTipFast"), t(a.trade ? "lrTipTrade" : "lrTipSsf")];
-  card.replaceChildren(...[head, banner, why, before,
+  card.replaceChildren(...[head, banner, auNote("lv:intro", t("auLvIntroPh")), why, before,
     // the track and the stages in one grid, a column each: every mark stands over its stage
     h("div", { class: "lr-timeline", style: `--n:${r.stages.length}` }, track, h("div", { class: "lr-stages" }, r.stages.map(stage))),
     h("ul", { class: "small lr-tips" }, tips.map((x) => h("li", {}, x))),
@@ -4683,6 +4702,7 @@ function renderSkillsBuild(r) {
       metaBlock(g),
       triggerBlock(g),
       supports.length ? h("div", { class: "sk-pills" }, supports.map((x) => supportPill(x, g))) : null,
+      auNote("sk:" + g.actives.map((a) => a.name).join("+"), t("auLinkPh")),
       h("details", { class: "sk-more" }, h("summary", { class: "muted small" }, t("skMore")),
         g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
         g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
@@ -5572,6 +5592,366 @@ function renderLangBanner(force = false) {
     h("div", { class: "row", style: "margin-top:8px;flex-wrap:wrap" }, dir, run),
     h("div", { class: "hint" }, t("ruHint")));
   box.classList.remove("hidden");
+}
+
+// ---------- the build author's constructor (poe2lab/author.py) ----------
+// Every tab shows what poe2lab worked out; the build's author changes it. The "Constructor" button over the tabs
+// opens the blocks for editing and a drawer with one search over everything the game has: a gem, a unique, a base,
+// a rune, a passive or a term is dragged (or clicked, or typed after "@") into a note, where it stands as one piece
+// - [[kind:id]] in the saved text - and shows its picture and its card on hover. A list poe2lab made (a stage's
+// skills) can be replaced by the author's own; "auto" brings poe2lab's back.
+const AU = { build: null, blocks: {}, edit: false, target: null, range: null, kinds: null, timers: {}, details: new Map(),
+  terms: null, status: null };
+const AU_KINDS = ["gem", "support", "unique", "base", "rune", "passive", "term"];
+// what the drawer looks for first on each tab
+const AU_TABS = { overview: null, skills: ["gem", "support"], gear: ["unique", "base", "rune"], tree: ["passive"] };
+const AU_MIME = "application/x-poe2lab-token";
+const AU_TOKEN = /\[\[(gem|support|unique|base|rune|passive|term):([^[\]\n]{1,200})\]\]/g;
+
+// the open build's blocks, read once per build; another build closes the constructor
+async function authorLoad() {
+  if (!state.build || AU.build === state.build.name) return;
+  AU.build = state.build.name;
+  AU.blocks = {};
+  if (AU.edit) authorToggle(false, false);
+  try { AU.blocks = (await api(`/api/author?${buildQuery()}`)).blocks || {}; } catch (_) { /* no notes: poe2lab's picture alone */ }
+  if (Object.keys(AU.blocks).length) loadAllGems();
+}
+const auBlock = (id) => AU.blocks[id] || {};
+
+// a block changed: kept at once in the page, written to the build's profile a moment after the last keystroke
+function auSave(id, patch) {
+  const b = { ...auBlock(id), ...patch };
+  for (const k of Object.keys(b)) if (b[k] === undefined || b[k] === "") delete b[k];
+  AU.blocks[id] = b;
+  clearTimeout(AU.timers[id]);
+  auStatus("saving");
+  AU.timers[id] = setTimeout(async () => {
+    try {
+      const r = await api(`/api/author/block?${buildQuery()}`, { method: "PUT", body: { id, ...AU.blocks[id] } });
+      if (r.block) AU.blocks[id] = r.block; else delete AU.blocks[id];
+      auStatus("saved");
+    } catch (e) { toast(e.message); auStatus("error"); }
+  }, 600);
+}
+function auStatus(s) {
+  AU.status = s;
+  const el = document.querySelector("#au-drawer .au-status");
+  if (el) { el.textContent = t("auStatus_" + s); el.className = "au-status " + s; }
+}
+
+// ---- a token: its name, picture and card ----
+const auSplit = (tok) => { const i = tok.indexOf(":"); return [tok.slice(0, i), tok.slice(i + 1)]; };
+function auName(kind, id) {
+  if (kind === "passive") return trName(id.split("|").slice(1).join("|") || id);
+  if (kind === "term") return termName(id);
+  if (kind === "unique") return trItem(id);
+  return trName(id);
+}
+function auIcon(kind, id) {
+  if (kind === "gem" || kind === "support") return icon(id);
+  if (kind === "passive") return icon(id.split("|").slice(1).join("|"), "ico passive");
+  if (kind === "unique") return itemIcon(id, null, "unique");
+  if (kind === "base") return itemIcon(id, id, "normal");
+  if (kind === "rune") return icon(id) || I("jewel", "tok-ic");
+  return I("book", "tok-ic");
+}
+// what a token's card shows (a gem's card is the Skills tab's; the rest asked from the server once)
+function auTip(kind, id) {
+  if (kind === "gem" || kind === "support") { loadAllGems(); return gemTipCard(id); }
+  const key = `${kind}:${id}`;
+  const box = h("div", { class: "stack" }, h("b", {}, auName(kind, id)));
+  const fill = (d) => {
+    if (!d) return;
+    if (kind === "unique") box.replaceChildren(uniqueTip(id, d.base, d.lines), h("div", { class: "muted small" }, trName(d.base), d.level ? ` · ${t("lrLv", d.level)}` : ""));
+    else if (kind === "base") box.replaceChildren(linesTip(itemIcon(id, id, "normal"), trName(id),
+      (Array.isArray(d.implicit) ? d.implicit : d.implicit ? [d.implicit] : []).map((l) => h("li", {}, trMod(l))), d.level ? t("lrLv", d.level) : null));
+    else if (kind === "rune") box.replaceChildren(h("div", { class: "row", style: "gap:8px;align-items:center" }, auIcon(kind, id), h("b", {}, trName(id))),
+      ...Object.entries(d.targets || {}).map(([k, lines]) => h("div", { class: "small" }, h("span", { class: "muted" }, t("auTarget", k), ": "),
+        lines.map(trMod).join("; "))), d.level ? h("div", { class: "muted small" }, t("lrLv", d.level)) : null);
+    else if (kind === "passive") box.replaceChildren(h("div", { class: "row", style: "gap:8px;align-items:center" }, auIcon(kind, id), h("b", {}, trName(d.name))),
+      h("div", { class: "muted small" }, d.type === "Keystone" ? t("keystone") : d.type === "Notable" ? t("notable") : d.type, d.asc ? ` · ${trName(d.asc)}` : ""), stats(d.stats || []));
+    else if (kind === "term") box.replaceChildren(h("b", {}, LANG !== "en" && d.nameLocal ? d.nameLocal : d.name),
+      h("div", { class: "small" }, termText(LANG !== "en" && d.textLocal ? d.textLocal : d.text)));
+  };
+  if (AU.details.has(key)) fill(AU.details.get(key));
+  else {
+    box.append(h("div", { class: "muted small" }, t("auLoadingTip")));
+    api(`/api/lookup/item?kind=${kind}&id=${encodeURIComponent(id)}&lang=${LANG}&${buildQuery()}`)
+      .then((d) => { AU.details.set(key, d); fill(d); }).catch(() => {});
+  }
+  return box;
+}
+// the glossary's terms by id, for a term's name in a saved text
+function auTerms() {
+  if (!AU.terms) AU.terms = api(`/api/glossary?lang=${LANG}`).then((g) => { for (const [k, v] of Object.entries(g.terms)) if (!TERMS[k]) TERMS[k] = v; })
+    .catch(() => { AU.terms = null; });
+  return AU.terms;
+}
+function auChip(kind, id, inEditor = false) {
+  const name = h("span", { class: "tok-n" }, auName(kind, id));
+  if (kind === "term" && !TERMS[id]) auTerms()?.then(() => { name.textContent = auName(kind, id); });
+  const el = h("span", { class: `tok tok-${kind}`, "data-kind": kind, "data-id": id, contenteditable: inEditor ? "false" : null },
+    auIcon(kind, id), name);
+  return hoverTip(el, () => auTip(kind, id));
+}
+const auTokChip = (tok, inEditor) => auChip(...auSplit(tok), inEditor);
+
+// a text with tokens as the page shows it: words, line breaks, the tokens as pieces
+function auRich(text, inEditor = false) {
+  const out = [];
+  let last = 0;
+  const plain = (s) => s.split("\n").forEach((line, i) => { if (i) out.push(h("br")); if (line) out.push(document.createTextNode(line)); });
+  for (const m of text.matchAll(AU_TOKEN)) {
+    plain(text.slice(last, m.index));
+    out.push(auChip(m[1], m[2], inEditor));
+    last = m.index + m[0].length;
+  }
+  plain(text.slice(last));
+  return out;
+}
+
+// ---- the editor: a text field the tokens go into ----
+function auSerialize(ed) {
+  let out = "";
+  const walk = (node) => {
+    for (const c of node.childNodes) {
+      if (c.nodeType === 3) out += c.nodeValue.replace(/​/g, "").replace(/ /g, " ");
+      else if (c.nodeName === "BR") out += "\n";
+      else if (c.classList && c.classList.contains("tok")) out += `[[${c.dataset.kind}:${c.dataset.id}]]`;
+      else {
+        if (/^(DIV|P)$/.test(c.nodeName) && out && !out.endsWith("\n")) out += "\n";
+        walk(c);
+      }
+    }
+  };
+  walk(ed);
+  return out.replace(/\s+$/, "");
+}
+function auKeepRange(ed) {
+  const sel = getSelection();
+  if (sel.rangeCount && ed.contains(sel.getRangeAt(0).startContainer)) AU.range = sel.getRangeAt(0).cloneRange();
+}
+function auInsert(ed, nodes) {
+  let r = AU.range && ed.contains(AU.range.startContainer) ? AU.range : null;
+  if (!r) { r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); }
+  r.deleteContents();
+  const frag = document.createDocumentFragment();
+  nodes.forEach((n) => frag.append(n));
+  const last = frag.lastChild;
+  r.insertNode(frag);
+  const after = document.createRange();
+  after.setStartAfter(last);
+  after.collapse(true);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(after);
+  AU.range = after.cloneRange();
+  ed.focus();
+}
+// a no-break space after the piece: a plain one beside it would be swallowed by the next typing
+const auInsertToken = (ed, tok) => auInsert(ed, [auTokChip(tok, true), document.createTextNode(" ")]);
+function auEditor(text, onChange, placeholder) {
+  const ed = h("div", { class: "au-ed", contenteditable: "true", role: "textbox", "aria-multiline": "true", "data-ph": placeholder, spellcheck: "true" },
+    ...auRich(text || "", true));
+  const changed = () => { ed.classList.toggle("au-empty", !auSerialize(ed)); onChange(auSerialize(ed)); };
+  ed.classList.toggle("au-empty", !text);
+  const target = { type: "text", el: ed, add: (tok) => { auInsertToken(ed, tok); changed(); } };
+  // the field the drawer's next pick goes into: the one last typed or clicked in
+  const claim = () => { if (AU.target !== target) { AU.target = target; auMarkTarget(ed); auKinds(AU_TABS[state.tab] || null); } };
+  for (const ev of ["focus", "mousedown", "keydown"]) ed.addEventListener(ev, claim);
+  ed.addEventListener("input", () => { claim(); auKeepRange(ed); changed(); });
+  ed.addEventListener("keyup", () => auKeepRange(ed));
+  ed.addEventListener("mouseup", () => auKeepRange(ed));
+  ed.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); document.execCommand("insertLineBreak"); auKeepRange(ed); changed(); }
+    else if (e.key === "@") { e.preventDefault(); auKeepRange(ed); auPopup(ed, (tok) => { auInsertToken(ed, tok); changed(); }); }
+  });
+  ed.addEventListener("paste", (e) => {
+    e.preventDefault();
+    auKeepRange(ed);
+    const s = e.clipboardData.getData("text/plain");
+    if (s) { auInsert(ed, auRich(s, true)); changed(); }
+  });
+  ed.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes(AU_MIME)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } });
+  ed.addEventListener("drop", (e) => {
+    const tok = e.dataTransfer.getData(AU_MIME);
+    if (!tok) return;
+    e.preventDefault();
+    const pos = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY)
+      : document.caretPositionFromPoint ? (() => { const p = document.caretPositionFromPoint(e.clientX, e.clientY); const r = document.createRange(); r.setStart(p.offsetNode, p.offset); return r; })() : null;
+    if (pos && ed.contains(pos.startContainer)) AU.range = pos;
+    auInsertToken(ed, tok);
+    changed();
+  });
+  return ed;
+}
+// where a click in the drawer puts its piece: that field glows
+function auMarkTarget(el) {
+  document.querySelectorAll(".au-target").forEach((x) => x.classList.remove("au-target"));
+  if (el) el.classList.add("au-target");
+}
+
+// "@" in a text: a small search at the caret, Enter or a click puts the piece there
+function auPopup(ed, pick) {
+  document.querySelector(".au-pop")?.remove();
+  const at = (AU.range && AU.range.getBoundingClientRect()) || ed.getBoundingClientRect();
+  const input = h("input", { class: "au-q", placeholder: t("auSearchPh") });
+  const list = h("div", { class: "au-pop-list" });
+  const pop = h("div", { class: "au-pop card", style: `left:${Math.min(at.left, innerWidth - 340)}px;top:${Math.min(at.bottom + 6, innerHeight - 300)}px` }, input, list);
+  let rows = [], sel = 0;
+  const close = () => { pop.remove(); document.removeEventListener("mousedown", outside, true); ed.focus(); };
+  const outside = (e) => { if (!pop.contains(e.target)) close(); };
+  const choose = (r) => { close(); pick(`${r.kind}:${r.id}`); };
+  const draw = () => list.replaceChildren(...(rows.length ? rows.map((r, i) => auRow(r, () => choose(r), i === sel))
+    : [h("div", { class: "muted small au-none" }, input.value.trim() ? t("auNothing") : t("auTypeHint"))]));
+  const search = auSearcher((r) => { rows = r; sel = 0; draw(); });
+  input.addEventListener("input", () => search(input.value, null));  // "@" looks through everything
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(rows.length - 1, sel + 1); draw(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(0, sel - 1); draw(); }
+    else if (e.key === "Enter") { e.preventDefault(); if (rows[sel]) choose(rows[sel]); }
+  });
+  document.body.append(pop);
+  document.addEventListener("mousedown", outside, true);
+  draw();
+  input.focus();
+}
+
+// the search, asked a moment after the last keystroke; only the latest answer is shown
+function auSearcher(show) {
+  let timer = null, seq = 0;
+  return (q, kinds) => {
+    clearTimeout(timer);
+    const my = ++seq;
+    if (!q.trim()) { show([]); return; }
+    timer = setTimeout(async () => {
+      try {
+        const r = await api(`/api/lookup?q=${encodeURIComponent(q)}&kinds=${(kinds || []).join(",")}&lang=${LANG}&limit=40&${buildQuery()}`);
+        if (my === seq) show(r);
+      } catch (e) { if (my === seq) show([]); }
+    }, 140);
+  };
+}
+// one search result: the piece as it will stand in the text, what it is; dragged or clicked
+function auRow(r, onPick, on = false) {
+  const tok = `${r.kind}:${r.id}`;
+  const sub = r.kind === "passive" ? (r.sub === "Keystone" ? t("keystone") : r.sub === "Notable" ? t("notable") : r.sub === "Socket" ? t("auSocket") : trName(r.sub))
+    : r.kind === "unique" || r.kind === "base" ? trName(r.sub) : "";
+  return h("div", { class: "au-row" + (on ? " on" : ""), draggable: "true", title: t("auRowHint"),
+    ondragstart: (e) => { hideTip(); e.dataTransfer.setData(AU_MIME, tok); e.dataTransfer.setData("text/plain", `[[${tok}]]`); e.dataTransfer.effectAllowed = "copy"; },
+    onmousedown: (e) => e.preventDefault(),  // the text keeps its caret
+    onclick: onPick },
+  auTokChip(tok), h("span", { class: "au-row-k" }, t("auKind_" + r.kind), sub ? ` · ${sub}` : ""));
+}
+
+// ---- the drawer: the search beside the page while the constructor is on ----
+function auDrawer() {
+  let d = $("#au-drawer");
+  if (d) return d;
+  const input = h("input", { class: "au-q", placeholder: t("auSearchPh") });
+  const kinds = h("div", { class: "au-kinds" });
+  const list = h("div", { class: "au-list-r" });
+  const show = (rows) => list.replaceChildren(...(rows.length ? rows.map((r) => auRow(r, () => auPut(`${r.kind}:${r.id}`)))
+    : [h("div", { class: "muted small au-none" }, input.value.trim() ? t("auNothing") : t("auTypeHint"))]));
+  const search = auSearcher(show);
+  const drawKinds = () => kinds.replaceChildren(...[null, ...AU_KINDS].map((k) => h("button", {
+    class: "au-kind" + ((k === null ? !AU.kinds : AU.kinds && AU.kinds.includes(k)) ? " on" : ""),
+    onclick: () => { AU.kinds = k ? [k] : null; drawKinds(); search(input.value, AU.kinds); input.focus(); } }, t("auKind_" + (k || "all")))));
+  input.addEventListener("input", () => search(input.value, AU.kinds));
+  d = h("aside", { id: "au-drawer", class: "au-drawer hidden" },
+    h("div", { class: "au-head" }, I("pencil", "c-gold"), h("b", {}, t("auTitle")), h("span", { class: "au-status" }),
+      h("button", { class: "icon-btn sm", title: t("auClose"), onclick: () => authorToggle(false) }, I("x", "ic-s"))),
+    h("div", { class: "muted small au-help" }, t("auHelp")),
+    input, kinds, list);
+  d.drawKinds = drawKinds;
+  d.search = () => search(input.value, AU.kinds);
+  d.input = input;
+  document.body.append(d);
+  show([]);
+  return d;
+}
+// what the drawer looks for: a list's "+" narrows it to what the list holds, a text brings back the tab's
+function auKinds(kinds) {
+  const same = JSON.stringify(kinds) === JSON.stringify(AU.kinds);
+  AU.kinds = kinds;
+  if (!same && AU.edit) { const d = auDrawer(); d.drawKinds(); d.search(); }
+}
+// a piece clicked in the drawer: into the field the author was in (its caret), or the list whose "+" was pressed
+function auPut(tok) {
+  const tg = AU.target;
+  if (!tg || !document.body.contains(tg.el)) { toast(t("auPickTarget")); return; }
+  tg.add(tok);
+}
+// the constructor on or off: the blocks open for editing, the drawer with the tab's kinds of things first
+function authorToggle(on = !AU.edit, redraw = true) {
+  AU.edit = on;
+  document.body.classList.toggle("au-on", on);
+  const d = auDrawer();
+  d.classList.toggle("hidden", !on);
+  $("#author-btn")?.classList.toggle("is-on", on);
+  if (on) { AU.kinds = AU_TABS[state.tab] || null; d.drawKinds(); d.search(); auStatus(AU.status || "idle"); }
+  else { AU.target = null; document.querySelector(".au-pop")?.remove(); }
+  if (redraw && state.build) switchTab(state.tab);
+}
+// the button over the tabs: only where there are blocks to change
+function auButton() {
+  const b = $("#author-btn");
+  if (!b) return;
+  b.classList.toggle("hidden", !state.build || !(state.tab in AU_TABS));
+  b.classList.toggle("is-on", AU.edit);
+  if (AU.edit) {
+    AU.kinds = AU_TABS[state.tab] || null;
+    const d = auDrawer();
+    d.drawKinds();
+    d.search();
+  }
+}
+
+// ---- the blocks ----
+// the author's note under a block: nothing when empty (until the constructor is on)
+function auNote(id, ph, badge = true) {
+  const text = auBlock(id).text || "";
+  if (!AU.edit) return text ? h("div", { class: "au-note" }, badge ? h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")) : null,
+    h("div", { class: "au-text" }, ...auRich(text))) : null;
+  return h("div", { class: "au-note is-edit" }, auEditor(text, (v) => auSave(id, { text: v }), ph || t("auNotePh")));
+}
+// a card of its own for a block with nothing else in it (the build's description, a slot's note)
+function auCard(id, title, ph) {
+  const note = auNote(id, ph, false);  // the card's title has the pencil
+  if (!note) return null;
+  return h("div", { class: "card au-card" + (AU.edit ? " is-edit" : "") }, h("h3", {}, I("pencil", "c-gold"), " ", title), note);
+}
+// a list poe2lab made (`auto`: tokens; `autoNodes`: how the page shows them) or the author's own instead; the
+// constructor on: each piece with a cross, a "+" that takes the drawer's next pick, poe2lab's list back on "auto"
+function auList(id, auto, autoNodes, kinds) {
+  const own = auBlock(id).list;
+  if (!AU.edit) return own ? own.map((tok) => h("span", { class: "lr-skill" }, auTokChip(tok))) : autoNodes;
+  let cur = own ? [...own] : [...auto];
+  const box = h("div", { class: "au-list" + (own ? " own" : "") });
+  const commit = () => { auSave(id, { list: cur }); draw(); };
+  const target = { type: "list", el: box, add: (tok) => { if (!cur.includes(tok)) { cur.push(tok); commit(); } } };
+  const draw = () => {
+    box.classList.toggle("own", !!auBlock(id).list);
+    box.replaceChildren(...cur.map((tok) => h("span", { class: "au-li" }, auTokChip(tok),
+      h("button", { class: "au-x", title: t("auRemove"), onclick: () => { cur = cur.filter((x) => x !== tok); commit(); } }, "×"))),
+    h("button", { class: "au-add", title: t("auAddHint"), onclick: () => {
+      AU.target = target; auMarkTarget(box);
+      auKinds(kinds || AU.kinds);
+      auDrawer().input.focus();
+    } }, "+ ", t("auAdd")),
+    ...(auBlock(id).list ? [h("button", { class: "au-auto", title: t("auAutoHint"), onclick: () => { cur = [...auto]; auSave(id, { list: undefined }); draw(); } }, "↺ ", t("auAuto"))] : []));
+  };
+  box.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes(AU_MIME)) { e.preventDefault(); box.classList.add("drop"); } });
+  box.addEventListener("dragleave", () => box.classList.remove("drop"));
+  box.addEventListener("drop", (e) => {
+    box.classList.remove("drop");
+    const tok = e.dataTransfer.getData(AU_MIME);
+    if (tok) { e.preventDefault(); target.add(tok); }
+  });
+  draw();
+  return [box];
 }
 
 // ---------- start ----------

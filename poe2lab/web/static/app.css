@@ -1112,3 +1112,66 @@ tr.dense .fit-chips { margin-top: 2px; }
 .ex-card .chip { margin-left: 4px; }
 .outdated-banner { position: sticky; top: 0; z-index: 50; background: var(--warn); color: #111; padding: 8px 16px; font-weight: 600; text-align: center; }
 .sk-quick { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
+
+/* the build author's constructor: the button, the drawer with its search, the pieces in texts, the notes, the lists */
+.au-btn.is-on { background: var(--gold-bg); color: var(--gold-hi); border-color: var(--gold); }
+body.au-on .app { margin-right: 340px; }
+.au-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; z-index: 60; display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  background: linear-gradient(180deg, #12151b, #0d0f13); border-left: 1px solid var(--gold-line); box-shadow: -12px 0 30px rgba(0, 0, 0, .35); }
+.au-head { display: flex; align-items: center; gap: 8px; }
+.au-head b { font-size: 15px; }
+.au-head .icon-btn { margin-left: auto; }
+.au-status { font-size: 11.5px; color: var(--faint); }
+.au-status.saved { color: var(--good); }
+.au-status.error { color: var(--bad); }
+.au-help { line-height: 1.45; }
+.au-q { width: 100%; height: 36px; padding: 0 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text); }
+.au-q:focus { border-color: var(--gold); outline: none; }
+.au-kinds { display: flex; flex-wrap: wrap; gap: 4px; }
+.au-kind { height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.au-kind:hover { color: var(--text); border-color: var(--line-2); }
+.au-kind.on { background: var(--gold-bg); color: var(--gold-hi); border-color: var(--gold-line); }
+.au-list-r { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 2px; margin: 0 -6px; padding: 0 6px; }
+.au-row { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 6px 8px; border-radius: 7px; cursor: grab; border: 1px solid transparent; }
+.au-row:hover, .au-row.on { background: var(--panel-2); border-color: var(--line-2); }
+.au-row-k { font-size: 11.5px; color: var(--faint); padding-left: 2px; }
+.au-none { padding: 10px 4px; }
+/* a piece of the game in a text */
+.tok { display: inline-flex; align-items: center; gap: 4px; vertical-align: -4px; height: 22px; padding: 0 7px 0 3px; border-radius: 6px;
+  background: var(--panel-3); border: 1px solid var(--line-2); font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; cursor: help; user-select: none; }
+.tok img { width: 18px !important; height: 18px !important; margin: 0 !important; flex: none; }
+.tok .tok-ic { width: 14px; height: 14px; color: var(--gold); }
+.tok-gem { border-color: rgba(91, 156, 240, .4); }
+.tok-support { border-color: rgba(95, 201, 141, .4); }
+.tok-unique { color: var(--r-unique); border-color: rgba(212, 128, 63, .45); }
+.tok-base { color: var(--text-2); }
+.tok-rune, .tok-passive { border-color: rgba(214, 165, 79, .4); }
+.tok-term { border-style: dashed; color: var(--text-2); }
+/* the author's note */
+.au-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; padding: 9px 11px; border-radius: 8px; font-size: 13.5px; line-height: 1.7;
+  background: rgba(214, 165, 79, .06); border: 1px solid rgba(214, 165, 79, .22); }
+.au-badge { color: var(--gold); line-height: 1; margin-top: 4px; }
+.au-text { min-width: 0; }
+.au-note.is-edit { display: block; padding: 0; background: none; border: 0; }
+.au-ed { min-height: 58px; padding: 9px 11px; border-radius: 8px; background: var(--bg-sunk); border: 1px dashed var(--gold-line); color: var(--text);
+  font-size: 13.5px; line-height: 1.75; outline: none; cursor: text; }
+.au-ed:focus, .au-ed.au-target { border-style: solid; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(214, 165, 79, .12); }
+.au-ed.au-empty::before { content: attr(data-ph); color: var(--faint); pointer-events: none; }
+.au-card .au-note { margin-top: 6px; }
+/* a list the author changes: each piece with a cross, "+ add", "auto" back */
+.au-list { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; width: 100%; padding: 6px; border-radius: 8px; border: 1px dashed var(--line-2); min-height: 36px; }
+.au-list.own { border-color: var(--gold-line); }
+.au-list.drop, .au-list.au-target { border-style: solid; border-color: var(--gold); background: var(--gold-bg); }
+.au-li { display: inline-flex; align-items: center; gap: 1px; max-width: 100%; }
+.au-li .tok { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.au-x { width: 18px; height: 18px; border: 0; border-radius: 50%; background: transparent; color: var(--faint); cursor: pointer; line-height: 1; padding: 0; }
+.au-x:hover { color: var(--bad); background: var(--bad-bg); }
+.au-add, .au-auto { height: 22px; padding: 0 8px; border-radius: 6px; border: 1px dashed var(--gold-line); background: transparent; color: var(--gold); font-size: 12px; cursor: pointer; }
+.au-auto { border-style: solid; border-color: var(--line-2); color: var(--muted); }
+.au-add:hover { background: var(--gold-bg); }
+.au-tree-lv { display: flex; flex-wrap: wrap; gap: 6px; }
+/* "@" in a text: a small search at the caret */
+.au-pop { position: fixed; z-index: 90; width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 12px 34px rgba(0, 0, 0, .5); }
+.au-pop-list { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.doll-badge.author { background: var(--gold); color: #1b1407; }
+@media (max-width: 1400px) { body.au-on .app { margin-right: 300px; } .au-drawer { width: 300px; } }

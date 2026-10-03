@@ -44,8 +44,8 @@ from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
-from .. import (buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext, jewelcraft,
-               journal, library, lootfilter, mcpconnect, newbuild, pobapp, quality)
+from .. import (author, buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext,
+               jewelcraft, journal, library, lootfilter, mcpconnect, newbuild, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -2493,7 +2493,7 @@ def save_profile(raw: dict):
         path = _profile_path()
         before = path.read_text(encoding="utf-8") if path.exists() else None
         if before:  # the levelling and quest answers are saved by their own pages
-            raw = {k: v for k, v in json.loads(before).items() if k in ("leveling", "quests")} | raw
+            raw = {k: v for k, v in json.loads(before).items() if k in ("leveling", "quests", "author")} | raw
         path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             session.load(str(session.path))
@@ -2506,6 +2506,92 @@ def save_profile(raw: dict):
             _errors(lambda: session.load(str(session.path)))
             raise HTTPException(400, f"профиль не сохранён: {err}")
         return _json(_summary())
+
+
+# ---------- the build author's constructor: notes and lists over any block, game things picked by a search ----------
+_author_game: dict = {}  # lang -> the game's gems, uniques, bases, runes and terms for the search (the same for every build)
+
+
+def _author_index(lang: str) -> list[dict]:
+    """Everything a token can be: the game's things (read once) and the open build's passives (its own tree)."""
+    e = session.engine
+    if lang not in _author_game:
+        _author_game[lang] = {
+            "gems": [{"name": g["name"], "support": g["support"]} for g in e.gem_texts()],
+            "uniques": [{"name": u["name"], "base": u["base"]} for u in session.cached("unique-catalog", e.unique_catalog)],
+            "bases": e.item_bases(), "runes": e.rune_catalog(), "terms": glossary.entries(lang),
+            "names": gamedata.load_names(lang) if lang != "en" else {}}
+    g = _author_game[lang]
+    nodes = session.cached(("tree-graph", len(session.plan["log"]) if session.plan else -1), _tree_graph_with_icons)["nodes"]
+    return session.cached(("author-index", lang), lambda: author.build_index(
+        g["gems"], g["uniques"], g["bases"], g["runes"], nodes, g["terms"], g["names"]))
+
+
+@app.get("/api/lookup")
+def lookup(q: str, kinds: str = "", lang: str = "ru", limit: int = 30, build: str | None = None):
+    """One search over everything the author can write into a text: gems, uniques, bases, runes, passives, terms."""
+    want = [k for k in kinds.split(",") if k in author.KINDS] or None
+    with session.lock:
+        session.require(build)
+        return _errors(lambda: author.search(_author_index(lang), q, want, max(1, min(limit, 60))))
+
+
+@app.get("/api/lookup/item")
+def lookup_item(kind: str, id: str, lang: str = "ru", build: str | None = None):
+    """What a token's card shows: a unique's lines, a base's kind and implicit, a rune's lines by item kind, a
+    passive's lines, a term's text (a gem's card comes from /api/gems)."""
+    with session.lock:
+        session.require(build)
+        e = session.engine
+        if kind == "unique":
+            u = next((u for u in session.cached("unique-catalog", e.unique_catalog) if u["name"] == id), None)
+            return {"name": id, "base": u["base"], "lines": u["lines"], "level": u["level"]} if u else None
+        if kind == "base":
+            b = next((b for b in _item_data()["bases"] if b["name"] == id), None)
+            return {"name": id, "type": b["type"], "subType": b["subType"], "level": b["level"],
+                    "implicit": b["implicit"]} if b else None
+        if kind == "rune":
+            r = next((r for r in session.cached("rune-catalog", e.rune_catalog) if r["name"] == id), None)
+            return r
+        if kind == "passive":
+            nid = id.split("|")[0]
+            graph = session.cached(("tree-graph", len(session.plan["log"]) if session.plan else -1), _tree_graph_with_icons)
+            n = next((n for n in graph["nodes"] if str(n["id"]) == nid), None)
+            return {"id": n["id"], "name": n["name"], "type": n["type"], "stats": n["stats"], "asc": n["asc"],
+                    "img": n.get("img", "")} if n else None
+        if kind == "term":
+            return glossary.entries(lang).get(id)
+        raise HTTPException(400, f"неизвестный вид {kind!r}")
+
+
+@app.get("/api/author")
+def author_get(build: str | None = None):
+    """The author's notes and lists of the open build."""
+    with session.lock:
+        session.require(build)
+        doc = _profile_raw().get("author") or {}
+        return {"blocks": doc.get("blocks") or {}}
+
+
+class AuthorBlock(BaseModel):
+    id: str
+    text: str | None = None
+    items: list[str] | None = Field(None, alias="list")
+
+
+@app.put("/api/author/block")
+def author_set(req: AuthorBlock, build: str | None = None):
+    """One block of the author's layer set (an empty one removed), kept in the build's profile."""
+    with session.lock:
+        session.require(build)
+        path = _profile_path()
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        try:
+            raw["author"] = author.set_block(raw.get("author"), req.id, {"text": req.text, "list": req.items})
+        except author.AuthorError as err:
+            raise HTTPException(400, str(err))
+        journal.write_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2))
+        return {"id": req.id, "block": raw["author"]["blocks"].get(req.id)}
 
 
 # ---------- every gem the game gives, for the hover card of any gem name (not only the open build's) ----------
