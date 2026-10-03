@@ -3067,7 +3067,7 @@ async function jewelEditor(socket, opts = {}) {
 
 // ---------- loot filter ----------
 // the loot filter's market block: on or off, and the two price bars, each in exalted or divine orbs (per viewer)
-const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex", demand: true, demand_ilvl: 82 };
+const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex", demand: true, demand_ilvl: 82, demand_min: 2 };
 // the part of the game the filter is for: the campaign (below area level 65) or maps; a character still in the
 // campaign starts on the campaign's, anything else on the maps'; the player's last pick is remembered
 function lootStage() {
@@ -3191,19 +3191,31 @@ function demandCard(d, mk) {
   const on = h("input", { type: "checkbox", checked: mk.demand, onchange: (e) => redo({ demand: e.target.checked }) });
   const ilvl = h("select", { onchange: (e) => redo({ demand_ilvl: Number(e.target.value) }) },
     [75, 78, 80, 82].map((n) => h("option", { value: n, selected: Number(mk.demand_ilvl) === n }, n)));
+  const least = h("select", { onchange: (e) => redo({ demand_min: Number(e.target.value) }) },
+    [1, 2, 3, 5].map((n) => h("option", { value: n, selected: Number(mk.demand_min || 2) === n }, n)));
+  const shareBar = (v) => h("span", { class: "demand-share", style: `--v:${Math.min(100, v)}%` }, h("i"));
   const body = [];
   if (mk.demand && d && d.error) body.push(h("p", { class: "bad small" }, d.error));
-  else if (mk.demand && d) {
-    body.push(h("div", { class: "muted small" }, t("demandLadder", trName(d.league || ""), fmt(d.characters || 0))),
-      ...d.kinds.map((k) => h("details", { class: "market-group" }, h("summary", {}, h("b", {}, t("lootKind", k.kind)), " ",
-        h("span", { class: "demand-share", style: `--v:${Math.min(100, k.share)}%` }, h("i")),
+  else if (mk.demand && d && d.source === "top") {
+    // what the ladder's top characters of each class wear rare, by kind of gear; each base with how many wear it
+    body.push(h("div", { class: "muted small" }, t("demandTop", d.perClass, d.classes, d.characters, trName(d.league || ""))),
+      ...d.groups.map((g) => h("details", { class: "market-group" }, h("summary", {}, h("b", {}, t("lootKind", g.kind)), " ",
+        g.share ? shareBar(g.share) : null,
+        h("span", { class: "muted small" }, g.share ? t("demandShare", fmt(g.share, 0), g.bases.length) : t("demandBasesN", g.bases.length))),
+      h("ul", { class: "item-lines small demand-bases" }, g.bases.map((b) => h("li", { title: t("demandWho", b.classes.map((c) => trName(c)).join(", "), b.ilvl[0], b.ilvl[1]) },
+        h("span", { class: "named" }, icon(b.base), trName(b.base)), " ", h("b", { class: "demand-n" }, `×${b.n}`)))))));
+  } else if (mk.demand && d) {
+    body.push(h("div", { class: "hint" }, d.note || ""), h("div", { class: "muted small" }, t("demandLadder", trName(d.league || ""), fmt(d.characters || 0))),
+      ...d.kinds.map((k) => h("details", { class: "market-group" }, h("summary", {}, h("b", {}, t("lootKind", k.kind)), " ", shareBar(k.share),
         h("span", { class: "muted small" }, t("demandShare", fmt(k.share, 0), k.bases.length))),
         h("ul", { class: "item-lines small demand-bases" }, k.bases.map((b) => h("li", {}, h("span", { class: "named" }, icon(b), trName(b))))))));
   }
+  const count = d && (d.groups ? d.groups.reduce((n, g) => n + g.bases.length, 0) : d.kinds ? d.kinds.length : 0);
   return foldedCard(h("div", { class: "card stack" }, h("h3", {}, t("demandTitle")), h("div", { class: "sub" }, t("demandSub")),
     h("label", { class: "row", style: "gap:8px" }, on, t("demandOn")),
-    mk.demand ? h("label", { class: "row", style: "gap:8px" }, t("demandIlvl"), ilvl) : null, ...body),
-  "demand", mk.demand && d && d.kinds ? t("demandSum", d.kinds.length) : t("marketSumOff"));
+    mk.demand ? h("div", { class: "row", style: "gap:16px;flex-wrap:wrap" }, h("label", { class: "row", style: "gap:8px" }, t("demandIlvl"), ilvl),
+      h("label", { class: "row", style: "gap:8px" }, t("demandLeast"), least)) : null, ...body),
+  "demand", mk.demand && count ? t(d.groups ? "demandSumTop" : "demandSum", count) : t("marketSumOff"));
 }
 
 // the market block: what poe.ninja prices at the chosen bars, and the bars themselves

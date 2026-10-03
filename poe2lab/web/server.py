@@ -2118,17 +2118,18 @@ class MarketChoice(BaseModel):
     low_unit: str = "ex"
     demand: bool = True  # the maps' filter: the bases most players craft on
     demand_ilvl: int = lootfilter.DEMAND_ILVL
+    demand_min: int = lootfilter.TOP_MIN  # how many of the top characters wear a base for it to go in
     stage: str = "all"  # "leveling" | "maps" | "all" (lootfilter.STAGES)
 
 
 @app.get("/api/lootfilter")
 def loot_filter(mode: str = "balanced", build: str | None = None, market: bool = True, top: float = 1.0,
                 top_unit: str = "div", low: float = 50.0, low_unit: str = "ex", demand: bool = True,
-                demand_ilvl: int = lootfilter.DEMAND_ILVL, stage: str = "all"):
+                demand_ilvl: int = lootfilter.DEMAND_ILVL, demand_min: int = lootfilter.TOP_MIN, stage: str = "all"):
     if mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {mode!r}")
     choice = MarketChoice(market=market, top=top, top_unit=top_unit, low=low, low_unit=low_unit, demand=demand,
-                          demand_ilvl=demand_ilvl, stage=stage)
+                          demand_ilvl=demand_ilvl, demand_min=demand_min, stage=stage)
     with session.lock:
         session.require(build)
         return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()),
@@ -2175,10 +2176,11 @@ def _loot_leveling(rules) -> tuple[list[str], dict]:
 
 
 def _demand(choice: MarketChoice) -> dict:
-    """The bases most players craft on: the kinds of gear the league's ladder wears rare (poe.ninja), each with its
-    end-game bases, white from the item level chosen."""
-    if not 1 <= choice.demand_ilvl <= 100:
-        raise HTTPException(400, "уровень предмета — от 1 до 100")
+    """The bases in demand: what the ladder's top characters of each class wear rare (poe.ninja, ladder.top_bases),
+    grouped by the kind of gear with how many of all characters wear that kind rare; when the top characters cannot
+    be had, each worn kind's end-game bases."""
+    if not 1 <= choice.demand_ilvl <= 100 or not 1 <= choice.demand_min <= 40:
+        raise HTTPException(400, "уровень предмета — от 1 до 100, персонажей — от 1 до 40")
     valid = gamedata.base_type_names()
     if not valid:
         return {"error": "нет распакованных данных игры, чтобы сверить названия баз — блок востребованных баз не "
@@ -2191,8 +2193,26 @@ def _demand(choice: MarketChoice) -> dict:
     hidden = {b["name"] for b in session.engine.item_bases() if b.get("hidden")}
     bases = [b | {"hidden": b["name"] in hidden} for b in _item_data()["bases"]]
     kinds = lootfilter.demand_bases(worn.get("items") or {}, worn.get("total") or 0, bases)
-    return {"blocks": lootfilter.demand_blocks(kinds, valid, choice.demand_ilvl), "kinds": kinds,
-            "league": worn.get("league"), "characters": worn.get("total"), "itemLevel": choice.demand_ilvl}
+    classes = {c["name"]: [a["name"] for a in c["ascendancies"]] for c in session.cached("classes", lambda: newbuild.classes(session.engine))}
+    try:
+        top = ladder.top_bases_cached(classes, league)
+    except (OSError, ValueError) as err:
+        top = {"characters": [], "bases": [], "error": str(err)}
+    base_kind = {b["name"]: lootfilter.kind_of_base(b) for b in bases}
+    if top["characters"]:
+        blocks, used = lootfilter.top_base_blocks(top["bases"], valid, choice.demand_ilvl, choice.demand_min)
+        by_kind: dict[str, list] = {}
+        for b in used:
+            by_kind.setdefault(base_kind.get(b["base"], "Other"), []).append(b)
+        total = worn.get("total") or 0
+        share = lambda k: round((worn.get("items") or {}).get(f"Rare {k}", 0) / total * 100, 1) if total else 0.0  # noqa: E731
+        groups = sorted(({"kind": k, "share": share(k), "bases": v} for k, v in by_kind.items()), key=lambda g: -g["share"])
+        return {"blocks": blocks, "source": "top", "groups": groups, "characters": len(top["characters"]),
+                "perClass": ladder.TOP_PER_CLASS, "classes": len(classes), "league": top.get("league") or worn.get("league"),
+                "ladder": worn.get("total"), "itemLevel": choice.demand_ilvl, "least": choice.demand_min}
+    return {"blocks": lootfilter.demand_blocks(kinds, valid, choice.demand_ilvl), "source": "kinds", "kinds": kinds,
+            "league": worn.get("league"), "characters": worn.get("total"), "itemLevel": choice.demand_ilvl,
+            "note": "топ-персонажей не удалось получить — взяты лучшие базы каждого вида"}
 
 
 def _market(choice: MarketChoice) -> dict:

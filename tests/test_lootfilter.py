@@ -221,3 +221,25 @@ def test_market_block_keeps_only_names_the_game_knows():
     text = "\n".join(blocks)
     assert '"Divine Orb"' in text and '"Silk Robe"' in text
     assert "Made Up Orb" not in text and "Thaumaturgic" not in text and "Nonexistent" not in text
+
+
+def test_the_bases_the_top_characters_wear(monkeypatch):
+    """The ladder's best of each class (by level, of all its ascendancies) and what they wear rare: a base counted
+    once a character, its classes and item levels; into the filter the bases worn by enough of them."""
+    from poe2lab.economy import ladder
+    chars = {"Invoker": [("a", 100), ("b", 95)], "Acolyte of Chayula": [("c", 99)], "Titan": [("d", 100)]}
+    monkeypatch.setattr(ladder, "search", lambda asc, league=None: {"league": "L", "characters": [
+        {"name": n, "account": n, "class": asc, "level": lvl} for n, lvl in chars.get(asc, [])]})
+    gear = {"a": [("Ring", 2, "Gold Ring", 81), ("Ring2", 2, "Gold Ring", 82), ("Helm", 2, "Ancestral Tiara", 80)],
+            "b": [("Ring", 2, "Gold Ring", 79)], "c": [("Belt", 3, "Heavy Belt", 79), ("Flask1", 2, "Life Flask", 1)],
+            "d": [("Ring", 2, "Gold Ring", 82), ("Boots", 2, "Tasalian Greaves", 82)]}
+    monkeypatch.setattr(ladder, "character", lambda account, name, league=None: {"items": [
+        {"itemData": {"inventoryId": slot, "frameType": f, "baseType": base, "ilvl": lvl}} for slot, f, base, lvl in gear[name]]})
+    top = ladder.top_bases({"Monk": ["Invoker", "Acolyte of Chayula"], "Warrior": ["Titan"]}, per_class=2, pause=0)
+    assert [c["name"] for c in top["characters"]] == ["a", "c", "d"]  # the two best monks of both ascendancies
+    ring = top["bases"][0]
+    assert ring == {"base": "Gold Ring", "n": 2, "classes": ["Monk", "Warrior"], "ilvl": [81, 82]}
+    assert "Heavy Belt" not in [b["base"] for b in top["bases"]]  # a unique, not a rare
+    blocks, used = lf.top_base_blocks(top["bases"], valid={"Gold Ring", "Ancestral Tiara"}, item_level=82, least=2)
+    assert [b["base"] for b in used] == ["Gold Ring"] and 'BaseType == "Gold Ring"' in blocks[0]
+    assert "Identified False" in blocks[2] and "ItemLevel >= 82" in blocks[2]

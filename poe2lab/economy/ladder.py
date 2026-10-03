@@ -30,10 +30,11 @@ CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "cache" / "ladder"
 CACHE_SECONDS = 3600
 
 
-def _fetch(url: str, forever: bool = False) -> bytes:
-    """poe.ninja's answer, cached. OSError when it cannot be had (no connection, an error page)."""
+def _fetch(url: str, forever: bool = False, max_age: int = CACHE_SECONDS) -> bytes:
+    """poe.ninja's answer, cached (`max_age` seconds, or for good). OSError when it cannot be had (no connection, an
+    error page)."""
     key = CACHE_DIR / (hashlib.sha1(url.encode()).hexdigest() + ".bin")
-    if key.exists() and (forever or time.time() - key.stat().st_mtime < CACHE_SECONDS):
+    if key.exists() and (forever or time.time() - key.stat().st_mtime < max_age):
         return key.read_bytes()
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=30) as r:
         body = r.read()
@@ -188,6 +189,84 @@ def search(ascendancy: str | None = None, league: str | None = None) -> dict:
 def character_url(snap: dict, account: str, name: str) -> str:
     return (f"https://poe.ninja/poe2/builds/{snap['url']}/character/"
             f"{urllib.parse.quote(account)}/{urllib.parse.quote(name)}")
+
+
+DAY = 86400
+TOP_PER_CLASS = 5
+# a slot of the character's gear (GGG's inventory ids) that is worn gear, not flasks or jewels
+GEAR_SLOTS = {"Weapon", "Weapon2", "Offhand", "Offhand2", "Helm", "BodyArmour", "Gloves", "Boots", "Amulet", "Ring",
+              "Ring2", "Belt"}
+RARE, UNIQUE = 2, 3  # GGG's frame types
+
+
+def character(account: str, name: str, league: str | None = None) -> dict:
+    """A ladder character as poe.ninja gives it: its items (GGG's item data: base, rarity, item level, mods), skills,
+    PoB code. Kept a day (a top character's gear changes slowly)."""
+    snap = snapshot(league)
+    query = urllib.parse.urlencode({"account": account, "name": name, "overview": snap["snapshotName"]})
+    return json.loads(_fetch(f"{ROOT}/builds/{snap['version']}/character?{query}", max_age=DAY))
+
+
+def top_bases(classes: dict[str, list[str]], per_class: int = TOP_PER_CLASS, league: str | None = None,
+              pause: float = 0.3) -> dict:
+    """What the top characters of each class wear rare: the ladder's best `per_class` of each class (of all its
+    ascendancies, by level, then as poe.ninja lists them), each one's rare gear by base. `classes`: class -> its
+    ascendancies' names (PoB's tree). {"league", "characters": [{"name", "account", "class", "asc", "level"}],
+    "bases": [{"base", "n" (characters wearing it rare), "classes", "ilvl": [lowest, highest]}]}, the most worn first.
+    About one search per ascendancy and one request per character - the answers are cached (an hour, a day)."""
+    snap_league = None
+    picked = []
+    for cls, ascs in classes.items():
+        found = []
+        for asc in ascs:
+            try:
+                res = search(asc, league)
+            except (OSError, ValueError, StopIteration):
+                continue
+            snap_league = res["league"]
+            found += [c | {"cls": cls, "asc": asc, "rank": i} for i, c in enumerate(res["characters"]) if c["class"] == asc]
+            time.sleep(pause)
+        found.sort(key=lambda c: (-(c["level"] or 0), c["rank"]))
+        picked += found[:per_class]
+    bases: dict[str, dict] = {}
+    chars = []
+    for c in picked:
+        try:
+            data = character(c["account"], c["name"], league)
+        except (OSError, ValueError):
+            continue
+        chars.append({k: c[k] for k in ("name", "account", "cls", "asc", "level")})
+        seen = set()
+        for it in data.get("items") or []:
+            d = it.get("itemData") or {}
+            if d.get("inventoryId") not in GEAR_SLOTS or d.get("frameType") != RARE or not d.get("baseType"):
+                continue
+            b = bases.setdefault(d["baseType"], {"base": d["baseType"], "n": 0, "classes": [], "ilvl": [100, 0]})
+            if d["baseType"] not in seen:  # two rare rings of one base: one character still
+                seen.add(d["baseType"])
+                b["n"] += 1
+                if c["cls"] not in b["classes"]:
+                    b["classes"].append(c["cls"])
+            lvl = d.get("ilvl") or 0
+            b["ilvl"] = [min(b["ilvl"][0], lvl), max(b["ilvl"][1], lvl)]
+        time.sleep(pause)
+    return {"league": snap_league, "characters": chars,
+            "bases": sorted(bases.values(), key=lambda b: (-b["n"], b["base"]))}
+
+
+def top_bases_cached(classes: dict[str, list[str]], league: str | None = None, per_class: int = TOP_PER_CLASS) -> dict:
+    """top_bases kept a day as a whole: the next filter is made at once."""
+    key = CACHE_DIR / f"top-bases-{hashlib.sha1(f'{league}|{per_class}|{sorted(classes.items())}'.encode()).hexdigest()[:12]}.json"
+    if key.exists() and time.time() - key.stat().st_mtime < DAY:
+        try:
+            return json.loads(key.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    out = top_bases(classes, per_class, league)
+    if out["characters"]:  # nothing came (no connection): asked again next time
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        key.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    return out
 
 
 def character_code(account: str, name: str, league: str | None = None) -> str:

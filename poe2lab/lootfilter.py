@@ -154,6 +154,8 @@ STYLES = {
     "market_maybe": ["SetFontSize 38", "SetBorderColor 235 190 60 255", "MinimapIcon 2 Yellow Diamond"],
     # a base many players craft on
     "demand": ["SetFontSize 38", "SetTextColor 200 255 245 255", "SetBorderColor 80 220 200 255", "MinimapIcon 2 Cyan Square"],
+    # an unidentified rare on a base the top characters wear
+    "top_rare": ["SetFontSize 38", "SetBorderColor 80 220 200 255", "MinimapIcon 2 Cyan Circle"],
     # levelling: a weapon to compare
     "weapon": ["SetFontSize 38", "SetBorderColor 220 220 220 255", "MinimapIcon 2 White Triangle"],
 }
@@ -251,6 +253,13 @@ def demand_bases(worn: dict[str, int], total: int, bases: list[dict], share: flo
     return sorted(out, key=lambda d: -d["share"])
 
 
+def kind_of_base(base: dict) -> str:
+    """The ladder's name of a base's kind of gear ("Quarterstaff", "Body Armour"), PoB's type otherwise."""
+    if base["type"] == "Staff":
+        return "Quarterstaff" if "warstaff" in base.get("tags", []) else "Staff"
+    return next((k for k, t in LADDER_KINDS.items() if t == base["type"]), base["type"])
+
+
 def _craft_bases(bases: list[dict]) -> list[str]:
     """The bases of one kind of gear people craft on: of armour and weapons the best of each defence or sub-kind
     (its highest level - a lower one only has less of it), of jewellery every base (each has its own implicit);
@@ -275,6 +284,25 @@ def demand_blocks(demand: list[dict], valid: set | None = None, item_level: int 
                                                                       f"ItemLevel >= {item_level}"], "demand"))
             blocks.append("")
     return blocks
+
+
+TOP_MIN = 2  # a base worn rare by at least this many of the ladder's top characters goes into the filter
+
+
+def top_base_blocks(top: list[dict], valid: set | None = None, item_level: int = DEMAND_ILVL,
+                    least: int = TOP_MIN) -> tuple[list[str], list[dict]]:
+    """Blocks for the bases the ladder's top characters wear rare (ladder.top_bases): white and magic ones to craft
+    on, unidentified rares to identify - from an item level every tier rolls at; and the bases that went in."""
+    bases = [b for b in top if b["n"] >= least and (valid is None or b["base"] in valid)]
+    names = [b["base"] for b in bases]
+    if not names:
+        return [], []
+    blocks = [
+        _block(f"база топ-игроков — белая или синяя под крафт, уровень предмета {item_level}+",
+               ["Rarity Normal Magic", f"BaseType == {_quote(names)}", f"ItemLevel >= {item_level}"], "demand"), "",
+        _block(f"база топ-игроков — редкая неопознанная, опознай", [
+            "Identified False", "Rarity Rare", f"BaseType == {_quote(names)}", f"ItemLevel >= {item_level}"], "top_rare"), ""]
+    return blocks, bases
 
 
 def leveling_blocks(way_weapon: str | None, own_classes: set, plan_bases: list[str], plan_unique_bases: list[str],

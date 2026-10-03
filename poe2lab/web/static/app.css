@@ -1186,3 +1186,4 @@ body.au-on .app { margin-right: 340px; }
 .demand-share { display: inline-block; width: 70px; height: 5px; border-radius: 3px; background: var(--panel-3); overflow: hidden; vertical-align: 2px; margin: 0 8px 0 4px; }
 .demand-share i { display: block; height: 100%; width: var(--v); background: linear-gradient(90deg, #3aa79a, #50dcc8); }
 .demand-bases { columns: 220px; column-gap: 18px; }
+.demand-n { color: #50dcc8; font-weight: 600; }
