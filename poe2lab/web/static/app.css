@@ -1135,6 +1135,9 @@ body.au-on .app { margin-right: 340px; }
 .au-row { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 6px 8px; border-radius: 7px; cursor: grab; border: 1px solid transparent; }
 .au-row:hover, .au-row.on { background: var(--panel-2); border-color: var(--line-2); }
 .au-row-k { font-size: 11.5px; color: var(--faint); padding-left: 2px; }
+.au-row-tags { display: flex; flex-wrap: wrap; gap: 3px; padding-left: 2px; }
+.au-tag { font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 999px; background: var(--panel-3); color: var(--muted); }
+.au-tag.hit { background: var(--gold-bg); color: var(--gold-hi); }
 .au-none { padding: 10px 4px; }
 /* a piece of the game in a text */
 .tok { display: inline-flex; align-items: center; gap: 4px; vertical-align: -4px; height: 22px; padding: 0 7px 0 3px; border-radius: 6px;

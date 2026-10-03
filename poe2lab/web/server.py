@@ -2516,15 +2516,18 @@ def _author_index(lang: str) -> list[dict]:
     """Everything a token can be: the game's things (read once) and the open build's passives (its own tree)."""
     e = session.engine
     if lang not in _author_game:
+        weapons = {g["name"]: g.get("weapons", []) for g in e.gem_catalog()}
         _author_game[lang] = {
-            "gems": [{"name": g["name"], "support": g["support"]} for g in e.gem_texts()],
-            "uniques": [{"name": u["name"], "base": u["base"]} for u in session.cached("unique-catalog", e.unique_catalog)],
+            "gems": [{"name": g["name"], "support": g["support"], "tags": g.get("tags", []),
+                      "weapons": weapons.get(g["name"], [])} for g in e.gem_texts()],
+            "uniques": [{k: u.get(k) for k in ("name", "base", "type", "lines")}
+                        for u in session.cached("unique-catalog", e.unique_catalog)],
             "bases": e.item_bases(), "runes": e.rune_catalog(), "terms": glossary.entries(lang),
             "names": gamedata.load_names(lang) if lang != "en" else {}}
     g = _author_game[lang]
     nodes = session.cached(("tree-graph", len(session.plan["log"]) if session.plan else -1), _tree_graph_with_icons)["nodes"]
     return session.cached(("author-index", lang), lambda: author.build_index(
-        g["gems"], g["uniques"], g["bases"], g["runes"], nodes, g["terms"], g["names"]))
+        g["gems"], g["uniques"], g["bases"], g["runes"], nodes, g["terms"], g["names"], local=lang != "en"))
 
 
 @app.get("/api/lookup")

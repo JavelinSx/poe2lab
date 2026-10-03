@@ -42,6 +42,31 @@ def test_search_ranks_whole_and_starting_names_first():
     assert [r["kind"] for r in author.search(index, "ice", ["support"])] == ["support"]
 
 
+def test_search_by_what_a_thing_is():
+    """Not only names: a gem's tags and weapon, an item's kind, the words of a passive's lines."""
+    index = author.build_index(
+        gems=[{"name": "Ice Strike", "support": False, "tags": ["attack", "area", "melee", "strike", "cold"], "weapons": ["Staff"]},
+              {"name": "Falling Thunder", "support": False, "tags": ["attack", "area", "melee", "slam", "lightning"],
+               "weapons": ["Staff"]},
+              {"name": "Frostbolt", "support": False, "tags": ["spell", "projectile", "cold"], "weapons": []},
+              {"name": "Martial Tempo", "support": True, "tags": ["support", "attack", "melee"], "weapons": []}],
+        uniques=[{"name": "Seed of Cataclysm", "base": "Lazuli Ring", "type": "Ring", "lines": ["+40 to maximum Mana"]}],
+        bases=[], runes=[], nodes=[{"id": 7, "name": "Cold Nature", "type": "Notable", "stats": ["15% increased Cold Damage"]}],
+        terms={}, names={"Ice Strike": "Ледяной удар"})
+    found = lambda q, kinds=None: [r["id"] for r in author.search(index, q, kinds)]
+    # a strike first: "удар" is its tag; a slam ("могучий удар") after it
+    assert found("атака удар посох") == ["Ice Strike", "Falling Thunder"]
+    assert set(found("атака посох")) == {"Ice Strike", "Falling Thunder"}
+    assert found("холод чары") == ["Frostbolt"]
+    assert found("attack", ["support"]) == ["Martial Tempo"]
+    assert found("кольцо мана") == ["Seed of Cataclysm"]
+    assert found("холод", ["passive"]) == ["7|Cold Nature"]
+    # a name still comes first, and the tags are shown in the page's language
+    assert found("ледяной")[0] == "Ice Strike"
+    ice = next(r for r in author.search(index, "ice strike"))
+    assert ice["tags"][:2] == ["атака", "область"] and "боевой посох" in ice["tags"]
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     from poe2lab import library, pobfiles, profile
@@ -61,6 +86,11 @@ def client(tmp_path, monkeypatch):
 def test_the_constructor_on_a_build(client):
     c, folder = client
     assert c.post("/api/load", json={"name": "titan"}, headers=H).status_code == 200
+    # by what a gem is: an attack, a strike, with a quarterstaff
+    tagged = c.get("/api/lookup", params={"q": "атака удар посох", "kinds": "gem"}).json()
+    ids = [r["id"] for r in tagged]
+    # the strikes before a slam ("могучий удар" has the word too)
+    assert ids[0] == "Ice Strike" and all(ids.index(r["id"]) < ids.index("Falling Thunder") for r in tagged if "удар" in r["tags"])
     gems = c.get("/api/lookup", params={"q": "furious slam"}).json()
     assert gems[0] == gems[0] | {"kind": "gem", "id": "Furious Slam"}
     for kind in ("gem", "support", "unique", "base", "rune", "passive", "term"):

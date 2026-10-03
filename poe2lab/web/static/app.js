@@ -5803,7 +5803,7 @@ function auPopup(ed, pick) {
   const close = () => { pop.remove(); document.removeEventListener("mousedown", outside, true); ed.focus(); };
   const outside = (e) => { if (!pop.contains(e.target)) close(); };
   const choose = (r) => { close(); pick(`${r.kind}:${r.id}`); };
-  const draw = () => list.replaceChildren(...(rows.length ? rows.map((r, i) => auRow(r, () => choose(r), i === sel))
+  const draw = () => list.replaceChildren(...(rows.length ? rows.map((r, i) => auRow(r, () => choose(r), i === sel, input.value))
     : [h("div", { class: "muted small au-none" }, input.value.trim() ? t("auNothing") : t("auTypeHint"))]));
   const search = auSearcher((r) => { rows = r; sel = 0; draw(); });
   input.addEventListener("input", () => search(input.value, null));  // "@" looks through everything
@@ -5834,16 +5834,23 @@ function auSearcher(show) {
     }, 140);
   };
 }
-// one search result: the piece as it will stand in the text, what it is; dragged or clicked
-function auRow(r, onPick, on = false) {
+// one search result: the piece as it will stand in the text, what it is and its tags (the ones the query found it
+// by lit); dragged or clicked
+function auRow(r, onPick, on = false, q = "") {
   const tok = `${r.kind}:${r.id}`;
   const sub = r.kind === "passive" ? (r.sub === "Keystone" ? t("keystone") : r.sub === "Notable" ? t("notable") : r.sub === "Socket" ? t("auSocket") : trName(r.sub))
     : r.kind === "unique" || r.kind === "base" ? trName(r.sub) : "";
+  const words = q.toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
+  const hit = (tag) => words.some((w) => tag.toLowerCase().replace(/ё/g, "е").split(/\s+/).some((x) => x.startsWith(w)));
+  const tags = (r.tags || []).filter((x) => x.toLowerCase() !== String(sub).toLowerCase());
+  // the tags the query matched first, then the rest, a few
+  const shown = [...tags.filter(hit), ...tags.filter((x) => !hit(x))].slice(0, 7);
   return h("div", { class: "au-row" + (on ? " on" : ""), draggable: "true", title: t("auRowHint"),
     ondragstart: (e) => { hideTip(); e.dataTransfer.setData(AU_MIME, tok); e.dataTransfer.setData("text/plain", `[[${tok}]]`); e.dataTransfer.effectAllowed = "copy"; },
     onmousedown: (e) => e.preventDefault(),  // the text keeps its caret
     onclick: onPick },
-  auTokChip(tok), h("span", { class: "au-row-k" }, t("auKind_" + r.kind), sub ? ` · ${sub}` : ""));
+  auTokChip(tok), h("span", { class: "au-row-k" }, t("auKind_" + r.kind), sub ? ` · ${sub}` : ""),
+  shown.length ? h("span", { class: "au-row-tags" }, shown.map((x) => h("span", { class: "au-tag" + (hit(x) ? " hit" : "") }, x))) : null);
 }
 
 // ---- the drawer: the search beside the page while the constructor is on ----
@@ -5853,7 +5860,7 @@ function auDrawer() {
   const input = h("input", { class: "au-q", placeholder: t("auSearchPh") });
   const kinds = h("div", { class: "au-kinds" });
   const list = h("div", { class: "au-list-r" });
-  const show = (rows) => list.replaceChildren(...(rows.length ? rows.map((r) => auRow(r, () => auPut(`${r.kind}:${r.id}`)))
+  const show = (rows) => list.replaceChildren(...(rows.length ? rows.map((r) => auRow(r, () => auPut(`${r.kind}:${r.id}`), false, input.value))
     : [h("div", { class: "muted small au-none" }, input.value.trim() ? t("auNothing") : t("auTypeHint"))]));
   const search = auSearcher(show);
   const drawKinds = () => kinds.replaceChildren(...[null, ...AU_KINDS].map((k) => h("button", {
