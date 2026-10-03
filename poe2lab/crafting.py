@@ -38,6 +38,10 @@ ENOUGH_SUCCESSES = 40
 MAX_TRIES = 40  # fresh bases a player would burn before giving up on a strategy
 GREATER_EXALT = "Omen of Greater Exaltation"  # the next Exalted Orb adds two random modifiers
 BONE = {"Weapon": "Gnawed Jawbone", "Armour": "Gnawed Rib", "Jewellery": "Gnawed Collarbone"}
+FRACTURE = "Fracturing Orb"  # fractures a random modifier on a rare item with at least 4 modifiers, locking it
+LIGHT = "Omen of Light"  # the next Orb of Annulment removes only desecrated modifiers
+ECHOES = "Omen of Abyssal Echoes"  # the next reveal of desecrated modifiers can reroll the options once
+FRACTURE_ACTIONS = 30  # annulments and exalts a player spends on a fractured base before giving up on it
 
 
 # item classes counted as weapons: their tiers fall with level (measured), the rest's do not
@@ -97,10 +101,22 @@ class Target:
     label: str  # the best tier's line, for the player
 
 
+@dataclass(frozen=True)
+class Unrevealed:
+    """A desecrated modifier not revealed yet: it takes a place on its side (the bone's draw decides which), an Orb of
+    Annulment can take it, the Fracturing Orb does not touch it (confirmed by the player in game)."""
+    type: str
+    group: str = "<unrevealed>"
+    patterns: tuple = ()
+    level: int = 0
+    id: str = "unrevealed"
+
+
 @dataclass
 class Item:
     rarity: str = "normal"
-    mods: list = field(default_factory=list)  # Mod
+    mods: list = field(default_factory=list)  # Mod (or Unrevealed)
+    fractured: object = None  # the fractured mod: nothing removes it
 
     def side(self, kind: str) -> int:
         return sum(1 for m in self.mods if m.type == kind)
@@ -223,17 +239,31 @@ def _measure(s: "Strategy", attempt, rng: random.Random):
 
 
 def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", essence: tuple | None = None,
-               desecrated: Pool | None = None, bone: str | None = None) -> list[Strategy]:
+               desecrated: Pool | None = None, bone: str | None = None, must_main: bool = False) -> list[Strategy]:
     """The candidate strategies for reaching `need` of the targets. `essence`: (essence name, mod) guaranteeing a
-    target on this item class, if one exists; `desecrated`: the desecrated pool (bones) for this class."""
+    target on this item class, if one exists; `desecrated`: the desecrated pool (bones) for this class;
+    `must_main`: an item without the main target (the first, worth most) does not count, whatever else it has."""
     lvl, low = grade_rule(grade, getattr(pool, "fingerprint", None))
     out = []
+    main = targets[0]
+
+    def done(item: Item) -> bool:
+        return hits(item, targets) >= need and (not must_main or hits(item, [main]) == 1)
+
+    def can(item: Item) -> bool:
+        """The goal still in reach - with the main target there, or its family absent and room on its side."""
+        if not reachable(item, targets, need):
+            return False
+        if not must_main or hits(item, [main]):
+            return True
+        return ((main.group, main.patterns) not in item.families()
+                and item.side(main.side) < SIDE_LIMIT.get(item.rarity, 3))
 
     def finish_with_exalts(item: Item, rng, used, greater: bool) -> bool:
         """Exalt until the goal, 6 mods, or the goal is out of reach. With Omen of Greater Exaltation the first
         exalt adds two mods at once (one omen per item, as players use it)."""
         first = greater
-        while hits(item, targets) < need and len(item.mods) < 6 and reachable(item, targets, need):
+        while not done(item) and len(item.mods) < 6 and can(item):
             count = 2 if first and len(item.mods) <= 4 else 1
             if count == 2:
                 used[GREATER_EXALT] += 1
@@ -242,9 +272,9 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
             for _ in range(count):
                 mod = pool.pick(item, rng, None, lvl, low)
                 if mod is None:
-                    return hits(item, targets) >= need
+                    return done(item)
                 item.mods.append(mod)
-        return hits(item, targets) >= need
+        return done(item)
 
     def magic_start(greater: bool):
         """Transmute + augment for a start worth keeping, regal, then exalts."""
@@ -292,7 +322,7 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
                 if mod:
                     item.mods.append(mod)
             for _ in range(12):
-                if hits(item, targets) >= need:
+                if done(item):
                     return True
                 if whittle:
                     used["Omen of Whittling"] += 1
@@ -303,7 +333,94 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
                 mod = pool.pick(item, rng, None, lvl, low)
                 if mod:
                     item.mods.append(mod)
-            return hits(item, targets) >= need
+            return done(item)
+        return attempt
+
+    def annul(item: Item, rng, used):
+        """One plain Orb of Annulment: a random mod but the fractured one - sometimes a wanted one, which the exalts
+        then bring back (the side omens cost ten to twenty times more than the orb: players annul plainly here)."""
+        used["Orb of Annulment"] += 1
+        item.mods.remove(rng.choice([m for m in item.mods if m is not item.fractured]))
+
+    def reveal(item: Item, rng, used):
+        """The desecrated mod revealed: three options on its side, the player takes a target if one is there; when
+        the goal still needs one, Omen of Abyssal Echoes (active before the reveal) rerolls the options once."""
+        hidden = next(m for m in item.mods if isinstance(m, Unrevealed))
+        item.mods.remove(hidden)
+        echoes = not done(item)
+        if echoes:
+            used[ECHOES] += 1
+        for _ in range(2 if echoes else 1):
+            options, shown = [], Item(item.rarity, list(item.mods))
+            for _ in range(3):
+                mod = desecrated.pick(shown, rng, hidden.type)
+                if mod:
+                    options.append(mod)
+                    shown.mods.append(mod)
+            good = [m for m in options if is_target(m, targets)]
+            if good:
+                item.mods.append(good[0])
+                return
+        if options:
+            item.mods.append(options[0])
+
+    def fracture_start(light: bool):
+        """The main target from transmute + augment (else a new base), a plain regal and a bone for four mods - the
+        unrevealed one is not fractured, so the Fracturing Orb locks the main mod 1 time in 3 (else the next base);
+        then exalts (with Omen of Greater Exaltation while two places are free) and annulments of what is not wanted,
+        until the goal; the desecrated mod revealed at the end, or (`light`) taken off at once with Omen of Light."""
+        def attempt(rng, used) -> bool:
+            item = Item("magic")
+            used[f"{grade}Orb of Transmutation"] += 1
+            item.mods.append(pool.pick(item, rng, None, lvl, low))
+            used[f"{grade}Orb of Augmentation"] += 1
+            mod = pool.pick(item, rng, None, lvl, low)
+            if mod:
+                item.mods.append(mod)
+            key = next((m for m in item.mods if is_target(m, [main])), None)
+            if key is None:
+                return False
+            item.rarity = "rare"
+            used["Regal Orb"] += 1  # a plain one: its mod only fills a place
+            mod = pool.pick(item, rng)
+            if mod:
+                item.mods.append(mod)
+            drawn = desecrated.pick(item, rng)
+            if drawn is None:
+                return False
+            used[bone] += 1
+            item.mods.append(Unrevealed(drawn.type))
+            if len(item.mods) < 4:
+                return False
+            used[FRACTURE] += 1
+            if rng.choice([m for m in item.mods if not isinstance(m, Unrevealed)]) is not key:
+                return False
+            item.fractured = key
+            if light:
+                used[LIGHT] += 1
+                used["Orb of Annulment"] += 1
+                item.mods = [m for m in item.mods if not isinstance(m, Unrevealed)]
+            for _ in range(FRACTURE_ACTIONS):
+                if done(item):
+                    break
+                free = 6 - len(item.mods)
+                if free and can(item):
+                    count = 2 if free >= 2 else 1
+                    if count == 2:
+                        used[GREATER_EXALT] += 1
+                    used[f"{grade}Exalted Orb"] += 1
+                    for _ in range(count):
+                        mod = pool.pick(item, rng, None, lvl, low)
+                        if mod:
+                            item.mods.append(mod)
+                elif any(not is_target(m, targets) and not isinstance(m, Unrevealed) and m is not item.fractured
+                         for m in item.mods):
+                    annul(item, rng, used)
+                else:
+                    break
+            if any(isinstance(m, Unrevealed) for m in item.mods):
+                reveal(item, rng, used)
+            return done(item)
         return attempt
 
     # steps name their text by key (the UI words them in its language) and the English item names they use
@@ -335,7 +452,23 @@ def strategies(pool: Pool, targets: list[Target], need: int, grade: str = "", es
         dmods = [m for m in desecrated.mods if any(m.group == t.group and m.patterns == t.patterns for t in targets)]
         if dmods:
             for s in out:
-                s.steps.append({"k": "desecrate", "n": [bone, "Omen of Abyssal Echoes"]})
+                s.steps.append({"k": "desecrate", "n": [bone, ECHOES]})
+
+    # fracturing the main mod: the bone's unrevealed mod makes the fourth one (the desecrated pool must have mods)
+    if desecrated and desecrated.mods and bone:
+        for light in (False, True):
+            key = "fracture_light" if light else "fracture"
+            plays[key] = fracture_start(light)
+            steps = [{"k": "fracture_main", "n": [f"{grade}Orb of Transmutation", f"{grade}Orb of Augmentation"],
+                      "mod": targets[0].label},
+                     {"k": "regal_bone", "n": ["Regal Orb", bone]},
+                     {"k": "fracture", "n": [FRACTURE]}]
+            if light:
+                steps.append({"k": "light", "n": ["Orb of Annulment", LIGHT]})
+            steps.append({"k": "annul_exalt_greater", "n": ["Orb of Annulment", f"{grade}Exalted Orb", GREATER_EXALT]})
+            if not light:
+                steps.append({"k": "reveal", "n": [ECHOES]})
+            out.append(Strategy(key, steps))
 
     rng = random.Random(7)
     for s in out:
@@ -399,7 +532,7 @@ QUALITY_TIERS = {"top": 2, "good": 4, "any": 99}
 
 # the currency the crafting guide names (poe2lab.web: "Как крафтить"), priced for it
 GUIDE_ITEMS = ["Orb of Transmutation", "Orb of Augmentation", "Regal Orb", "Exalted Orb", GREATER_EXALT,
-               "Orb of Alchemy", "Chaos Orb", "Orb of Annulment", "Fracturing Orb", "Omen of Abyssal Echoes",
+               "Orb of Alchemy", "Chaos Orb", "Orb of Annulment", "Fracturing Orb", "Omen of Abyssal Echoes", "Omen of Light",
                "Omen of Sinistral Annulment", "Omen of Dextral Annulment", "Omen of Homogenising Exaltation",
                "Greater Exalted Orb", "Perfect Exalted Orb", "Gnawed Rib", "Gnawed Jawbone", "Gnawed Collarbone",
                "Greater Essence of the Body", "Perfect Essence of the Body"]

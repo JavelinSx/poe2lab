@@ -2188,7 +2188,8 @@ const CRAFT_GUIDE = [
   ["cheap", [["g_bases", []], ["g_transmute", ["Orb of Transmutation", "Orb of Augmentation"]],
     ["g_regal", ["Regal Orb", "Exalted Orb", "Omen of Greater Exaltation"]], ["g_goal", []]]],
   ["essence", [["g_essence", ["Greater Essence of the Body"]], ["g_bone", ["Gnawed Rib", "Omen of Abyssal Echoes"]]]],
-  ["fracture", [["g_fracture", ["Fracturing Orb"]], ["g_after_fracture", ["Chaos Orb", "Orb of Annulment"]]]],
+  ["fracture", [["g_fracture", ["Fracturing Orb", "Gnawed Rib"]], ["g_after_fracture", ["Chaos Orb", "Orb of Annulment"]],
+    ["g_light", ["Orb of Annulment", "Omen of Light"]]]],
   ["expensive", [["g_perfect", ["Perfect Essence of the Body"]], ["g_grades", ["Greater Exalted Orb", "Perfect Exalted Orb"]],
     ["g_annul_side", ["Orb of Annulment", "Omen of Sinistral Annulment", "Omen of Dextral Annulment"]],
     ["g_homog", ["Omen of Homogenising Exaltation"]]]],
@@ -2255,7 +2256,7 @@ function craftBlock(slot) {
 function openCraft(box, slot) {
   // players craft items of level 65+ with perfect orbs all the way (league start aside): that is the default
   const gradeFor = (level) => (level >= 65 ? "perfect" : "");
-  const st = craftState[slot] = craftState[slot] || { need: 3, grade: gradeFor(82), itemLevel: 82, quality: "good" };
+  const st = craftState[slot] = craftState[slot] || { need: 3, grade: gradeFor(82), itemLevel: 82, quality: "good", main: true };
   const out = h("div", {});
   const select = (key, options) => h("select", { onchange: (e) => {
     st[key] = e.target.value;
@@ -2272,13 +2273,16 @@ function openCraft(box, slot) {
     h("label", {}, t("crNeed"), " ", select("need", [1, 2, 3, 4, 5].map((n) => [n, t("crNeedN", n)]))),
     h("label", {}, t("crQuality"), " ", select("quality", [["good", t("crQualityGood")], ["top", t("crQualityTop")], ["any", t("crQualityAny")]])),
     h("label", {}, t("crGrade"), " ", select("grade", [["", t("crGradeNormal")], ["greater", t("crGradeGreater")], ["perfect", t("crGradePerfect")]])),
-    h("label", {}, t("crIlvl"), " ", ilvl));
+    h("label", {}, t("crIlvl"), " ", ilvl),
+    // the craft revolves around the main mod (the first target): an item without it does not count
+    h("label", { title: t("crMainHint") }, h("input", { type: "checkbox", checked: st.main !== false,
+      onchange: (e) => { st.main = e.target.checked; run(); } }), " ", t("crMain")));
   box.replaceChildren(h("div", { class: "craft-head" }, h("b", {}, t("crTitle")), h("div", { class: "sub" }, t("crSub"))), controls,
     h("div", { class: "muted small", style: "margin:-2px 0 8px" }, t("crGradeHint")), out);
 
   async function run() {
     out.replaceChildren(loading(t("crLoading")));
-    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&quality=${st.quality}&mode=${state.mode}`;
+    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&quality=${st.quality}&mode=${state.mode}&main=${st.main !== false ? 1 : 0}`;
     try {
       const r = await cached(`craft:${q}`, () => api(`/api/craft?${q}&${buildQuery()}`));
       out.replaceChildren(renderCraft(r));
@@ -2301,8 +2305,9 @@ function renderCraft(r) {
   // "{0} with {1}": the placeholders become the items' pictures and names
   const stepText = (s) => withItems(t("crStep_" + s.k, s.mod ? trMod(s.mod) : ""), s.n);
   const targets = h("div", {}, h("div", { class: "sub" }, t("crTargets", r.need, r.targets.length)),
-    h("ul", { class: "craft-targets" }, r.targets.map((x) => h("li", {},
-      chip("tag", x.side === "Prefix" ? t("prefix") : t("suffix")), " ", h("span", { class: "mod" }, trMod(x.label)),
+    h("ul", { class: "craft-targets" }, r.targets.map((x, i) => h("li", {},
+      chip("tag", x.side === "Prefix" ? t("prefix") : t("suffix")), " ", r.main && i === 0 ? [chip("must", t("crMainChip")), " "] : null,
+      h("span", { class: "mod" }, trMod(x.label)),
       h("span", { class: "muted small" }, " " + t("crFromLevel", x.min_level))))));
   // a way that costs more than the budget (~100 div of currency until the item is done) is not how anyone crafts
   const budget = r.budget || 100;

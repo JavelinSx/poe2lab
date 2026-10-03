@@ -20,13 +20,16 @@ def mod(id_, type_, line, level, group, set_="Item"):
             "weightKey": ["boots"], "weightVal": [1000], "tags": [], "tradeHashes": []}
 
 
-def db():
+def db(desecrated=True):
     mods = []
     for side, stats in (("Prefix", ["Life", "Armour", "Evasion", "Mana"]), ("Suffix", ["Fire", "Cold", "Lightning", "Speed"])):
         for stat in stats:
             for tier, level in enumerate((1, 20, 40, 60, 80)):
                 mods.append(mod(f"{stat}{tier}", side, f"+({tier}-{tier + 5}) to {stat}", level, stat))
-    mods.append(mod("DesecratedLife", "Prefix", "+(1-2) to Life", 1, "Life", "Desecrated"))
+    if desecrated:
+        mods.append(mod("DesecratedLife", "Prefix", "+(1-2) to Life", 1, "Life", "Desecrated"))
+        mods.append(mod("DesecratedMana", "Prefix", "+(1-2) to Mana", 1, "Mana", "Desecrated"))
+        mods.append(mod("DesecratedSpeed", "Suffix", "+(1-2) to Speed", 1, "Speed", "Desecrated"))
     return ModDB({"mods": mods, "bases": []})
 
 
@@ -80,7 +83,8 @@ def test_strategies_with_an_essence_and_bones():
     found = crafting.strategies(Pool(d, TAGS, 82), targets, 2, "", ("Essence of the Body", life_top),
                                 Pool(d, TAGS, 82, sets=("Desecrated",)), crafting.bone_for("Boots"))
     by_key = {s.key: s for s in found}
-    assert set(by_key) == {"magic", "magic_greater", "essence", "essence_greater", "alchemy", "alchemy_whittle"}
+    assert set(by_key) == {"magic", "magic_greater", "essence", "essence_greater", "alchemy", "alchemy_whittle",
+                           "fracture", "fracture_light"}
     # the essence gives one target for sure: it beats plain exalting
     assert by_key["essence"].per_base > by_key["magic"].per_base > 0
     # Omen of Greater Exaltation: two mods for one exalt - once per item, so fewer exalts for the same chance
@@ -90,10 +94,46 @@ def test_strategies_with_an_essence_and_bones():
     assert abs(greater.per_base - plain.per_base) < 0.05
     assert by_key["essence"].use["Essence of the Body"] == pytest.approx(by_key["essence"].bases)
     assert by_key["essence"].bases_p90 >= by_key["essence"].bases
-    # every step says its text by key and names real items; bones finish every strategy
+    # every step says its text by key and names real items; bones finish every strategy (the fracture ones use the
+    # bone on their way)
     for s in found:
         assert all(set(step) <= {"k", "n", "mod"} and step["n"] for step in s.steps)
-        assert s.steps[-1]["n"] == ["Gnawed Rib", "Omen of Abyssal Echoes"]
+        if not s.key.startswith("fracture"):
+            assert s.steps[-1]["n"] == ["Gnawed Rib", "Omen of Abyssal Echoes"]
+
+
+def test_fracturing_the_main_mod(monkeypatch):
+    """The common craft: the main mod on a magic item, a regal and a bone for four mods; the Fracturing Orb does not
+    touch the unrevealed one, so it locks the main mod 1 time in 3 - three fractures per success, not four."""
+    monkeypatch.setattr(crafting, "ENOUGH_SUCCESSES", 600)
+    monkeypatch.setattr(crafting, "MAX_ATTEMPTS", 60000)
+    d = db()
+    pool, dese = Pool(d, TAGS, 82), Pool(d, TAGS, 82, sets=("Desecrated",))
+    only_main = {s.key: s for s in crafting.strategies(pool, [target(d, "Life")], 1, "", None, dese, "Gnawed Rib")}
+    plain, light = only_main["fracture"], only_main["fracture_light"]
+    assert plain.use["Fracturing Orb"] == pytest.approx(3, abs=0.2)
+    # every base with the main mod gets a regal; the ones the bone could desecrate (a family free for it) get fractured
+    assert plain.use["Regal Orb"] >= plain.use["Gnawed Rib"] == pytest.approx(plain.use["Fracturing Orb"])
+    assert "Omen of Abyssal Echoes" not in plain.use  # the goal is met before the reveal: no reroll needed
+    assert light.use["Omen of Light"] == pytest.approx(1)  # one per finished item, taken right after the fracture
+    # three targets: the fractured main mod stays, annulments and exalts bring the other two
+    three = [target(d, "Life"), target(d, "Fire"), target(d, "Armour")]
+    monkeypatch.setattr(crafting, "ENOUGH_SUCCESSES", 40)
+    found = {s.key: s for s in crafting.strategies(pool, three, 3, "", None, dese, "Gnawed Rib")}
+    for key in ("fracture", "fracture_light"):
+        s = found[key]
+        assert s.per_base > 0 and s.use["Orb of Annulment"] > 0 and s.use["Exalted Orb"] > 0
+        assert s.steps[0]["mod"] == three[0].label  # the main mod is the most wanted target
+    assert found["fracture"].steps[-1] == {"k": "reveal", "n": ["Omen of Abyssal Echoes"]}
+    # the main mod required: the others count only the items that have it, the fracture ways always have it
+    # (two of the three wanted: without the rule an item may have the other two)
+    any_two = {s.key: s for s in crafting.strategies(pool, three, 2, "", None, dese, "Gnawed Rib")}
+    must = {s.key: s for s in crafting.strategies(pool, three, 2, "", None, dese, "Gnawed Rib", must_main=True)}
+    assert must["magic"].per_base < any_two["magic"].per_base
+    assert must["fracture"].per_base == pytest.approx(any_two["fracture"].per_base, rel=0.35)
+    # no desecrated mods for the bone: no fracture way
+    bare = Pool(db(desecrated=False), TAGS, 82, sets=("Desecrated",))
+    assert not {"fracture", "fracture_light"} & {s.key for s in crafting.strategies(pool, three, 3, "", None, bare, "Gnawed Rib")}
 
 
 def test_changing_a_mod_on_a_worn_item():

@@ -1027,7 +1027,7 @@ def gear_advice(slot: str, build: str | None = None):
 
 @app.get("/api/gear/advice/craft")
 def gear_advice_craft(slot: str, mode: str = "damage", need: int = 3, grade: str | None = None,
-                      quality: str = "good", build: str | None = None):
+                      quality: str = "good", main: bool = True, build: str | None = None):
     """How to craft the advice's best item: `need` of its mods (the ones worth most first) from a white or blue base
     of its kind, the strategies with their chance and currency (perfect orbs from item level 65 by default)."""
     if mode not in slotadvice.MODES:
@@ -1045,8 +1045,8 @@ def gear_advice_craft(slot: str, mode: str = "damage", need: int = 3, grade: str
             db = session.db()
             targets = crafting.targets_of(db, [m for m, _ in mods], base["tags"], a["itemLevel"], top_tiers=top_tiers)
             return {"slot": slot, "mode": mode} | _craft_ways(e, db, a["base"], base["type"], base["tags"], a["itemLevel"],
-                                                              targets, need, grade_)
-        return _json(session.cached(("advice-craft", slot, mode, need, grade_, top_tiers), compute))
+                                                              targets, need, grade_, main)
+        return _json(session.cached(("advice-craft", slot, mode, need, grade_, top_tiers, main), compute))
 
 
 class AdviceMarket(BaseModel):
@@ -2033,9 +2033,10 @@ def send_feedback(req: FeedbackRequest):
 
 @app.get("/api/craft")
 def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quality: str = "good",
-          mode: str = "balanced", build: str | None = None):
+          mode: str = "balanced", main: bool = True, build: str | None = None):
     """Ways to craft the slot's item from a white or blue base: strategies played out on the base's mod pool, with
-    the chance, the currency and its price (see poe2lab.crafting)."""
+    the chance, the currency and its price (see poe2lab.crafting). `main`: the first target (worth most) must be
+    on the item."""
     grade = {"greater": "Greater ", "perfect": "Perfect "}.get(grade.lower(), "")
     item_level = max(1, min(int(item_level), 100))
     top_tiers = crafting.QUALITY_TIERS.get(quality, crafting.QUALITY_TIERS["good"])
@@ -2054,14 +2055,16 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quali
             plan = plan_slot(e, db, prof.config(), item, mode, weights, top=8, check_mana=not prof.mana_sustained)
             targets = crafting.pick_targets(db, plan, item["tags"], item_level, top_tiers=top_tiers)
             return {"slot": slot} | _craft_ways(e, db, item["baseName"], item["type"], item["tags"], item_level, targets,
-                                                need, grade)
+                                                need, grade, main)
 
-        return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode), compute))
+        return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode, main), compute))
 
 
-def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets: list, need: int, grade: str) -> dict:
+def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets: list, need: int, grade: str,
+                must_main: bool = False) -> dict:
     """Ways to craft an item with `need` of the targets from a white or blue base of its kind: the strategies played
-    out on the base's mod pool, with the chance, the currency and its price (see poe2lab.crafting)."""
+    out on the base's mod pool, with the chance, the currency and its price (see poe2lab.crafting); `must_main`: the
+    first target must be among them."""
     if not targets:
         return {"base": base, "targets": [], "strategies": []}
     prices = session.prices()
@@ -2079,7 +2082,8 @@ def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets
     pool = crafting.Pool(db, tags, item_level, item_type=item_type)
     desecrated = crafting.Pool(db, tags, item_level, sets=("Desecrated",), item_type=item_type)
     wanted = max(1, min(need, len(targets)))
-    found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated, crafting.bone_for(item_type))
+    found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated, crafting.bone_for(item_type),
+                                must_main)
     crafting.price(found, prices)
     # cheapest first when priced; otherwise the likeliest
     found.sort(key=lambda x: (x.per_base == 0, x.cost if x.cost is not None and x.priced else 1e9, -x.per_base))
@@ -2089,7 +2093,7 @@ def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets
             price = prices.get(name) if prices else None
             priced[name] = prices.describe(price) if price else None
     return {"base": base, "itemLevel": item_level, "grade": grade.strip().lower(),
-            "need": wanted, "targets": [asdict(t) | {"patterns": list(t.patterns)} for t in targets],
+            "need": wanted, "main": must_main, "targets": [asdict(t) | {"patterns": list(t.patterns)} for t in targets],
             "essence": essence[0] if essence else None, "strategies": [asdict(x) for x in found],
             "prices": priced, "exaltedPerDivine": prices.exalted_per_divine if prices else None,
             "league": prices.league if prices else None,
