@@ -16,11 +16,11 @@ export interface R2Bucket {
   put(key: string, value: string, opts?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
   delete(key: string | string[]): Promise<void>;
 }
-export interface Env { DB: D1Database; PACKAGES: R2Bucket }
+export interface Env { DB: D1Database; PACKAGES: R2Bucket; TEST_SERVER?: string }
 
 export function cf(event: H3Event): Env {
   const env = (event.context as unknown as { cloudflare?: { env?: Env } }).cloudflare?.env;
-  if (!env?.DB || !env?.PACKAGES) throw createError({ statusCode: 503, statusMessage: "База сайта недоступна" });
+  if (!env?.DB || !env?.PACKAGES) throw createError({ statusCode: 503, message: "База сайта недоступна" });
   return env;
 }
 

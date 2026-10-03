@@ -36,7 +36,7 @@ const one = (await anon.call("GET", "/api/builds?author=Inverno&patch=all")).dat
 const page = await anon.call("GET", `/api/builds/${one.id}`);
 check("a build's page: package, reviews, author", page.status === 200 && page.data.page.gear.length > 5 && page.data.reviews.n > 0 && page.data.author.nick === "Inverno");
 const missing = await anon.call("GET", "/api/builds/nope1234");
-check("a build that is not there: 404", missing.status === 404);
+check("a build that is not there: 404, said in words", missing.status === 404 && missing.data.message === "Такого билда нет");
 const author = await anon.call("GET", "/api/authors/MapMama");
 check("an author's page", author.status === 200 && author.data.builds.length > 0);
 

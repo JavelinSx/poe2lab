@@ -8,7 +8,7 @@ export function apiError(e: unknown): string {
   const err = e as Failed | null;
   const status = apiStatus(e);
   if (!status) return "Нет связи с сайтом — проверь интернет и попробуй ещё раз";
-  const msg = err?.data?.statusMessage || err?.data?.message || "";
+  const msg = err?.data?.message || err?.data?.statusMessage || "";
   if (/[а-яё]/i.test(msg)) return msg;
   return status >= 500 ? "Что-то сломалось на сайте — попробуй через минуту" : "Не получилось — попробуй ещё раз";
 }

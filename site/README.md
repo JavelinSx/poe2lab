@@ -13,6 +13,11 @@ npm run smoke                   # весь API против запущенног
 npm run typecheck               # типы страниц и API
 ```
 
+**Тестовый сервер** — `npm run test-server` (или превью `poe2lab-site-test`), http://localhost:8788. Боевая сборка на
+движке Cloudflare (`wrangler dev`, workerd) со своей базой в `.wrangler/test`, отдельной от `npm run dev`. Вход по
+нику и примеры билдов включены флагом `TEST_SERVER`: в пустую базу примеры кладутся сами. Всё только на этом
+компьютере. Без пересборки: `npm run test-server -- --no-build`; проверить API: `BASE=http://localhost:8788 npm run smoke`.
+
 Вход для разработки — на странице `/login` по нику (только в `npm run dev`); Discord появится с приложением Discord
 владельца.
 

@@ -9,14 +9,14 @@ export default defineEventHandler(async (e) => {
   const sets: string[] = [], args: unknown[] = [];
   if (b.nick !== undefined) {
     const nick = String(b.nick).trim();
-    if (!nickOk(nick)) throw createError({ statusCode: 400, statusMessage: "Ник не подходит: 3–24 знака, буквы, цифры, _ и -" });
+    if (!nickOk(nick)) throw createError({ statusCode: 400, message: "Ник не подходит: 3–24 знака, буквы, цифры, _ и -" });
     const had = await first<{ id: string }>(e, "SELECT id FROM users WHERE nick = ? COLLATE NOCASE", nick);
-    if (had && had.id !== user.id) throw createError({ statusCode: 409, statusMessage: "Этот ник занят" });
+    if (had && had.id !== user.id) throw createError({ statusCode: 409, message: "Этот ник занят" });
     sets.push("nick = ?"); args.push(nick);
   }
   if (b.bio !== undefined) {
     const bio = String(b.bio).replace(/\r/g, "").trim();
-    if (bio.length > 300) throw createError({ statusCode: 400, statusMessage: "«О себе» — до 300 знаков" });
+    if (bio.length > 300) throw createError({ statusCode: 400, message: "«О себе» — до 300 знаков" });
     sets.push("bio = ?"); args.push(bio);
   }
   if (b.links !== undefined) {
@@ -24,7 +24,7 @@ export default defineEventHandler(async (e) => {
     for (const l of Array.isArray(b.links) ? b.links.slice(0, 4) : []) {
       if (!l || !(l.kind in LINK_KINDS) || !String(l.url ?? "").trim()) continue;
       const url = linkUrl(l.kind, String(l.url));
-      if (!url) throw createError({ statusCode: 400, statusMessage: `Ссылка на ${LINK_KINDS[l.kind].label} не похожа на ${LINK_KINDS[l.kind].hosts[0]}/…` });
+      if (!url) throw createError({ statusCode: 400, message: `Ссылка на ${LINK_KINDS[l.kind].label} не похожа на ${LINK_KINDS[l.kind].hosts[0]}/…` });
       links.push({ kind: l.kind, url });
     }
     sets.push("links = ?"); args.push(JSON.stringify(links));

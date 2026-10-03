@@ -12,7 +12,8 @@
     "test": "vitest run",
     "smoke": "node scripts/smoke.mjs",
     "db:migrate": "wrangler d1 migrations apply poe2lab --local",
-    "typecheck": "nuxi typecheck"
+    "typecheck": "nuxi typecheck",
+    "test-server": "node scripts/test-server.mjs"
   },
   "dependencies": {
     "nuxt": "^4.5.2",

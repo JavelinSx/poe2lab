@@ -1,12 +1,12 @@
-// Development only: the design's example builds, authors and reviews put into the local database through the same
-// publishing as the app's, so the pages have something to show. The real site answers 404 here.
+// Development and the local test server only: the design's example builds, authors and reviews put into the local
+// database through the same publishing as the app's, so the pages have something to show. The real site answers 404.
 import { BUILDS } from "~~/mock/builds";
 import { PAGES } from "~~/mock/page";
 import { CURRENT_PATCH } from "~~/shared/catalog";
 import type { BuildPackage } from "~~/shared/package";
 
 export default defineEventHandler(async (e) => {
-  if (!import.meta.dev) throw createError({ statusCode: 404 });
+  requireDev(e);
   const users: Record<string, string> = {};
   const userOf = async (nick: string, hue: number, role = "user") => {
     if (users[nick]) return users[nick];

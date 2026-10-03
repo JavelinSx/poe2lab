@@ -5,7 +5,7 @@ export default defineEventHandler(async (e) => {
   const d = await first<{ code: string; name: string; user_id: string | null; state: string; expires_at: number }>(e,
     "SELECT code, name, user_id, state, expires_at FROM device_codes WHERE device_id = ?", String(device || ""));
   if (!d || d.expires_at < now() || d.state === "declined" || d.state === "taken") {
-    throw createError({ statusCode: 410, statusMessage: d?.state === "declined" ? "Игрок отклонил подключение" : "Код истёк — начни заново" });
+    throw createError({ statusCode: 410, message: d?.state === "declined" ? "Игрок отклонил подключение" : "Код истёк — начни заново" });
   }
   if (d.state === "pending" || !d.user_id) { setResponseStatus(e, 202); return { pending: true }; }
   const token = randomId(48);

@@ -6,7 +6,7 @@ export default defineEventHandler(async (e) => {
   const nick = String(getRouterParam(e, "nick") || "");
   const u = await first<{ id: string; nick: string; hue: number; avatar: string | null; bio: string; links: string; created_at: number }>(e,
     "SELECT id, nick, hue, avatar, bio, links, created_at FROM users WHERE nick = ? COLLATE NOCASE AND banned_at IS NULL", nick);
-  if (!u) throw createError({ statusCode: 404, statusMessage: "Такого автора нет" });
+  if (!u) throw createError({ statusCode: 404, message: "Такого автора нет" });
   const me = await sessionUser(e);
   const [builds, reviews, followers, following] = await Promise.all([
     all<CardRow>(e, `SELECT ${CARD_COLUMNS} FROM builds b JOIN users u ON u.id = b.author_id WHERE b.author_id = ? AND b.status = 'published'`, u.id),

@@ -1,11 +1,11 @@
 import { nickOk } from "~~/shared/catalog";
 
-// Development only: sign in as a nick (made if new) without Discord. The real site answers 404 here.
+// Development and the local test server only: sign in as a nick (made if new) without Discord. The real site answers 404.
 export default defineEventHandler(async (e) => {
-  if (!import.meta.dev) throw createError({ statusCode: 404 });
+  requireDev(e);
   const { nick, role } = await readBody<{ nick: string; role?: string }>(e);
   const name = String(nick || "").slice(0, 24);
-  if (!nickOk(name)) throw createError({ statusCode: 400, statusMessage: "Ник — 3–24 знака" });
+  if (!nickOk(name)) throw createError({ statusCode: 400, message: "Ник — 3–24 знака" });
   let u = await first<{ id: string }>(e, "SELECT id FROM users WHERE nick = ? COLLATE NOCASE", name);
   const fresh = !u;
   if (!u) {

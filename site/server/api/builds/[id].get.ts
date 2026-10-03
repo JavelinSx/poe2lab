@@ -7,11 +7,11 @@ export default defineEventHandler(async (e) => {
   const id = getRouterParam(e, "id") || "";
   const row = await first<CardRow & { package_key: string; author_id: string; description: string }>(e,
     `SELECT ${CARD_COLUMNS}, b.package_key, b.author_id, b.description FROM builds b JOIN users u ON u.id = b.author_id WHERE b.id = ?`, id);
-  if (!row || row.status === "removed") throw createError({ statusCode: 404, statusMessage: "Такого билда нет" });
+  if (!row || row.status === "removed") throw createError({ statusCode: 404, message: "Такого билда нет" });
   const me = await sessionUser(e);
-  if (row.status === "hidden" && me?.id !== row.author_id) throw createError({ statusCode: 410, statusMessage: "Автор снял билд с публикации", data: { author: row.nick } });
+  if (row.status === "hidden" && me?.id !== row.author_id) throw createError({ statusCode: 410, message: "Автор снял билд с публикации", data: { author: row.nick } });
   const obj = await cf(e).PACKAGES.get(row.package_key);
-  if (!obj) throw createError({ statusCode: 500, statusMessage: "Пакет билда потерян" });
+  if (!obj) throw createError({ statusCode: 500, message: "Пакет билда потерян" });
   const pkg = JSON.parse(await obj.text()) as BuildPackage;
   const [dist, crit, author, marks] = await Promise.all([
     all<{ stars: number; n: number }>(e, "SELECT stars, COUNT(*) AS n FROM reviews WHERE build_id = ? AND status = 'visible' GROUP BY stars", id),

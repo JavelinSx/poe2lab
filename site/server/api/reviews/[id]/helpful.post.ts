@@ -3,8 +3,8 @@ export default defineEventHandler(async (e) => {
   const user = await requireUser(e);
   const id = getRouterParam(e, "id") || "";
   const r = await first<{ user_id: string }>(e, "SELECT user_id FROM reviews WHERE id = ? AND status = 'visible'", id);
-  if (!r) throw createError({ statusCode: 404, statusMessage: "Такого отзыва нет" });
-  if (r.user_id === user.id) throw createError({ statusCode: 403, statusMessage: "За свой отзыв голосовать нельзя" });
+  if (!r) throw createError({ statusCode: 404, message: "Такого отзыва нет" });
+  if (r.user_id === user.id) throw createError({ statusCode: 403, message: "За свой отзыв голосовать нельзя" });
   const had = await first(e, "SELECT 1 FROM review_votes WHERE review_id = ? AND user_id = ?", id, user.id);
   const db = cf(e).DB;
   await db.batch(had

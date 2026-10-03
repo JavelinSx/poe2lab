@@ -6,6 +6,6 @@ export default defineEventHandler(async (e) => {
   const user = await appUser(e);
   const raw = await readRawBody(e, "utf8");
   let pkg: BuildPackage;
-  try { pkg = JSON.parse(raw || ""); } catch { throw createError({ statusCode: 400, statusMessage: "Пакет — не JSON" }); }
+  try { pkg = JSON.parse(raw || ""); } catch { throw createError({ statusCode: 400, message: "Пакет — не JSON" }); }
   return await publish(e, user.id, pkg, raw || "");
 });

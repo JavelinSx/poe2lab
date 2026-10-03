@@ -6,5 +6,5 @@ export default defineEventHandler((e) => {
   if ((getHeader(e, "authorization") || "").startsWith("Bearer ") || path.startsWith("/api/device/start") || path.startsWith("/api/device/token")) return;
   const origin = getHeader(e, "origin");
   const host = getHeader(e, "host");
-  if (origin && host && new URL(origin).host !== host) throw createError({ statusCode: 403, statusMessage: "Запрос с чужой страницы" });
+  if (origin && host && new URL(origin).host !== host) throw createError({ statusCode: 403, message: "Запрос с чужой страницы" });
 });

@@ -13,12 +13,12 @@ export async function sessionUser(e: H3Event): Promise<User | null> {
 }
 export async function requireUser(e: H3Event): Promise<User> {
   const u = await sessionUser(e);
-  if (!u) throw createError({ statusCode: 401, statusMessage: "Нужно войти" });
+  if (!u) throw createError({ statusCode: 401, message: "Нужно войти" });
   return u;
 }
 export async function requireRole(e: H3Event, ...roles: User["role"][]): Promise<User> {
   const u = await requireUser(e);
-  if (!roles.includes(u.role)) throw createError({ statusCode: 403, statusMessage: "Нет прав" });
+  if (!roles.includes(u.role)) throw createError({ statusCode: 403, message: "Нет прав" });
   return u;
 }
 export async function startSession(e: H3Event, userId: string) {
@@ -36,11 +36,11 @@ export async function endSession(e: H3Event) {
 export async function appUser(e: H3Event): Promise<User> {
   const h = getHeader(e, "authorization") || "";
   const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
-  if (!token) throw createError({ statusCode: 401, statusMessage: "Приложение не подключено к сайту" });
+  if (!token) throw createError({ statusCode: 401, message: "Приложение не подключено к сайту" });
   const hash = await sha256(token);
   const u = await first<User & { token_id: string }>(e, `SELECT u.id, u.nick, u.hue, u.avatar, u.role, u.banned_at, t.id AS token_id
     FROM app_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND u.banned_at IS NULL`, hash);
-  if (!u) throw createError({ statusCode: 401, statusMessage: "Подключение приложения отозвано — подключи заново" });
+  if (!u) throw createError({ statusCode: 401, message: "Подключение приложения отозвано — подключи заново" });
   await run(e, "UPDATE app_tokens SET last_used_at = ? WHERE id = ?", now(), u.token_id);
   return u;
 }

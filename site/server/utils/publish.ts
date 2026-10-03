@@ -6,7 +6,7 @@ import { searchText } from "~~/shared/catalog";
 
 export async function publish(e: H3Event, userId: string, pkg: BuildPackage, raw?: string) {
   const errs = checkPackage(pkg, raw ?? JSON.stringify(pkg));
-  if (errs.length) throw createError({ statusCode: 400, statusMessage: errs[0], data: { errors: errs } });
+  if (errs.length) throw createError({ statusCode: 400, message: errs[0], data: { errors: errs } });
   const old = await first<{ id: string; version: number }>(e, "SELECT id, version FROM builds WHERE author_id = ? AND app_key = ?", userId, pkg.key);
   const id = old?.id ?? randomId(8);
   const version = (old?.version ?? 0) + 1;

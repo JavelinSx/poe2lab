@@ -2,6 +2,7 @@
 # .wrangler/; the real database and bucket are created by the site's owner (their ids go here then).
 name = "poe2lab-site"
 compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]  # Node's built-ins for Nitro (its Cloudflare preset asks for it)
 
 [[d1_databases]]
 binding = "DB"
