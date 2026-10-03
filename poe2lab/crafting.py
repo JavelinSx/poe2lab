@@ -145,11 +145,12 @@ class Pool:
         self.cumulative = list(itertools.accumulate(r[5] for r in self.rows))
 
     def pick(self, item: Item, rng: random.Random, side: str | None = None, min_level: int = 0,
-             low_families: bool = True) -> Mod | None:
-        """A random new mod for the item: a family it does not have, on a side with room, not below the minimum
-        level - unless no tier of that family reaches it and `low_families` (then the family rolls at any tier)."""
+             low_families: bool = True, exclude: set = frozenset()) -> Mod | None:
+        """A random new mod for the item: a family it does not have (nor one of `exclude`), on a side with room, not
+        below the minimum level - unless no tier of that family reaches it and `low_families` (then the family rolls
+        at any tier)."""
         limit = SIDE_LIMIT.get(item.rarity, 3)
-        have = item.families()
+        have = item.families() | set(exclude)
         room = {k for k in ("Prefix", "Suffix") if item.side(k) < limit}
         if side:
             room &= {side}
@@ -495,17 +496,28 @@ def price(strategies_: list[Strategy], prices) -> None:
 BUDGET = 100.0
 
 
-def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 6, top_tiers: int = 3) -> list[Target]:
-    """The mod families the slot plan values most (what the item has that carries value, then what it could roll),
-    each at its top tiers for the item level; `count` of them, at most three per side."""
-    by_lines = {}
+def lines_index(db: ModDB, base_tags) -> dict[tuple, Mod]:
+    """A mod by its lines - one that rolls on this base first: one line ("+4 to Level of all Melee Skills") is a mod
+    of several item classes, and only this base's one has tiers here."""
+    out = {}
+    for m in db.rollable(base_tags, 100):
+        out.setdefault(tuple(m.lines), m)
     for m in db.mods:
-        by_lines.setdefault(tuple(m.lines), m)
+        out.setdefault(tuple(m.lines), m)
+    return out
+
+
+def pick_targets(db: ModDB, plan, base_tags, item_level: int, count: int = 6, top_tiers: int = 3,
+                 first: Mod | None = None) -> list[Target]:
+    """The mod families the slot plan values most (what the item has that carries value, then what it could roll),
+    each at its top tiers for the item level; `count` of them, at most three per side. `first`: the player's main
+    mod, put before them."""
+    by_lines = lines_index(db, base_tags)
     by_id = {m.id: m for m in db.mods}
     wanted = [(by_lines.get(tuple(a.template)), a.score) for a in plan.affixes if a.score > 0.5]
     wanted += [(by_id.get(c.mod_id), c.score) for c in plan.candidates if c.score > 0.5]
-    return targets_of(db, [mod for mod, _ in sorted((w for w in wanted if w[0]), key=lambda w: -w[1])], base_tags,
-                      item_level, count, top_tiers)
+    mods = [mod for mod, _ in sorted((w for w in wanted if w[0]), key=lambda w: -w[1])]
+    return targets_of(db, ([first] if first else []) + mods, base_tags, item_level, count, top_tiers)
 
 
 def targets_of(db: ModDB, mods: list[Mod], base_tags, item_level: int, count: int = 6, top_tiers: int = 3) -> list[Target]:
@@ -587,6 +599,79 @@ def modify_routes(db: ModDB, pool: Pool, desecrated: Pool | None, essences: list
     best = max((r["chance"] for r in routes), default=0.0)
     verdict = "worth" if best >= WORTH else "risky" if best >= RISKY else "lottery"
     return {"routes": routes, "verdict": verdict, "chance": best, "minLevel": min_level}
+
+
+# every desecrated mod is an abyssal lord's (its id names him); the lord's omen guarantees a random mod of his on a
+# weapon or jewellery desecration
+LORD_OMEN = {"Ulaman": "Omen of the Sovereign", "Amanamu": "Omen of the Liege", "Kurgal": "Omen of the Blackblooded"}
+JEWELLERY = {"Ring", "Amulet", "Belt"}
+# "guarantee a random Ulaman modifier": read as one of the three revealed options being his (the other two random),
+# and the Omen of Abyssal Echoes reroll as a plain one - the careful reading; to be confirmed in game
+LORD_OPTIONS = 1
+DESECRATE_TRIALS = 20000
+
+
+def lord_of(mod) -> str | None:
+    return next((lord for lord in LORD_OMEN if lord in mod.id), None)
+
+
+def lord_omens_apply(item_type: str) -> bool:
+    return is_weapon(item_type) or item_type in JEWELLERY or item_type == "Quiver"
+
+
+def desecration_ways(desecrated: Pool, wanted: Mod, item_type: str, bone: str, have: set = frozenset()) -> list[dict]:
+    """The ways to get the desecrated mod `wanted` from a bone, with the chance it is among the revealed options: the
+    bone alone, with the side omen (Sinistral / Dextral Necromancy: the unrevealed mod on its side), with its lord's
+    omen (weapons and jewellery), both; each also with Omen of Abyssal Echoes (the options rerolled once). `have`:
+    the item's mod families (none of them is offered). The side of a plain desecration is drawn like its mod."""
+    lord, side, family = lord_of(wanted), wanted.type, (wanted.group, wanted.patterns)
+    lords = lord is not None and lord_omens_apply(item_type)
+    mine = [r for r in desecrated.rows if r[1] == side and lord_of(r[0]) == lord and r[2] not in have]
+    out = []
+    for side_omen, lord_omen, echoes in itertools.product((False, True), (False, True) if lords else (False,),
+                                                          (False, True)):
+        rng = random.Random(11)
+        got = 0
+        for _ in range(DESECRATE_TRIALS):
+            drawn = side if side_omen else (desecrated.pick(Item("rare", []), rng) or wanted).type
+            for round_ in range(2 if echoes else 1):
+                shown = Item("rare", [])
+                if lord_omen and round_ == 0 and drawn == side and mine:
+                    for _ in range(LORD_OPTIONS):
+                        shown.mods.append(rng.choices(mine, weights=[r[5] for r in mine])[0][0])
+                while len(shown.mods) < 3:
+                    mod = desecrated.pick(shown, rng, drawn, exclude=have)
+                    if mod is None:
+                        break
+                    shown.mods.append(mod)
+                if any((m.group, m.patterns) == family for m in shown.mods):
+                    got += 1
+                    break
+        names = [bone] + ([SIDE_NECRO[side]] if side_omen else []) + ([LORD_OMEN[lord]] if lord_omen else []) + \
+                ([ECHOES] if echoes else [])
+        out.append({"n": names, "chance": got / DESECRATE_TRIALS})
+    return out
+
+
+def price_desecration(ways: list[dict], prices) -> int | None:
+    """Each way's price per try and, as an average until it works, with a miss taken off before the next try (an Orb
+    of Annulment with Omen of Light); the index of the cheapest (or, unpriced, the likeliest)."""
+    if not ways:
+        return None
+    removal = None
+    if prices is not None:
+        light, annul = prices.get(LIGHT), prices.get("Orb of Annulment")
+        removal = light.divine + annul.divine if light and annul else None
+    for w in ways:
+        found = [prices.get(n) for n in w["n"]] if prices is not None else []
+        w["priced"] = bool(found) and all(found)
+        w["cost"] = sum(p.divine for p in found if p) if found else None
+        p = w["chance"]
+        w["expected"] = (w["cost"] / p + (removal or 0) * (1 - p) / p) if w["priced"] and p > 0 else None
+    priced = [i for i, w in enumerate(ways) if w["expected"] is not None]
+    if priced:
+        return min(priced, key=lambda i: ways[i]["expected"])
+    return max(range(len(ways)), key=lambda i: ways[i]["chance"])
 
 
 def bone_for(item_type: str) -> str | None:

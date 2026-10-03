@@ -193,6 +193,15 @@ def test_craft_endpoint(client):
     best = lambda x: max(s["per_base"] for s in x["strategies"])
     assert best(loose) > best(top)
     assert client.get("/api/craft?slot=Nowhere").status_code == 400
+    # the main mod chosen among the base's mods; the desecration worth most (boots: no lords' omens)
+    choice = next(c for c in r["choices"] if c["id"] != r["choices"][0]["id"] and c["side"])
+    chosen = client.get(f"/api/craft?slot=Boots&need=2&main_mod={choice['id']}").json()
+    assert chosen["mainMod"] == choice["id"] and not chosen["mainMissing"]
+    assert chosen["targets"][0]["label"] == choice["label"]
+    d = r["desecration"]
+    assert d["lordOmens"] is False and all(o["lord"] in crafting.LORD_OMEN for o in d["options"])
+    if d["best"]:
+        assert d["ways"] and not any(n in crafting.LORD_OMEN.values() for w in d["ways"] for n in w["n"])
 
 
 def test_targets_of_given_mods():
@@ -212,3 +221,57 @@ def test_targets_of_given_mods():
     assert [(t.group, t.side) for t in targets] == [("P0", "Prefix"), ("P1", "Prefix"), ("P2", "Prefix"), ("S", "Suffix")]
     # item level 75: tier 80 cannot roll; the top two below it, the second the least
     assert targets[0].label == "+40 to P0" and targets[0].min_level == 60
+
+
+def lords_db():
+    """A weapon's desecrated pool: each lord two prefixes and two suffixes (as on quarterstaves)."""
+    mods = []
+    for lord in ("Ulaman", "Amanamu", "Kurgal"):
+        for side in ("Prefix", "Suffix"):
+            for k in (1, 2):
+                mods.append(mod(f"AbyssMod{lord}{side}{k}", side, f"+(1-2) to {lord} {side} {k}", 65, f"{lord}{side}{k}",
+                                "Desecrated"))
+    return ModDB({"mods": mods, "bases": []})
+
+
+def test_desecration_with_the_lords_omens(monkeypatch):
+    """The bone alone offers 3 of 6 mods on the drawn side; the side omen fixes the side; the lord's omen makes one
+    option a mod of his (one of his two on that side); echoes reroll once - each of them adds to the chance."""
+    monkeypatch.setattr(crafting, "DESECRATE_TRIALS", 6000)
+    d = lords_db()
+    pool = Pool(d, TAGS, 82, sets=("Desecrated",))
+    wanted = next(m for m in d.mods if m.id == "AbyssModKurgalPrefix1")
+    assert crafting.lord_of(wanted) == "Kurgal"
+    ways = {tuple(w["n"][1:]): w["chance"] for w in crafting.desecration_ways(pool, wanted, "Two Hand Mace", "Gnawed Jawbone")}
+    side, lord, echo = "Omen of Sinistral Necromancy", "Omen of the Blackblooded", "Omen of Abyssal Echoes"
+    assert ways[()] == pytest.approx(0.5 * 0.5, abs=0.03)  # the prefix side half the time, then 3 of 6 options
+    assert ways[(side,)] == pytest.approx(0.5, abs=0.03)
+    # his option is the wanted one half the time, else the other two of the five left may be: 1/2 + 1/2 * 2/5
+    assert ways[(side, lord)] == pytest.approx(0.7, abs=0.03)
+    assert ways[(side, lord, echo)] > ways[(side, lord)] > ways[(side,)] > ways[()]
+    # armour: no lords' omens
+    armour = crafting.desecration_ways(pool, wanted, "Boots", "Gnawed Rib")
+    assert len(armour) == 4 and not any(lord in w["n"] for w in armour)
+    # the cheapest way on average, a miss taken off with Omen of Light and an annulment
+    prices = {n: Price(p, False) for n, p in (("Gnawed Jawbone", 0.01), (side, 0.01), (lord, 0.01), (echo, 0.1),
+                                              ("Omen of Light", 7.0), ("Orb of Annulment", 0.5))}
+    rows = crafting.desecration_ways(pool, wanted, "Two Hand Mace", "Gnawed Jawbone")
+    best = crafting.price_desecration(rows, prices)
+    assert rows[best]["n"] == ["Gnawed Jawbone", side, lord, echo]  # a miss costs 7.5 div: the likeliest wins
+    assert all(w["expected"] >= rows[best]["expected"] for w in rows)
+
+
+def test_a_line_means_the_bases_own_mod():
+    """"+4 to Level of all Melee Skills" is a mod of several item classes: the one that rolls on the base is meant,
+    so a worn affix is not dropped from the craft targets; the player's main mod leads them."""
+    rows = [mod("RingSkills", "Suffix", "+(3-4) to Skills", 20, "RingSkills"),
+            mod("BootsSkills", "Suffix", "+(3-4) to Skills", 20, "BootsSkills"),
+            mod("BootsLife", "Prefix", "+(1-9) to Life", 20, "Life")]
+    rows[0]["weightKey"] = ["ring"]
+    d = ModDB({"mods": rows, "bases": []})
+    assert crafting.lines_index(d, TAGS)[("+(3-4) to Skills",)].id == "BootsSkills"
+    plan = type("Plan", (), {"affixes": [type("A", (), {"template": ["+(3-4) to Skills"], "score": 5.0})()],
+                             "candidates": [type("C", (), {"mod_id": "BootsLife", "score": 9.0})()]})()
+    assert [t.group for t in crafting.pick_targets(d, plan, TAGS, 82)] == ["Life", "BootsSkills"]
+    skills = next(m for m in d.mods if m.id == "BootsSkills")
+    assert [t.group for t in crafting.pick_targets(d, plan, TAGS, 82, first=skills)] == ["BootsSkills", "Life"]

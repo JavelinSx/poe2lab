@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from ..analysis.changes import capture as capture_build, diff as build_diff
 from ..analysis.explain import explain as explain_build, main_group
 from ..analysis import slotadvice
-from ..analysis.items import breakeven, compare
+from ..analysis.items import add_lines, breakeven, compare
 from ..analysis.skills import available_level, better_supports, build_view as skill_build_view, leveling_view as skill_leveling_view, roles as skill_roles
 from ..analysis.uniques import suggest as suggest_uniques
 from ..analysis.report import MODES, build_report, defence_weights
@@ -38,7 +38,7 @@ from ..assistant import (Assistant, LLMConfig, LLMError, Toolbox, build_context,
 from ..assistant.agent import STYLES
 from ..assistant import prompt as prompt_builder
 from ..assistant.providers import BY_ID, PROVIDERS, key_hint, load_settings, save_settings
-from ..data.moddb import ModDB
+from ..data.moddb import ModDB, max_roll
 from ..economy import ladder, trade
 from ..economy import ninja
 from ..economy.ninja import PriceBook
@@ -777,9 +777,6 @@ def gear(mode: str = "balanced", build: str | None = None):
             path = []
             by_slot = {p.slot: p for p in plans}
             items = {i["slot"]: i for i in e.equipped_item_details()}
-            by_lines = {}
-            for m in db.mods:
-                by_lines.setdefault(tuple(m.lines), m)
             pools = {}
             for s in craft_path(e, db, prof.config(), mode, weights, steps=6, check_mana=check_mana):
                 mod, plan, item = by_id.get(s.mod_id), by_slot.get(s.slot), items.get(s.slot)
@@ -791,6 +788,7 @@ def gear(mode: str = "balanced", build: str | None = None):
                                          crafting.Pool(db, item["tags"], item["itemLevel"], sets=("Desecrated",),
                                                        item_type=item["type"]))
                     stay = [a for a in plan.affixes if a.lines != s.removed]
+                    by_lines = crafting.lines_index(db, item["tags"])
                     have = {(m.group, m.patterns) for m in (by_lines.get(tuple(a.template)) for a in stay) if m}
                     how = crafting.modify_routes(db, *pools[s.slot], essences, item["type"], item["tags"],
                                                  item["itemLevel"], mod, have, plan.count(mod.type),
@@ -2033,10 +2031,11 @@ def send_feedback(req: FeedbackRequest):
 
 @app.get("/api/craft")
 def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quality: str = "good",
-          mode: str = "balanced", main: bool = True, build: str | None = None):
+          mode: str = "balanced", main: bool = True, main_mod: str = "", build: str | None = None):
     """Ways to craft the slot's item from a white or blue base: strategies played out on the base's mod pool, with
-    the chance, the currency and its price (see poe2lab.crafting). `main`: the first target (worth most) must be
-    on the item."""
+    the chance, the currency and its price (see poe2lab.crafting). `main`: the first target must be on the item;
+    `main_mod`: a mod id the player chose as that first target (else the one worth most). Also the mods the base
+    rolls (to choose from) and the desecration worth most with the bone and omens for it."""
     grade = {"greater": "Greater ", "perfect": "Perfect "}.get(grade.lower(), "")
     item_level = max(1, min(int(item_level), 100))
     top_tiers = crafting.QUALITY_TIERS.get(quality, crafting.QUALITY_TIERS["good"])
@@ -2053,11 +2052,69 @@ def craft(slot: str, need: int = 3, grade: str = "", item_level: int = 82, quali
             db = session.db()
             weights = defence_weights(survivable_hits(e, prof))
             plan = plan_slot(e, db, prof.config(), item, mode, weights, top=8, check_mana=not prof.mana_sustained)
-            targets = crafting.pick_targets(db, plan, item["tags"], item_level, top_tiers=top_tiers)
-            return {"slot": slot} | _craft_ways(e, db, item["baseName"], item["type"], item["tags"], item_level, targets,
-                                                need, grade, main)
+            first = next((m for m in db.mods if m.id == main_mod), None) if main_mod else None
+            targets = crafting.pick_targets(db, plan, item["tags"], item_level, top_tiers=top_tiers, first=first)
+            chosen = bool(first and targets and (targets[0].group, targets[0].patterns) == (first.group, first.patterns))
+            return ({"slot": slot} | _craft_ways(e, db, item["baseName"], item["type"], item["tags"], item_level, targets,
+                                                 need, grade, main)
+                    | {"choices": _main_choices(db, plan, item, item_level), "mainMod": main_mod if chosen else "",
+                       "mainMissing": bool(first) and not chosen,
+                       "desecration": _desecration(e, db, prof.config(), item, mode, weights, item_level)})
 
-        return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode, main), compute))
+        return _json(session.cached(("craft", slot, need, grade, item_level, top_tiers, mode, main, main_mod), compute))
+
+
+def _main_choices(db, plan, item: dict, item_level: int) -> list[dict]:
+    """The mods the slot's base rolls at the item level, each family once at its best tier, to choose the main one:
+    the ones the slot plan values first (by value), then the rest."""
+    by_lines = crafting.lines_index(db, item["tags"])
+    by_id = {m.id: m for m in db.mods}
+    value = {}
+    scored = [(by_lines.get(tuple(a.template)), a.score) for a in plan.affixes]
+    scored += [(by_id.get(c.mod_id), c.score) for c in plan.candidates]
+    for mod, score in scored:
+        if mod:
+            key = (mod.group, mod.patterns)
+            value[key] = max(value.get(key, score), score)
+    rows = [{"id": m.id, "side": m.type, "label": " / ".join(m.lines), "score": value.get((m.group, m.patterns))}
+            for m in db.best_tiers(item["tags"], item_level)]
+    return sorted(rows, key=lambda r: (r["score"] is None, -(r["score"] or 0), r["side"], r["label"]))
+
+
+def _desecration(e, db, cfg: dict, item: dict, mode: str, weights: dict, item_level: int) -> dict | None:
+    """The desecrated mods the slot's base can get, each valued on the worn item like the slot plan's candidates
+    (its top roll added), and for the one worth most the bone and omens to get it - side, its lord's (weapons and
+    jewellery), echoes - with the chance and the price (poe2lab.crafting.desecration_ways)."""
+    bone = crafting.bone_for(item["type"])
+    pool = crafting.Pool(db, item["tags"], item_level, sets=("Desecrated",), item_type=item["type"])
+    if not bone or not pool.mods:
+        return None
+    slot, text, base = item["slot"], e.item_text(item["slot"]), e.what_if(config=cfg)
+    found, _ = db.identify([x["line"] for x in item["explicit"]], item["tags"], item["itemLevel"])
+    present = {(a.mod.group, a.mod.patterns) for a in found}
+    options = []
+    for m in db.best_tiers(item["tags"], item_level, sets=("Desecrated",)):
+        if (m.group, m.patterns) in present:
+            continue
+        lines = [max_roll(line) for line in m.lines]
+        try:
+            out = e.what_if(config=cfg, replace_item=(slot, add_lines(text, lines)))
+        except PobError:  # a line PoB cannot take on this item
+            continue
+        changes = metric_changes(out, base)
+        options.append({"id": m.id, "side": m.type, "lines": list(m.lines), "lord": crafting.lord_of(m),
+                        "score": report_score(SimpleNamespace(one=changes), mode, weights), "changes": changes})
+    options.sort(key=lambda o: -o["score"])
+    if not options or options[0]["score"] <= 0:
+        return {"options": options[:6], "best": None, "ways": [], "recommended": None,
+                "lordOmens": crafting.lord_omens_apply(item["type"])}
+    best = next(m for m in db.mods if m.id == options[0]["id"])
+    ways = crafting.desecration_ways(pool, best, item["type"], bone)
+    prices = session.prices()
+    recommended = crafting.price_desecration(ways, prices)
+    return {"options": options[:6], "best": options[0], "ways": ways, "recommended": recommended,
+            "lordOmens": crafting.lord_omens_apply(item["type"]),
+            "prices": {n: prices.describe(prices.get(n)) for w in ways for n in w["n"] if prices and prices.get(n)}}
 
 
 def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets: list, need: int, grade: str,

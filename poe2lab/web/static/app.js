@@ -2256,7 +2256,7 @@ function craftBlock(slot) {
 function openCraft(box, slot) {
   // players craft items of level 65+ with perfect orbs all the way (league start aside): that is the default
   const gradeFor = (level) => (level >= 65 ? "perfect" : "");
-  const st = craftState[slot] = craftState[slot] || { need: 3, grade: gradeFor(82), itemLevel: 82, quality: "good", main: true };
+  const st = craftState[slot] = craftState[slot] || { need: 3, grade: gradeFor(82), itemLevel: 82, quality: "good", main: true, mainMod: "" };
   const out = h("div", {});
   const select = (key, options) => h("select", { onchange: (e) => {
     st[key] = e.target.value;
@@ -2282,10 +2282,10 @@ function openCraft(box, slot) {
 
   async function run() {
     out.replaceChildren(loading(t("crLoading")));
-    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&quality=${st.quality}&mode=${state.mode}&main=${st.main !== false ? 1 : 0}`;
+    const q = `slot=${encodeURIComponent(slot)}&need=${st.need}&grade=${st.grade}&item_level=${st.itemLevel}&quality=${st.quality}&mode=${state.mode}&main=${st.main !== false ? 1 : 0}&main_mod=${encodeURIComponent(st.mainMod || "")}`;
     try {
       const r = await cached(`craft:${q}`, () => api(`/api/craft?${q}&${buildQuery()}`));
-      out.replaceChildren(renderCraft(r));
+      out.replaceChildren(renderCraft(r, { mainMod: st.mainMod || "", onMain: (id) => { st.mainMod = id; if (id) st.main = true; openCraft(box, slot); } }));
     } catch (e) {
       out.replaceChildren(h("p", { class: "muted" }, e.message));
     }
@@ -2293,8 +2293,48 @@ function openCraft(box, slot) {
   run();
 }
 
-function renderCraft(r) {
-  if (!r.targets.length) return h("p", { class: "muted" }, t("crNoTargets"));
+// the main mod to craft around, chosen among the mods the base rolls (the ones the build values first)
+function craftMainPicker(r, opts) {
+  if (!r.choices || !opts || !opts.onMain) return null;
+  const label = (c) => `${c.side === "Prefix" ? t("prefix") : t("suffix")} · ${trMod(c.label)}${c.score ? ` (+${fmt(c.score, 1)})` : ""}`;
+  return h("div", { class: "small" }, h("label", {}, t("crMainPick"), " ",
+    h("select", { onchange: (e) => opts.onMain(e.target.value) },
+      h("option", { value: "", selected: !opts.mainMod }, t("crMainAuto")),
+      r.choices.map((c) => h("option", { value: c.id, selected: c.id === opts.mainMod }, label(c))))),
+    r.mainMissing ? h("div", { class: "bad" }, t("crMainMissing")) : null);
+}
+
+// the desecration worth most for the build and how to get it: the bone with the side, the lord's and the echoes omens
+function craftDesecration(r) {
+  const d = r.desecration;
+  if (!d) return null;
+  const lordName = (l) => t("lord_" + l);
+  const side = (x) => (x === "Prefix" ? t("prefix") : t("suffix"));
+  if (!d.best) return h("div", { class: "small muted" }, h("b", {}, t("crDes")), " ", t("crDesNone"));
+  const pct = (p) => `${fmt(p * 100, p < 0.1 ? 1 : 0)}%`;
+  const money = (div) => (div === null || div === undefined ? "—"
+    : div < 1 && r.exaltedPerDivine ? `${fmt(div * r.exaltedPerDivine, 0)} ex` : `${fmt(div, div < 10 ? 2 : 0)} div`);
+  const items = (names) => names.map((n, i) => [i ? " + " : "", namedItem(n)]);
+  const way = d.recommended !== null && d.recommended !== undefined ? d.ways[d.recommended] : null;
+  return h("div", { class: "sk-item" },
+    h("b", {}, t("crDes")),
+    h("div", { class: "small" }, t("crDesBest", trMod(d.best.lines.join(" / ")), lordName(d.best.lord), side(d.best.side)),
+      d.best.score ? h("span", { class: "muted" }, ` (+${fmt(d.best.score, 1)})`) : null),
+    way ? h("div", { class: "small" }, t("crDesWay"), " ", items(way.n), " — ", h("b", {}, pct(way.chance)),
+      way.expected !== null && way.expected !== undefined ? [" · ", t("crDesExpected"), " ", h("b", {}, money(way.expected))] : null) : null,
+    d.lordOmens ? null : h("div", { class: "small muted" }, t("crDesNoLords")),
+    h("details", {}, h("summary", { class: "small" }, t("crDesAll")),
+      h("table", { class: "small" }, h("tbody", {}, d.ways.map((w, i) => h("tr", { class: i === d.recommended ? "best" : "" },
+        h("td", {}, items(w.n)), h("td", { class: "num" }, pct(w.chance)),
+        h("td", { class: "num muted" }, w.expected !== null && w.expected !== undefined ? money(w.expected) : "—"))))),
+      h("div", { class: "small muted" }, t("crDesNote")),
+      h("div", { class: "small" }, t("crDesOptions")),
+      h("ul", { class: "small" }, d.options.map((o) => h("li", {}, `${lordName(o.lord)}, ${side(o.side)}: ${trMod(o.lines.join(" / "))}`,
+        h("span", { class: "muted" }, o.score ? ` (+${fmt(o.score, 1)})` : ` (${t("crDesNoValue")})`))))));
+}
+
+function renderCraft(r, opts) {
+  if (!r.targets.length) return h("div", {}, craftMainPicker(r, opts), h("p", { class: "muted" }, t("crNoTargets")));
   const named = namedItem;
   // a price in divines, or in exalted orbs when it is under one divine
   const money = (div) => {
@@ -2339,8 +2379,9 @@ function renderCraft(r) {
           h("td", { class: "num muted small" }, r.prices[n] ? trFree(r.prices[n]) : "—")))))));
   };
   const dear = r.strategies.filter(tooDear);
-  return h("div", { class: "stack", style: "gap:10px" }, targets,
+  return h("div", { class: "stack", style: "gap:10px" }, craftMainPicker(r, opts), targets,
     r.essence ? h("div", { class: "small" }, t("crEssence"), " ", named(r.essence)) : null,
+    craftDesecration(r),
     h("div", { class: "craft-list" }, r.strategies.filter((s) => !tooDear(s)).map(card)),
     dear.length ? h("details", { class: "craft-dear" }, h("summary", {}, t("crExpensive", dear.length, money(budget))),
       h("div", { class: "craft-list" }, dear.map(card))) : null,
