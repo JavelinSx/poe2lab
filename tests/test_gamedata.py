@@ -117,3 +117,15 @@ def test_slips_in_the_game_s_translation_are_put_right():
             '# "вы и союзники in your присутствии получают {0}"\n')
     parsed = gamedata.parse_csd(text, "ru")
     assert parsed["entries"][0]["want"][0]["text"] == "вы и союзники в вашем присутствии получают {0}"
+
+
+def test_currency_texts():
+    """Each currency's own description and directions in English and Russian, from the unpacked game files (shown
+    on hover over an orb, an omen or a bone); skipped without them."""
+    if not (gamedata.RAW / "data/balance/currencyitems.datc64").is_file():
+        pytest.skip("the game's files are not unpacked here")
+    c = gamedata.build_currency("ru")
+    orb = c["Fracturing Orb"]
+    assert "locking it in place" in orb["text"] and orb["how"] and "[" not in orb["text"]
+    if orb["textLocal"]:
+        assert orb["textLocal"] != orb["text"]

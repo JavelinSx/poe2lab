@@ -2187,8 +2187,8 @@ function tradeList(items, good) {
 const CRAFT_GUIDE = [
   ["cheap", [["g_bases", []], ["g_transmute", ["Orb of Transmutation", "Orb of Augmentation"]],
     ["g_regal", ["Regal Orb", "Exalted Orb", "Omen of Greater Exaltation"]], ["g_goal", []]]],
-  ["essence", [["g_essence", ["Greater Essence of the Body"]], ["g_bone", ["Gnawed Rib", "Omen of Abyssal Echoes"]]]],
-  ["fracture", [["g_fracture", ["Fracturing Orb", "Gnawed Rib"]], ["g_after_fracture", ["Chaos Orb", "Orb of Annulment"]],
+  ["essence", [["g_essence", ["Greater Essence of the Body"]], ["g_bone", ["Ancient Rib", "Omen of Abyssal Echoes"]]]],
+  ["fracture", [["g_fracture", ["Fracturing Orb", "Ancient Rib"]], ["g_after_fracture", ["Chaos Orb", "Orb of Annulment"]],
     ["g_light", ["Orb of Annulment", "Omen of Light"]]]],
   ["expensive", [["g_perfect", ["Perfect Essence of the Body"]], ["g_grades", ["Greater Exalted Orb", "Perfect Exalted Orb"]],
     ["g_annul_side", ["Orb of Annulment", "Omen of Sinistral Annulment", "Omen of Dextral Annulment"]],
@@ -2196,7 +2196,20 @@ const CRAFT_GUIDE = [
 ];
 
 // "{0} and {1}": the placeholders become the items' pictures and names
-const namedItem = (n) => h("span", { class: "named" }, icon(n), trName(n));
+const namedItem = (n) => hoverTip(h("span", { class: "named" }, icon(n), trName(n)), () => currencyTip(n));
+// a currency's own description and directions (the game's), on hover over its name
+let CURRENCY = {};
+async function loadCurrency() {
+  try { CURRENCY = await (await fetch("/api/currency")).json(); } catch (_) { CURRENCY = {}; }
+}
+function currencyTip(name) {
+  const c = CURRENCY[name];
+  if (!c) return null;
+  const local = LANG !== "en";
+  const how = (local && c.howLocal) || c.how;
+  return h("div", { class: "currency-tip" }, h("b", {}, icon(name), " ", trName(name)),
+    h("div", {}, (local && c.textLocal) || c.text), how ? h("div", { class: "muted small" }, how) : null);
+}
 const withItems = (text, names) => text.split(/(\{\d\})/).map((part) => {
   const m = part.match(/^\{(\d)\}$/);
   return m ? namedItem(names[Number(m[1])]) : part;
@@ -5686,7 +5699,7 @@ function renderLangBanner(force = false) {
     run.textContent = t("ruUnpacking");
     try {
       GAMEDATA = await api("/api/gamedata", { method: "POST", body: { game_dir: dir.value.trim() || null } });
-      await Promise.all([loadGameTexts(), loadIcons()]);
+      await Promise.all([loadGameTexts(), loadIcons(), loadCurrency()]);
       toast(t("ruDone"), true);
       renderLangBanner();
       if (state.build) { renderHeader(); resetCache(); switchTab(state.tab); }
@@ -6079,7 +6092,7 @@ function auList(id, auto, autoNodes, kinds) {
 (async function start() {
   applyStaticTexts();
   renderEmpty();
-  await Promise.all([loadGameTexts(), loadIcons()]);
+  await Promise.all([loadGameTexts(), loadIcons(), loadCurrency()]);
   loadGameDataStatus();
   const s = await loadStatus();
   const wanted = readHash();

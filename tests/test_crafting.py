@@ -81,7 +81,7 @@ def test_strategies_with_an_essence_and_bones():
     targets = [target(d, "Life"), target(d, "Fire")]
     life_top = next(m for m in d.mods if m.id == "Life4")
     found = crafting.strategies(Pool(d, TAGS, 82), targets, 2, "", ("Essence of the Body", life_top),
-                                Pool(d, TAGS, 82, sets=("Desecrated",)), crafting.bone_for("Boots"))
+                                Pool(d, TAGS, 82, sets=("Desecrated",)), crafting.bone_for("Boots", 40))
     by_key = {s.key: s for s in found}
     assert set(by_key) == {"magic", "magic_greater", "essence", "essence_greater", "alchemy", "alchemy_whittle",
                            "fracture", "fracture_light"}
@@ -163,9 +163,10 @@ def test_price_in_divines():
 
 
 def test_bones_by_item_class():
-    assert crafting.bone_for("Ring") == "Gnawed Collarbone"
-    assert crafting.bone_for("Helmet") == "Gnawed Rib"
-    assert crafting.bone_for("Two Hand Mace") == "Gnawed Jawbone"
+    # the grade by the item level (the bones' drop levels): Ancient for endgame items
+    assert crafting.bone_for("Ring") == "Ancient Collarbone"
+    assert crafting.bone_for("Helmet", 40) == "Gnawed Rib"
+    assert crafting.bone_for("Two Hand Mace", 65) == "Preserved Jawbone"
 
 
 @pytest.fixture(scope="module")

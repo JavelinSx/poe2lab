@@ -31,6 +31,8 @@ TABLES = {  # table -> (key column, text columns)
 }
 # The game's own explanations of its terms (the popups on hover): Id, name and text in English and in `lang`.
 KEYWORDS = "keywordpopups"
+# each currency's own description and directions (shown on hover over an orb, an omen, a bone...)
+CURRENCY = "currencyitems"
 # where item pictures are: an item's visual identity names its texture; uniques have their own (poe2lab.icons)
 ART_TABLES = ["itemvisualidentity", "uniquestashlayout", "words"]
 # Names PoB shows that no table holds under the same English text (PoB's own labels for game things).
@@ -149,7 +151,7 @@ def extract(game: Path, lang: str = "ru"):
     if not BUN.is_file():
         raise GameDataError(f"нет {BUN.relative_to(ROOT)} — скачайте bun с github.com/zao/ooz/releases")
     folder = LANG_NAMES[lang].lower()
-    names = "|".join([*TABLES, KEYWORDS, *ART_TABLES])
+    names = "|".join([*TABLES, KEYWORDS, CURRENCY, *ART_TABLES])
     patterns = [r"^data/statdescriptions/.*\.csd$", rf"^data/balance/({folder}/)?({names})\.datc64$"]
     RAW.mkdir(parents=True, exist_ok=True)
     res = subprocess.run([str(BUN), "extract-files", "--regex", str(game), str(RAW), *patterns],
@@ -516,6 +518,39 @@ def build_keywords(lang: str = "ru") -> dict[str, dict]:
     return out
 
 
+def currency_path(lang: str) -> Path:
+    return GAME_CACHE / lang / "currency.json"
+
+
+def build_currency(lang: str = "ru") -> dict[str, dict]:
+    """English name -> {"text", "how", "textLocal", "howLocal"}: each currency's description and directions in
+    English and in `lang` (joined by its base item), the game's markup made plain."""
+    folder = LANG_NAMES[lang].lower()
+    bal = RAW / "data/balance"
+    en_path, loc_path, bases = bal / f"{CURRENCY}.datc64", bal / folder / f"{CURRENCY}.datc64", bal / "baseitemtypes.datc64"
+    if not en_path.is_file() or not bases.is_file():
+        return {}
+    names = read_table(bases, ["Name"])
+    cols = ["BaseItemType", "Description", "Directions"]
+    loc = {r["BaseItemType"]: r for r in read_table(loc_path, cols)} if loc_path.is_file() else {}
+    plain = lambda text: _unescape(text or "").strip()
+    out = {}
+    for r in read_table(en_path, cols):
+        key = r["BaseItemType"]
+        if key is None or key >= len(names) or not r["Description"] or not names[key]["Name"].strip():
+            continue
+        other = loc.get(key, {})
+        out.setdefault(names[key]["Name"].strip(), {"text": plain(r["Description"]), "how": plain(r["Directions"]),
+                                                     "textLocal": plain(other.get("Description")),
+                                                     "howLocal": plain(other.get("Directions"))})
+    return out
+
+
+def load_currency(lang: str) -> dict[str, dict]:
+    p = currency_path(lang)
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+
+
 def load_keywords(lang: str) -> dict[str, dict]:
     p = keywords_path(lang)
     return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
@@ -540,11 +575,14 @@ def build(lang: str = "ru", game: Path | None = None) -> dict:
     (GAME_CACHE / lang / "derived.ok").write_text(str(DERIVED_VERSION), encoding="utf-8")
     keywords = build_keywords(lang)
     keywords_path(lang).write_text(json.dumps(keywords, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
+    currency = build_currency(lang)
+    currency_path(lang).write_text(json.dumps(currency, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
     from . import icons  # icons read this module's tables; imported here to keep the dependency one-way
     icon_info = icons.build(game)
     # names.json last: its time marks a finished unpack (see stale)
     names_path(lang).write_text(json.dumps(names, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
     return {"statFiles": files, "names": len(names), "templates": len(templates), "keywords": len(keywords),
+            "currency": len(currency),
             "icons": icon_info["icons"],
             "game": str(game)}
 
@@ -578,8 +616,9 @@ def refresh_derived(lang: str) -> bool:
 
 def stale(lang: str, game: Path | None = None) -> bool:
     """Not unpacked yet, or the game was patched after unpacking (its bundle index is newer)."""
-    if not available(lang) or not names_path(lang).is_file() or not keywords_path(lang).is_file():
-        return True  # keywords.json: unpacks made before the term popups were added
+    if (not available(lang) or not names_path(lang).is_file() or not keywords_path(lang).is_file()
+            or not currency_path(lang).is_file()):
+        return True  # keywords.json, currency.json: unpacks made before the term popups / currency texts
     ok = GAME_CACHE / "icons" / "items.ok"
     from .icons import ART_VERSION  # icons imports this module
     if not ok.is_file() or (ok.read_text(encoding="utf-8").split() or [""])[0] != str(ART_VERSION):

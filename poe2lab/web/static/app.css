@@ -747,6 +747,8 @@ tr.dense .fit-chips { margin-top: 2px; }
 .hover-tip { position: fixed; z-index: 90; display: none; max-width: 380px; padding: 10px 12px; pointer-events: none;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
 .hover-tip .item-lines { margin: 4px 0 0; }
+.hover-tip .currency-tip { display: grid; gap: 5px; font-size: 13px; }
+.hover-tip .currency-tip b { display: flex; align-items: center; gap: 6px; }
 .tip-name { font-weight: 600; }
 .tip-name.r-unique { color: #d08a4a; }
 .tip-name.r-rare { color: #e2cf6a; }

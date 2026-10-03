@@ -37,7 +37,10 @@ MAX_ATTEMPTS = 15000
 ENOUGH_SUCCESSES = 40
 MAX_TRIES = 40  # fresh bases a player would burn before giving up on a strategy
 GREATER_EXALT = "Omen of Greater Exaltation"  # the next Exalted Orb adds two random modifiers
-BONE = {"Weapon": "Gnawed Jawbone", "Armour": "Gnawed Rib", "Jewellery": "Gnawed Collarbone"}
+BONE = {"Weapon": "Jawbone", "Armour": "Rib", "Jewellery": "Collarbone"}
+# the bone's grade by the item level: the game's drop levels of Gnawed / Preserved / Ancient bones (25, 61, 75) - their
+# descriptions are the same; Ancient for an endgame weapon is what the player uses
+BONE_GRADES = ((75, "Ancient"), (61, "Preserved"), (0, "Gnawed"))
 FRACTURE = "Fracturing Orb"  # fractures a random modifier on a rare item with at least 4 modifiers, locking it
 LIGHT = "Omen of Light"  # the next Orb of Annulment removes only desecrated modifiers
 ECHOES = "Omen of Abyssal Echoes"  # the next reveal of desecrated modifiers can reroll the options once
@@ -547,6 +550,7 @@ GUIDE_ITEMS = ["Orb of Transmutation", "Orb of Augmentation", "Regal Orb", "Exal
                "Orb of Alchemy", "Chaos Orb", "Orb of Annulment", "Fracturing Orb", "Omen of Abyssal Echoes", "Omen of Light",
                "Omen of Sinistral Annulment", "Omen of Dextral Annulment", "Omen of Homogenising Exaltation",
                "Greater Exalted Orb", "Perfect Exalted Orb", "Gnawed Rib", "Gnawed Jawbone", "Gnawed Collarbone",
+               "Ancient Rib", "Ancient Jawbone", "Ancient Collarbone",
                "Greater Essence of the Body", "Perfect Essence of the Body"]
 
 
@@ -675,9 +679,10 @@ def price_desecration(ways: list[dict], prices) -> int | None:
     return max(range(len(ways)), key=lambda i: ways[i]["chance"])
 
 
-def bone_for(item_type: str) -> str | None:
+def bone_for(item_type: str, item_level: int = 82) -> str | None:
+    grade = next(g for level, g in BONE_GRADES if item_level >= level)
     if item_type in ("Ring", "Amulet", "Belt"):
-        return BONE["Jewellery"]
+        return f"{grade} {BONE['Jewellery']}"
     if item_type in ("Helmet", "Body Armour", "Gloves", "Boots", "Shield", "Focus"):
-        return BONE["Armour"]
-    return BONE["Weapon"]
+        return f"{grade} {BONE['Armour']}"
+    return f"{grade} {BONE['Weapon']}"

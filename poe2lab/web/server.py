@@ -313,6 +313,14 @@ def icon_index():
     return icons.load_index()
 
 
+@app.get("/api/currency")
+def currency_texts():
+    """Each currency's own description and directions, in English and Russian ({} without the game's files):
+    shown on hover over an orb, an omen or a bone."""
+    _game_texts("ru")
+    return gamedata.load_currency("ru")
+
+
 @app.get("/api/i18n/{lang}")
 def i18n(lang: str):
     """Official game texts for the UI language (stat templates, names); empty if GGG's data is unreachable."""
@@ -792,7 +800,8 @@ def gear(mode: str = "balanced", build: str | None = None):
                     have = {(m.group, m.patterns) for m in (by_lines.get(tuple(a.template)) for a in stay) if m}
                     how = crafting.modify_routes(db, *pools[s.slot], essences, item["type"], item["tags"],
                                                  item["itemLevel"], mod, have, plan.count(mod.type),
-                                                 len(plan.affixes), bool(s.removed), crafting.bone_for(item["type"]))
+                                                 len(plan.affixes), bool(s.removed),
+                                                 crafting.bone_for(item["type"], item["itemLevel"]))
                     for r in how["routes"]:
                         found = [prices.get(n) if prices else None for n in r["n"]]
                         r["prices"] = [prices.describe(x) if x else None for x in found]
@@ -2085,11 +2094,13 @@ def _desecration(e, db, cfg: dict, item: dict, mode: str, weights: dict, item_le
     """The desecrated mods the slot's base can get, each valued on the worn item like the slot plan's candidates
     (its top roll added), and for the one worth most the bone and omens to get it - side, its lord's (weapons and
     jewellery), echoes - with the chance and the price (poe2lab.crafting.desecration_ways)."""
-    bone = crafting.bone_for(item["type"])
+    bone = crafting.bone_for(item["type"], item_level)
     pool = crafting.Pool(db, item["tags"], item_level, sets=("Desecrated",), item_type=item["type"])
     if not bone or not pool.mods:
         return None
-    slot, text, base = item["slot"], e.item_text(item["slot"]), e.what_if(config=cfg)
+    # damage on the skill items are compared on (a main skill PoB gives none, e.g. a triggered one: the strongest used)
+    group = _damage_group(e, cfg)
+    slot, text, base = item["slot"], e.item_text(item["slot"]), e.what_if(config=cfg, main_socket_group=group)
     found, _ = db.identify([x["line"] for x in item["explicit"]], item["tags"], item["itemLevel"])
     present = {(a.mod.group, a.mod.patterns) for a in found}
     options = []
@@ -2098,7 +2109,7 @@ def _desecration(e, db, cfg: dict, item: dict, mode: str, weights: dict, item_le
             continue
         lines = [max_roll(line) for line in m.lines]
         try:
-            out = e.what_if(config=cfg, replace_item=(slot, add_lines(text, lines)))
+            out = e.what_if(config=cfg, replace_item=(slot, add_lines(text, lines)), main_socket_group=group)
         except PobError:  # a line PoB cannot take on this item
             continue
         changes = metric_changes(out, base)
@@ -2139,7 +2150,7 @@ def _craft_ways(e, db, base: str, item_type: str, tags, item_level: int, targets
     pool = crafting.Pool(db, tags, item_level, item_type=item_type)
     desecrated = crafting.Pool(db, tags, item_level, sets=("Desecrated",), item_type=item_type)
     wanted = max(1, min(need, len(targets)))
-    found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated, crafting.bone_for(item_type),
+    found = crafting.strategies(pool, targets, wanted, grade, essence, desecrated, crafting.bone_for(item_type, item_level),
                                 must_main)
     crafting.price(found, prices)
     # cheapest first when priced; otherwise the likeliest
