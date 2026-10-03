@@ -1,0 +1,14 @@
+# Cloudflare bindings of the site's API (docs/SITE.md). Locally (npm run dev) wrangler keeps a copy of both under
+# .wrangler/; the real database and bucket are created by the site's owner (their ids go here then).
+name = "poe2lab-site"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "poe2lab"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "PACKAGES"
+bucket_name = "poe2lab-packages"
