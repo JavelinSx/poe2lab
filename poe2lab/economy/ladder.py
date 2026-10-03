@@ -122,8 +122,8 @@ def _dictionary(hash_: str) -> list[str]:
 
 
 def parse_search(body: bytes, names_of) -> dict:
-    """A search answer as {"total", "ascendancies": {name: count}, "characters": [...]}: names_of(dictionary id) ->
-    the dictionary's entries (the class and gem names)."""
+    """A search answer as {"total", "ascendancies": {name: count}, "items": {unique: count}, "characters": [...]}:
+    names_of(dictionary id) -> the dictionary's entries (the class, gem and item names)."""
     result = next(v for n, wt, v in fields(body) if n == 1)
     parts = fields(result)
     total = next((v for n, wt, v in parts if n == 1 and wt == 0), 0)
@@ -132,18 +132,23 @@ def parse_search(body: bytes, names_of) -> dict:
         if n == 6:
             f = fields(v)
             refs[f[0][2].decode()] = next(x.decode() for a, _, x in f[1:] if a == 2)
-    counts = {}
-    for n, wt, v in parts:
-        if n != 2:
-            continue
-        f = fields(v)
-        if f[0][2] != b"class":
-            continue
-        names = names_of(refs[next(x.decode() for a, _, x in f if a == 2)])
-        for a, _, c in f:
-            if a == 3:
-                entry = dict((k, x) for k, _, x in fields(c))
-                counts[names[entry.get(1, 0)]] = entry.get(2, 0)
+    def dimension(dim: bytes) -> dict[str, int]:
+        """A dimension's counts by name: how many characters pick each class, wear each unique..."""
+        out = {}
+        for n, wt, v in parts:
+            if n != 2:
+                continue
+            f = fields(v)
+            if f[0][2] != dim:
+                continue
+            names = names_of(refs[next(x.decode() for a, _, x in f if a == 2)])
+            for a, _, c in f:
+                if a == 3:
+                    entry = dict((k, x) for k, _, x in fields(c))
+                    if entry.get(1, 0) < len(names):
+                        out[names[entry.get(1, 0)]] = entry.get(2, 0)
+        return out
+    counts = dimension(b"class")
     columns = {}
     for n, wt, v in parts:
         if n == 12:
@@ -161,7 +166,9 @@ def parse_search(body: bytes, names_of) -> dict:
                       "skill": gems[skill] if skill is not None and skill < len(gems) else "",
                       "life": col("life", i, 0), "es": col("energyshield", i, 0),
                       "ehp": col("ehp__str", i, ""), "dps": col("dps.total", i, "")})
-    return {"total": total, "ascendancies": counts, "characters": chars}
+    # the uniques the characters wear (poe.ninja's "items" filter), when the answer has them
+    return {"total": total, "ascendancies": counts, "items": dimension(b"items") if "item" in refs else {},
+            "characters": chars}
 
 
 def search(ascendancy: str | None = None, league: str | None = None) -> dict:

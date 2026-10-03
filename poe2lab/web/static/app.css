@@ -1178,3 +1178,11 @@ body.au-on .app { margin-right: 340px; }
 .au-pop-list { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .doll-badge.author { background: var(--gold); color: #1b1407; }
 @media (max-width: 1400px) { body.au-on .app { margin-right: 300px; } .au-drawer { width: 300px; } }
+
+/* the loot filter: the campaign's and the maps' apart; the bases in demand by how many wear them */
+.loot-stage { align-self: flex-start; }
+.loot-stage button { height: 34px; padding: 0 16px; font-size: 14px; }
+.loot-extras { margin-top: 10px; }
+.demand-share { display: inline-block; width: 70px; height: 5px; border-radius: 3px; background: var(--panel-3); overflow: hidden; vertical-align: 2px; margin: 0 8px 0 4px; }
+.demand-share i { display: block; height: 100%; width: var(--v); background: linear-gradient(90deg, #3aa79a, #50dcc8); }
+.demand-bases { columns: 220px; column-gap: 18px; }

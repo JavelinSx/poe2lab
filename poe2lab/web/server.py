@@ -2116,14 +2116,19 @@ class MarketChoice(BaseModel):
     top_unit: str = "div"
     low: float = 50.0
     low_unit: str = "ex"
+    demand: bool = True  # the maps' filter: the bases most players craft on
+    demand_ilvl: int = lootfilter.DEMAND_ILVL
+    stage: str = "all"  # "leveling" | "maps" | "all" (lootfilter.STAGES)
 
 
 @app.get("/api/lootfilter")
 def loot_filter(mode: str = "balanced", build: str | None = None, market: bool = True, top: float = 1.0,
-                top_unit: str = "div", low: float = 50.0, low_unit: str = "ex"):
+                top_unit: str = "div", low: float = 50.0, low_unit: str = "ex", demand: bool = True,
+                demand_ilvl: int = lootfilter.DEMAND_ILVL, stage: str = "all"):
     if mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {mode!r}")
-    choice = MarketChoice(market=market, top=top, top_unit=top_unit, low=low, low_unit=low_unit)
+    choice = MarketChoice(market=market, top=top, top_unit=top_unit, low=low, low_unit=low_unit, demand=demand,
+                          demand_ilvl=demand_ilvl, stage=stage)
     with session.lock:
         session.require(build)
         return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()),
@@ -2132,16 +2137,62 @@ def loot_filter(mode: str = "balanced", build: str | None = None, market: bool =
 
 
 def _loot(mode: str, choice: MarketChoice | None = None) -> dict:
-    """Rules and filter block for the open build, with the market block when chosen (caller holds the lock)."""
+    """Rules and filter block for the open build and the part of the game chosen (caller holds the lock): the
+    campaign's with its extras, the maps' with the market and the bases in demand when chosen, or both in one."""
     def compute():
         e, prof = session.engine, session.profile
         weights = defence_weights(survivable_hits(e, prof))
         return lootfilter.slot_rules(e, session.db(), prof.config(), mode, weights)
 
+    stage = choice.stage if choice else "all"
+    if stage not in lootfilter.STAGES:
+        raise HTTPException(400, f"неизвестная часть игры {stage!r}")
     rules = session.cached(("lootfilter", mode), compute)
-    market = _market(choice) if choice and choice.market else None
-    return {"rules": rules, "block": lootfilter.render(rules, session.path.stem, market["blocks"] if market else None),
-            "market": {k: v for k, v in market.items() if k != "blocks"} if market else None}
+    market = _market(choice) if stage != "leveling" and choice and choice.market else None
+    extra, out = [], {}
+    if stage == "leveling":
+        extra, out["leveling"] = _loot_leveling(rules)
+    elif stage == "maps" and choice.demand:
+        demand = _demand(choice)
+        extra, out["demand"] = demand.pop("blocks"), demand
+    return out | {"rules": rules, "stage": stage,
+                  "block": lootfilter.render(rules, session.path.stem, market["blocks"] if market else None, stage, extra),
+                  "market": {k: v for k, v in market.items() if k != "blocks"} if market else None}
+
+
+def _loot_leveling(rules) -> tuple[list[str], dict]:
+    """The campaign's extras: the weapon of the way the player levels with (the profile's levelling answers), the
+    bases and uniques the build's author put into the levelling plan's gear (the constructor's lv:<stage>:gear)."""
+    raw = _profile_raw()
+    way = ((raw.get("leveling") or {}).get("way") or "").split(":")[0]
+    plan = [tok for bid, b in ((raw.get("author") or {}).get("blocks") or {}).items()
+            if bid.startswith("lv:") and bid.endswith(":gear") for tok in b.get("list", [])]
+    by_name = {u["name"]: u["base"] for u in session.cached("unique-catalog", session.engine.unique_catalog)}
+    bases = [tok.split(":", 1)[1] for tok in plan if tok.startswith("base:")]
+    unique_bases = [by_name[n] for n in (tok.split(":", 1)[1] for tok in plan if tok.startswith("unique:")) if n in by_name]
+    return lootfilter.leveling_blocks(None if way == "build" else way, {r.item_class for r in rules},
+                                      bases, unique_bases, gamedata.base_type_names() or None)
+
+
+def _demand(choice: MarketChoice) -> dict:
+    """The bases most players craft on: the kinds of gear the league's ladder wears rare (poe.ninja), each with its
+    end-game bases, white from the item level chosen."""
+    if not 1 <= choice.demand_ilvl <= 100:
+        raise HTTPException(400, "уровень предмета — от 1 до 100")
+    valid = gamedata.base_type_names()
+    if not valid:
+        return {"error": "нет распакованных данных игры, чтобы сверить названия баз — блок востребованных баз не "
+                         "добавлен", "blocks": []}
+    league = ninja.chosen_league()
+    try:
+        worn = session.cached(("ladder-worn", league), lambda: ladder.search(league=league))
+    except (OSError, ValueError, StopIteration) as err:
+        return {"error": f"нет данных ладдера poe.ninja ({err}) — блок востребованных баз не добавлен", "blocks": []}
+    hidden = {b["name"] for b in session.engine.item_bases() if b.get("hidden")}
+    bases = [b | {"hidden": b["name"] in hidden} for b in _item_data()["bases"]]
+    kinds = lootfilter.demand_bases(worn.get("items") or {}, worn.get("total") or 0, bases)
+    return {"blocks": lootfilter.demand_blocks(kinds, valid, choice.demand_ilvl), "kinds": kinds,
+            "league": worn.get("league"), "characters": worn.get("total"), "itemLevel": choice.demand_ilvl}
 
 
 def _market(choice: MarketChoice) -> dict:
@@ -2224,6 +2275,7 @@ def loot_filter_save(req: LootFilterSave):
             default = f"мой фильтр + poe2lab {session.path.stem}"
         else:
             default = f"poe2lab {session.path.stem}"
+        default += {"leveling": " (прокачка)", "maps": " (карты)"}.get(req.stage, "")
         name = lootfilter.safe_name(req.name or default)
         target = folder / f"{name}.filter"
         if req.source == "file" and target.resolve() == src.resolve():

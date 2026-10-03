@@ -3067,7 +3067,13 @@ async function jewelEditor(socket, opts = {}) {
 
 // ---------- loot filter ----------
 // the loot filter's market block: on or off, and the two price bars, each in exalted or divine orbs (per viewer)
-const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex" };
+const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex", demand: true, demand_ilvl: 82 };
+// the part of the game the filter is for: the campaign (below area level 65) or maps; a character still in the
+// campaign starts on the campaign's, anything else on the maps'; the player's last pick is remembered
+function lootStage() {
+  try { const v = localStorage.getItem("poe2lab.lootStage"); if (v === "leveling" || v === "maps") return v; } catch (_) { /* storage blocked */ }
+  return state.build && state.build.main && (state.build.info.level || 0) < 65 ? "leveling" : "maps";
+}
 function lootMarket() {
   try { return { ...LOOT_MARKET, ...JSON.parse(localStorage.getItem("poe2lab.lootMarket") || "{}") }; } catch (_) { return { ...LOOT_MARKET }; }
 }
@@ -3075,9 +3081,22 @@ const lootQuery = (m) => new URLSearchParams(Object.entries(m).map(([k, v]) => [
 
 TABS.loot = async (view) => {
   view.replaceChildren(loading(t("lootLoading")));
-  const mk = lootMarket();
+  const stage = lootStage();
+  const mk = { ...lootMarket(), stage };
   const r = await cached(`loot:${state.mode}:${lootQuery(mk)}`, () => api(`/api/lootfilter?mode=${state.mode}&${lootQuery(mk)}&${buildQuery()}`));
-  const rows = r.rules.map((x) => h("tr", {},
+  // two filters: the campaign's and the maps'; the player switches between them in the game at maps
+  const stageSeg = h("div", { class: "seg loot-stage" }, [["leveling", "run"], ["maps", "map"]].map(([k, ic]) =>
+    h("button", { class: stage === k ? "active" : "", title: t("lootStageHint_" + k), onclick: () => {
+      try { localStorage.setItem("poe2lab.lootStage", k); } catch (_) { /* storage blocked */ }
+      switchTab("loot");
+    } }, I(ic), h("span", {}, t("lootStage_" + k)))));
+  const leveling = stage === "leveling";
+  const rows = r.rules.map((x) => leveling ? h("tr", {},
+    h("td", {}, slotName(x.slot)),
+    h("td", {}, h("span", { class: "named", title: x.base }, icon(x.base), trName(x.base)),
+      x.unique ? h("div", { class: "hint" }, t("lootUniqueLv")) : null),
+    h("td", { class: "small" }, x.leveling.length ? t("lootLevelingCell", x.leveling.length) : h("span", { class: "muted" }, "—")))
+    : h("tr", {},
     h("td", {}, slotName(x.slot)),
     h("td", {}, h("span", { class: "named", title: x.base }, icon(x.base), trName(x.base)),
       x.unique ? h("div", { class: "hint" }, t("lootUnique")) : null),
@@ -3085,13 +3104,12 @@ TABS.loot = async (view) => {
     h("td", {}, x.unique ? h("span", { class: "muted small" }, t("lootByBase"))
       : x.affixes.length ? hoverTip(h("span", { class: "pk-node small" }, t("lootModsN", x.mods.length)),
         () => linesTip(icon(x.base), trName(x.base), x.mods.map((m) => h("li", { title: m }, trMod(m))), t("lootAffixes", x.affixes.length)))
-        : h("span", { class: "muted small" }, t("lootNoMods"))),
-    h("td", { class: "small" }, x.leveling.length ? t("lootLevelingCell", x.leveling.length) : h("span", { class: "muted" }, "—"))));
-  const what = foldedCard(h("div", { class: "card" }, h("h3", {}, t("lootWhat")), h("div", { class: "sub" }, t("lootWhatSub", t("mode_" + state.mode))),
-    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, h("th", {}, t("slot")), h("th", {}, t("lootBase")),
-      h("th", { class: "num" }, t("lootIlvl")), h("th", {}, t("lootGold")), h("th", {}, t("lootLeveling")))), h("tbody", {}, rows)),
-    h("div", { class: "hint", style: "margin-top:8px" }, t("lootLegend")),
-    h("div", { class: "hint", style: "margin-top:4px" }, t("lootLevelingLegend"))), "what", t("lootWhatSum", r.rules.length));
+        : h("span", { class: "muted small" }, t("lootNoMods")))));
+  const head = leveling ? [t("slot"), t("lootLvClass"), t("lootLeveling")] : [t("slot"), t("lootBase"), t("lootIlvl"), t("lootGold")];
+  const what = foldedCard(h("div", { class: "card" }, h("h3", {}, t("lootWhat")), h("div", { class: "sub" }, t(leveling ? "lootWhatSubLv" : "lootWhatSub", t("mode_" + state.mode))),
+    h("table", { class: "versus-items" }, h("thead", {}, h("tr", {}, head.map((x, i) => h("th", { class: !leveling && i === 2 ? "num" : null }, x)))), h("tbody", {}, rows)),
+    leveling ? lootLevelingExtras(r.leveling) : null,
+    h("div", { class: "hint", style: "margin-top:8px" }, t(leveling ? "lootLevelingLegend" : "lootLegend"))), "what", t("lootWhatSum", r.rules.length));
 
   // where the player's filter comes from
   let source = "file";
@@ -3112,7 +3130,7 @@ TABS.loot = async (view) => {
     pick.textContent = t("lootPick");
   } }, t("lootPick"));
   const text = h("textarea", { rows: 6, placeholder: t("lootPastePh"), spellcheck: "false" });
-  const name = h("input", { type: "text", placeholder: t("lootNamePh"), style: "width:100%" });
+  const name = h("input", { type: "text", placeholder: t("lootNamePh", t("lootStageShort_" + stage)), style: "width:100%" });
   // the game's copies of online filters (NeverSink, FilterBlade subscriptions), by their names
   const online = (r.onlineFilters || []).length ? h("div", { class: "row small" }, h("span", { class: "muted" }, t("lootOnlineList")),
     r.onlineFilters.map((f) => h("button", { class: "ghost small", title: f.path, onclick: () => { chosen = f.path; chosenName = f.name; drawChosen(); } },
@@ -3132,14 +3150,14 @@ TABS.loot = async (view) => {
     save.disabled = true;
     try {
       const res = await api("/api/lootfilter/save", { method: "POST", body: { mode: state.mode, source,
-        file: chosen || null, text: text.value, name: name.value.trim() || null, ...lootMarket() } });
+        file: chosen || null, text: text.value, name: name.value.trim() || null, ...mk } });
       done.replaceChildren(h("div", { class: "action" }, t("lootSaved", res.name, res.path)));
       toast(t("lootSavedShort", res.name), true);
     } catch (e) { toast(e.message); }
     save.disabled = false;
   } }, t("lootSave"));
   const done = h("div", {});
-  const build = h("div", { class: "card stack" }, h("h3", {}, t("lootBuild")), h("div", { class: "sub" }, t("lootBuildSub")),
+  const build = h("div", { class: "card stack" }, h("h3", {}, t("lootBuild_" + stage)), h("div", { class: "sub" }, t("lootBuildSub")),
     seg, paneBox, h("label", { class: "field" }, h("span", {}, t("lootName")), name), h("div", {}, save), done,
     h("div", { class: "hint" }, t("lootOnline")));
   const copy = h("button", { class: "ghost small", onclick: async () => {
@@ -3147,8 +3165,46 @@ TABS.loot = async (view) => {
   } }, t("copyBlock"));
   const preview = h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lootPreview")),
     h("div", { class: "row", style: "margin:8px 0" }, copy), h("pre", { class: "filter-preview" }, r.block)));
-  return h("div", { class: "stack" }, h("div", { class: "sub" }, t("lootIntro")), what, marketCard(r.market, mk), build, preview);
+  return h("div", { class: "stack" }, stageSeg, h("div", { class: "sub" }, t("lootIntro_" + stage)), what,
+    leveling ? null : marketCard(r.market, mk), leveling ? null : demandCard(r.demand, mk), build, preview);
 };
+
+// the campaign's extras: the weapon of the way the player levels with, what the build's author planned for the gear
+function lootLevelingExtras(x) {
+  if (!x) return null;
+  const rows = [
+    x.weapons.length ? h("li", {}, t("lootLvWeapon", x.weapons.map((c) => t("lootClass", c)).join(", "))) : null,
+    x.bases.length ? h("li", {}, t("lootLvPlanBases"), " ", x.bases.map((b, i) => [i ? ", " : "", h("span", { class: "named" }, icon(b), trName(b))])) : null,
+    x.uniques.length ? h("li", {}, t("lootLvPlanUniques"), " ", x.uniques.map((b, i) => [i ? ", " : "", h("span", { class: "named" }, icon(b), trName(b))])) : null,
+  ].filter(Boolean);
+  return h("div", { class: "loot-extras" }, h("div", { class: "lr-sec-k" }, t("lootLvExtras")),
+    rows.length ? h("ul", { class: "item-lines small" }, rows) : h("div", { class: "muted small" }, t("lootLvNoExtras")));
+}
+
+// the maps' filter: the bases most players craft on - the kinds of gear the ladder wears rare, each with its
+// end-game bases, white from an item level every tier rolls at
+function demandCard(d, mk) {
+  const redo = (patch) => {
+    try { localStorage.setItem("poe2lab.lootMarket", JSON.stringify({ ...lootMarket(), ...patch })); } catch (_) { /* storage blocked */ }
+    switchTab("loot");
+  };
+  const on = h("input", { type: "checkbox", checked: mk.demand, onchange: (e) => redo({ demand: e.target.checked }) });
+  const ilvl = h("select", { onchange: (e) => redo({ demand_ilvl: Number(e.target.value) }) },
+    [75, 78, 80, 82].map((n) => h("option", { value: n, selected: Number(mk.demand_ilvl) === n }, n)));
+  const body = [];
+  if (mk.demand && d && d.error) body.push(h("p", { class: "bad small" }, d.error));
+  else if (mk.demand && d) {
+    body.push(h("div", { class: "muted small" }, t("demandLadder", trName(d.league || ""), fmt(d.characters || 0))),
+      ...d.kinds.map((k) => h("details", { class: "market-group" }, h("summary", {}, h("b", {}, t("lootKind", k.kind)), " ",
+        h("span", { class: "demand-share", style: `--v:${Math.min(100, k.share)}%` }, h("i")),
+        h("span", { class: "muted small" }, t("demandShare", fmt(k.share, 0), k.bases.length))),
+        h("ul", { class: "item-lines small demand-bases" }, k.bases.map((b) => h("li", {}, h("span", { class: "named" }, icon(b), trName(b))))))));
+  }
+  return foldedCard(h("div", { class: "card stack" }, h("h3", {}, t("demandTitle")), h("div", { class: "sub" }, t("demandSub")),
+    h("label", { class: "row", style: "gap:8px" }, on, t("demandOn")),
+    mk.demand ? h("label", { class: "row", style: "gap:8px" }, t("demandIlvl"), ilvl) : null, ...body),
+  "demand", mk.demand && d && d.kinds ? t("demandSum", d.kinds.length) : t("marketSumOff"));
+}
 
 // the market block: what poe.ninja prices at the chosen bars, and the bars themselves
 function marketCard(m, mk) {

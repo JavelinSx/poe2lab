@@ -11,7 +11,15 @@ PoE2 filters see an unidentified rare's base, class and item level, and an ident
   mod families at the tiers that drop there, and unidentified rares of that class - uniques' slots included,
   since the unique is not there yet.
 Which affixes matter comes from the slot plans (PoB what-ifs for the chosen goal); affix names from PoB's mod data.
-Everything else is left to the player's filter below the block."""
+Everything else is left to the player's filter below the block.
+
+Two filters, one for each part of the game (the player switches at maps):
+- levelling, the campaign below area level 65: the levelling rules above, the build's uniques, the weapon of the way
+  the player levels with, the bases and uniques the build's author put into the levelling plan;
+- maps, from 65: the build's items at their best tiers, its craft bases and uniques, what is worth a lot by
+  poe.ninja (the market block), and the bases in demand - the kinds of gear most players wear rare (poe.ninja's
+  ladder: rare boots on 90% of characters, a rare sceptre on a fifth), the best base of each defence kind (every
+  jewellery base), white, at an item level every tier rolls at."""
 import ctypes
 import re
 from dataclasses import dataclass, field
@@ -19,6 +27,7 @@ from pathlib import Path
 
 from .analysis.slots import AFFIX_LIMIT, SKIP_TYPES, plan_slot
 from .data.moddb import ModDB
+from .itemcraft import ALL_BASES
 
 TYPE_CLASS = {
     "Helmet": "Helmets", "Body Armour": "Body Armours", "Gloves": "Gloves", "Boots": "Boots", "Amulet": "Amulets",
@@ -32,6 +41,20 @@ MAX_ILVL = 82  # every tier rolls from here
 TOP_TIERS = 3  # affix names counted per mod group: the best tiers the base can roll
 GROUPS_PER_SLOT = 8  # mod groups that matter most for a slot
 LEVELING_AREA = 65  # the campaign's areas are below this level, maps start at it
+STAGES = ("all", "leveling", "maps")  # one filter for both, the campaign's, the maps'
+# what poe.ninja's ladder calls a kind of gear ("Rare Boots") -> PoB's base type (a quarterstaff is a "Staff" too)
+LADDER_KINDS = {"Ring": "Ring", "Amulet": "Amulet", "Belt": "Belt", "Boots": "Boots", "Gloves": "Gloves",
+                "Helmet": "Helmet", "Body Armour": "Body Armour", "Shield": "Shield", "Focus": "Focus", "Quiver": "Quiver",
+                "Sceptre": "Sceptre", "Wand": "Wand", "Staff": "Staff", "Quarterstaff": "Staff", "Bow": "Bow",
+                "Crossbow": "Crossbow", "Spear": "Spear", "Talisman": "Talisman", "One Handed Mace": "One Hand Mace",
+                "Two Handed Mace": "Two Hand Mace"}
+DEMAND_SHARE = 5.0  # % of the ladder's characters wearing a rare of a kind: its end-game bases are sought after
+DEMAND_ILVL = 82  # a white base from this item level rolls every tier
+SPECIAL_TAGS = {"runeforged", "not_for_sale", "demigods"}  # bases that do not drop as plain white items
+# the item classes of a way of levelling (poe2lab.analysis.leveling's weapons)
+WAY_CLASSES = {"quarterstaff": ["Quarterstaves"], "mace": ["One Hand Maces", "Two Hand Maces"], "bow": ["Bows"],
+               "crossbow": ["Crossbows"], "spear": ["Spears"], "talisman": ["Talismans"], "spell": ["Wands", "Staves"],
+               "minion": ["Sceptres", "Wands"]}
 BEGIN, END = "# ===== poe2lab: begin =====", "# ===== poe2lab: end ====="
 
 
@@ -129,6 +152,10 @@ STYLES = {
     "market": ["SetFontSize 42", "SetTextColor 0 0 0 255", "SetBorderColor 0 0 0 255", "SetBackgroundColor 235 190 60 240",
                "PlayAlertSound 2 250", "PlayEffect Yellow", "MinimapIcon 1 Yellow Circle"],
     "market_maybe": ["SetFontSize 38", "SetBorderColor 235 190 60 255", "MinimapIcon 2 Yellow Diamond"],
+    # a base many players craft on
+    "demand": ["SetFontSize 38", "SetTextColor 200 255 245 255", "SetBorderColor 80 220 200 255", "MinimapIcon 2 Cyan Square"],
+    # levelling: a weapon to compare
+    "weapon": ["SetFontSize 38", "SetBorderColor 220 220 220 255", "MinimapIcon 2 White Triangle"],
 }
 
 
@@ -207,10 +234,77 @@ def market_blocks(market: dict, top: float, low: float, valid: set | None = None
     return blocks, summary
 
 
-def render(rules: list[SlotRule], build: str, market: list[str] | None = None) -> str:
-    """The filter block: most specific first (a filter stops at the first matching block)."""
-    blocks = [BEGIN, f"# Билд: {build}. Собрано poe2lab: вещи под этот билд поверх твоего фильтра.", ""]
-    for kind, need, style in (("голда", 3, "gold"), ("хорошая вещь", 2, "good")):
+def demand_bases(worn: dict[str, int], total: int, bases: list[dict], share: float = DEMAND_SHARE) -> list[dict]:
+    """The kinds of gear many players wear rare (poe.ninja's ladder: {"Rare Boots": characters}) and the bases of each
+    end-game items are made on: [{"kind", "share" (% of characters), "bases": [names]}], the most worn first."""
+    out = []
+    for kind, base_type in LADDER_KINDS.items():
+        pct = worn.get(f"Rare {kind}", 0) / total * 100 if total else 0.0
+        if pct < share:
+            continue
+        of = [b for b in bases if b["type"] == base_type and not b.get("hidden")]
+        if base_type == "Staff":  # a quarterstaff and a caster's staff are both PoB's "Staff"
+            of = [b for b in of if ("warstaff" in b.get("tags", [])) == (kind == "Quarterstaff")]
+        names = _craft_bases(of)
+        if names:
+            out.append({"kind": kind, "share": round(pct, 1), "bases": names})
+    return sorted(out, key=lambda d: -d["share"])
+
+
+def _craft_bases(bases: list[dict]) -> list[str]:
+    """The bases of one kind of gear people craft on: of armour and weapons the best of each defence or sub-kind
+    (its highest level - a lower one only has less of it), of jewellery every base (each has its own implicit);
+    without the special ones that do not drop white."""
+    bases = [b for b in bases if not SPECIAL_TAGS & set(b.get("tags", [])) and b["name"] != b["type"]]
+    if bases and bases[0]["type"] in ALL_BASES:
+        return sorted({b["name"] for b in bases})
+    top: dict[str, int] = {}
+    for b in bases:
+        top[b.get("subType", "")] = max(top.get(b.get("subType", ""), 0), b["level"])
+    return sorted({b["name"] for b in bases if b["level"] == top[b.get("subType", "")]})
+
+
+def demand_blocks(demand: list[dict], valid: set | None = None, item_level: int = DEMAND_ILVL) -> list[str]:
+    """A block per kind of gear in demand: its end-game bases, white, at an item level every tier rolls at."""
+    blocks = []
+    for d in demand:
+        names = [n for n in d["bases"] if valid is None or n in valid]
+        if names:
+            blocks.append(_block(f"востребованная база: {d['kind']} (редкую носят {d['share']}% игроков) — белая, "
+                                 f"уровень предмета {item_level}+", ["Rarity Normal", f"BaseType == {_quote(names)}",
+                                                                      f"ItemLevel >= {item_level}"], "demand"))
+            blocks.append("")
+    return blocks
+
+
+def leveling_blocks(way_weapon: str | None, own_classes: set, plan_bases: list[str], plan_unique_bases: list[str],
+                    valid: set | None = None) -> tuple[list[str], dict]:
+    """The campaign's extra blocks: the weapon of the way the player levels with (when the build's own slots do not
+    cover its class), the bases and the uniques' bases the build's author put into the levelling plan."""
+    area = f"AreaLevel < {LEVELING_AREA}"
+    known = lambda names: sorted({n for n in names if valid is None or n in valid})  # noqa: E731
+    classes = [c for c in WAY_CLASSES.get(way_weapon or "", []) if c not in own_classes]
+    bases, uniques = known(plan_bases), known(plan_unique_bases)
+    blocks = []
+    if classes:
+        blocks += [_block("прокачка — оружие для способа прокачки: сравни урон", [
+            area, "Rarity Magic Rare", f"Class == {_quote(classes)}"], "weapon"), ""]
+    if bases:
+        blocks += [_block("прокачка — базы из плана автора билда", [area, f"BaseType == {_quote(bases)}"], "craft"), ""]
+    if uniques:
+        blocks += [_block("прокачка — уники из плана автора билда (по базе)", [
+            area, "Rarity Unique", f"BaseType == {_quote(uniques)}"], "unique"), ""]
+    return blocks, {"weapons": classes, "bases": bases, "uniques": uniques}
+
+
+def render(rules: list[SlotRule], build: str, market: list[str] | None = None, stage: str = "all",
+           extra: list[str] | None = None) -> str:
+    """The filter block: most specific first (a filter stops at the first matching block). `stage`: "leveling" -
+    the campaign's rules and `extra` (leveling_blocks); "maps" - the build's items at their tiers, its uniques, the
+    market and `extra` (demand_blocks) after it; "all" - both parts in one filter."""
+    title = {"leveling": " — прокачка до 65", "maps": " — карты 65+", "all": ""}[stage]
+    blocks = [BEGIN, f"# Билд: {build}{title}. Собрано poe2lab: вещи под этот билд поверх твоего фильтра.", ""]
+    for kind, need, style in (("голда", 3, "gold"), ("хорошая вещь", 2, "good")) if stage != "leveling" else ():
         for r in rules:
             if not r.item_class or len(r.affixes) < need:
                 continue
@@ -220,7 +314,7 @@ def render(rules: list[SlotRule], build: str, market: list[str] | None = None) -
             blocks.append("")
     # levelling: one set per item class and defence type (both rings share one), any base of it
     groups = {}
-    for r in rules:
+    for r in (rules if stage != "maps" else []):
         if r.item_class and r.leveling:
             g = groups.setdefault((r.item_class, tuple(r.defence)), {"slots": [], "affixes": []})
             g["slots"].append(r.slot)
@@ -237,8 +331,10 @@ def render(rules: list[SlotRule], build: str, market: list[str] | None = None) -
         blocks.append(_block(f"прокачка, {slots} — редкая вещь класса билда, опознай", [
             area, "Identified False", "Rarity Rare", f'Class == "{cls}"', *defence], "identify"))
         blocks.append("")
+    if stage == "leveling":
+        blocks += extra or []
     bases = {}
-    for r in rules:
+    for r in (rules if stage != "leveling" else []):
         if not r.unique:
             bases.setdefault((r.base, r.item_level), []).append(r.slot)
     for (base, ilvl), slots in bases.items():
@@ -253,7 +349,10 @@ def render(rules: list[SlotRule], build: str, market: list[str] | None = None) -
         blocks.append(_block("уникальные предметы билда (по базе)", ["Rarity Unique", f"BaseType == {_quote(uniques)}"],
                              "unique"))
         blocks.append("")
-    blocks += market or []
+    if stage != "leveling":
+        blocks += market or []
+    if stage == "maps":
+        blocks += extra or []
     blocks.append(END)
     return "\n".join(blocks) + "\n"
 

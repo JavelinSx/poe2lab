@@ -61,6 +61,46 @@ def test_block_syntax(rules):
     assert sum('Class == "Rings"' in b and "HasExplicitMod >=3" in b for b in leveling) == 1  # both rings, one rule
 
 
+def test_a_filter_for_the_campaign_and_one_for_maps(rules):
+    """Levelling: the campaign's rules and its extras, nothing of the maps'; maps: the build's items at their tiers,
+    the market and the bases in demand after it, nothing of the campaign's."""
+    extra, info = lf.leveling_blocks("bow", {"Talismans"}, ["Gothic Quarterstaff"], ["Lazuli Ring"])
+    assert info == {"weapons": ["Bows"], "bases": ["Gothic Quarterstaff"], "uniques": ["Lazuli Ring"]}
+    lv = lf.render(rules, "titan", ["Show # poe2lab: рынок"], "leveling", extra)
+    assert "прокачка до 65" in lv and "HasExplicitMod" in lv and "рынок" not in lv
+    assert 'Class == "Bows"' in lv and 'BaseType == "Gothic Quarterstaff"' in lv
+    assert all(f"AreaLevel < {lf.LEVELING_AREA}" in b for b in lv.split("\n\n") if "Show # poe2lab: прокачка" in b)
+    assert "база под крафт" not in lv and "голда для билда" not in lv
+    maps = lf.render(rules, "titan", ["Show # poe2lab: рынок", ""], "maps", ["Show # poe2lab: востребованная база", ""])
+    assert "карты 65+" in maps and "AreaLevel" not in maps and "база под крафт" in maps
+    assert maps.index("рынок") < maps.index("востребованная база")  # the dearer things first
+    # the way the build itself levels with adds no weapon of its own
+    assert lf.leveling_blocks("talisman", {"Talismans"}, [], [])[1]["weapons"] == []
+
+
+def test_bases_in_demand_by_the_ladder():
+    """The kinds most players wear rare get their end-game bases: a quarterstaff and a caster's staff apart."""
+    bases = [{"name": "Expert Boots", "type": "Boots", "subType": "Armour", "level": 70},
+             {"name": "Old Boots", "type": "Boots", "subType": "Armour", "level": 10},
+             {"name": "Hidden Boots", "type": "Boots", "subType": "Armour", "level": 80, "hidden": True},
+             {"name": "Runeforged Boots", "type": "Boots", "subType": "Armour", "level": 70, "tags": ["runeforged"]},
+             {"name": "Mid Boots", "type": "Boots", "subType": "Armour", "level": 65},
+             {"name": "Silk Boots", "type": "Boots", "subType": "Energy Shield", "level": 70},
+             {"name": "Top Quarterstaff", "type": "Staff", "subType": "Warstaff", "level": 70, "tags": ["warstaff"]},
+             {"name": "Top Staff", "type": "Staff", "subType": "", "level": 70, "tags": ["staff"]},
+             {"name": "Rare Spear Base", "type": "Spear", "subType": "", "level": 70},
+             {"name": "Ruby Ring", "type": "Ring", "subType": "", "level": 8}]
+    worn = {"Rare Boots": 90, "Rare Quarterstaff": 8, "Rare Staff": 3, "Rare Spear": 4, "Rare Ring": 95, "Mageblood": 30}
+    demand = lf.demand_bases(worn, 100, bases)
+    assert [d["kind"] for d in demand] == ["Ring", "Boots", "Quarterstaff"]  # the most worn first, 5% and more
+    # the best base of each defence kind, not the lower ones nor a special one
+    assert demand[1]["bases"] == ["Expert Boots", "Silk Boots"] and demand[2]["bases"] == ["Top Quarterstaff"]
+    blocks = lf.demand_blocks(demand, valid={"Expert Boots", "Ruby Ring"}, item_level=82)
+    text = "\n".join(blocks)
+    assert 'BaseType == "Expert Boots"' in text and "Top Quarterstaff" not in text  # only names the game knows
+    assert "Rarity Normal" in text and "ItemLevel >= 82" in text
+
+
 def test_merge_replaces_an_older_block_and_keeps_the_players_filter(rules):
     mine = "Show\n\tClass == \"Rings\"\nHide\n"
     once = lf.merge(lf.render(rules, "titan"), mine)
