@@ -6,6 +6,8 @@ tools/ooz/
 builds/.trash/
 .venv/
 builds/
+# ...but not the site's API routes for builds (they are code, not anyone's build)
+!site/server/api/builds/
 
 # feedback relay (worker/) local state
 worker/.wrangler/
