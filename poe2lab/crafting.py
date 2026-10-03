@@ -605,8 +605,9 @@ def modify_routes(db: ModDB, pool: Pool, desecrated: Pool | None, essences: list
 # weapon or jewellery desecration
 LORD_OMEN = {"Ulaman": "Omen of the Sovereign", "Amanamu": "Omen of the Liege", "Kurgal": "Omen of the Blackblooded"}
 JEWELLERY = {"Ring", "Amulet", "Belt"}
-# "guarantee a random Ulaman modifier": read as one of the three revealed options being his (the other two random),
-# and the Omen of Abyssal Echoes reroll as a plain one - the careful reading; to be confirmed in game
+# "guarantee a random Ulaman modifier": one of the three revealed options is his, the other two random (confirmed by
+# the player in game). After it: the options rerolled once at once (Omen of Abyssal Echoes; counted as a plain
+# reroll), or the desecration taken off (an annulment with Omen of Light) and the procedure done again
 LORD_OPTIONS = 1
 DESECRATE_TRIALS = 20000
 
