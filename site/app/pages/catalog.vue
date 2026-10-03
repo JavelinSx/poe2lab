@@ -72,13 +72,13 @@ useHead({ title: "Каталог билдов — poe2lab" });
           </div>
         </div>
 
-        <div v-if="!found.length" class="empty card">
-          <Ic name="search" /><b>Ничего не нашли</b>
-          <span>Сними какой-нибудь фильтр — или напиши по-другому: по названию, скиллу или тегу.</span>
+        <StatePanel v-if="!found.length" icon="search" title="Ничего не нашли"
+          :text="state.text ? `По запросу «${state.text}» с этими фильтрами билдов нет. Убери один фильтр:` : 'С этими фильтрами билдов нет. Убери один фильтр:'">
           <div v-if="applied.length" class="chips" style="justify-content: center">
             <span v-for="a in applied" :key="a.label" class="chip applied">{{ a.label }}<button class="x" type="button" aria-label="Убрать" @click="a.drop()"><Ic name="x" /></button></span>
           </div>
-        </div>
+          <button class="btn btn-quiet" type="button" @click="clear(); set({ cls: undefined, asc: undefined, dmg: undefined, weapon: undefined, tag: undefined, patch: undefined })">Сбросить всё</button>
+        </StatePanel>
         <template v-else>
           <div v-if="state.view === 'grid'" class="bgrid no-phone"><BuildTile v-for="b in shown" :key="b.id" :b="b" /></div>
           <div :class="['blist', state.view === 'grid' ? 'only-phone' : '']"><BuildRow v-for="b in shown" :key="b.id" :b="b" /></div>

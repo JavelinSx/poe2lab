@@ -3,10 +3,13 @@
 // gear on the doll, the author, the reviews; the rest is in the app ("Открыть в poe2lab").
 import { BUILDS, className } from "~~/mock/builds";
 import { PAGES } from "~~/mock/page";
+import { MY_BUILDS } from "~~/mock/mine";
 
 const route = useRoute();
 const b = computed(() => BUILDS.find((x) => x.id === route.params.id));
-const p = computed(() => PAGES[String(route.params.id)] || PAGES.b1);
+const p = computed(() => PAGES[String(route.params.id)] || PAGES.b1!);
+// a build its author took off the site: its page says so and leads to the author's other builds
+const hidden = computed(() => MY_BUILDS.some((m) => m.id === route.params.id && m.state === "hidden"));
 useHead(() => ({ title: b.value ? `${b.value.title} — poe2lab` : "Билд не найден — poe2lab" }));
 
 // resistances: capped, short of the cap (by how much), immune
@@ -43,9 +46,15 @@ function openInApp() {
 </script>
 
 <template>
-  <div v-if="!b" class="wrap">
-    <div class="empty card" style="margin: 60px auto; max-width: 560px"><Ic name="search" /><b>Такой страницы нет</b>
-      <span>Билд мог переехать или ссылка набрана с ошибкой.</span><NuxtLink class="btn btn-primary" to="/catalog">Открыть каталог</NuxtLink></div>
+  <div v-if="!b" class="wrap" style="padding: 40px 0; max-width: 620px">
+    <StatePanel code="404" title="Такой страницы нет" text="Возможно, ссылка с ошибкой или билд удалили.">
+      <div class="row"><NuxtLink class="btn btn-primary" to="/catalog"><Ic name="grid4" />В каталог</NuxtLink><NuxtLink class="btn btn-quiet" to="/">На главную</NuxtLink></div>
+    </StatePanel>
+  </div>
+  <div v-else-if="hidden" class="wrap" style="padding: 40px 0; max-width: 620px">
+    <StatePanel icon="eye-off" title="Автор снял билд с публикации" text="Он может вернуть его позже. У автора есть другие билды.">
+      <div class="row"><NuxtLink class="btn btn-primary" :to="`/a/${b.author}`"><Ic name="person" />Билды автора</NuxtLink><NuxtLink class="btn btn-quiet" to="/catalog">В каталог</NuxtLink></div>
+    </StatePanel>
   </div>
   <div v-else class="wrap">
     <nav class="crumbs" aria-label="Путь"><NuxtLink to="/">Главная</NuxtLink><Ic name="chev-r" /><NuxtLink to="/catalog">Каталог</NuxtLink><Ic name="chev-r" />

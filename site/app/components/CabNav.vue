@@ -14,6 +14,7 @@ const me = useMe();
     <hr />
     <NuxtLink :class="{ 'is-on': active === 'settings' }" to="/me/settings#settings"><Ic name="gear" />Настройки</NuxtLink>
     <NuxtLink :class="{ 'is-on': active === 'connect' }" to="/connect"><Ic name="plug" />Подключить poe2lab</NuxtLink>
+    <NuxtLink v-if="me && (me.role === 'owner' || me.role === 'mod')" to="/mod"><Ic name="flag" />Жалобы</NuxtLink>
     <NuxtLink to="/login"><Ic name="logout" />Выйти</NuxtLink>
   </nav>
 </template>
