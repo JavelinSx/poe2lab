@@ -27,7 +27,7 @@ def resolve_build(arg: str | Path) -> Path:
     path = Path(arg)
     if path.exists():
         return path.resolve()
-    if path.suffix == "":
+    if path.suffix.lower() not in (".txt", ".xml"):  # a name, which may hold dots: "Early End Game - 0.5.5 Ice Strike"
         for candidate in (PROJECT_BUILDS / f"{path.name}.txt", *(d / f"{path.name}.xml" for d in pob_build_dirs())):
             if candidate.exists():
                 return candidate.resolve()

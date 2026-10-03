@@ -64,6 +64,9 @@ def test_build_by_name_and_from_pob_xml(tmp_path, monkeypatch):
     assert engine.main_skill() == "Furious Slam" and bp.path is None
     with pytest.raises(FileNotFoundError):
         pobfiles.resolve_build("no such build")
+    # a name with dots in it (a patch number) is still a name, not a file extension
+    (saved / "Early End Game - 0.5.5 Ice Strike.xml").write_text("<PathOfBuilding2/>", encoding="utf-8")
+    assert pobfiles.resolve_build("Early End Game - 0.5.5 Ice Strike").name == "Early End Game - 0.5.5 Ice Strike.xml"
 
 
 def test_profile_file_is_valid_json():
