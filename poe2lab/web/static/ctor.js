@@ -1,0 +1,157 @@
+// ---------- the build author's constructor: a page of its own (poe2lab.constructor) ----------
+// The character from PoB laid out by section - skills with their gems, gear slot by slot, the tree's keystones and
+// notables, jewels, flasks and charms, reward choices, the levelling plan. Any element pressed opens its notes: a tip
+// shown over it, and a note shown at once under the author's own label. Nothing is calculated here: the program's
+// advice is on "check with the program", the analysis tab of the section. Runs after app.js (its helpers are shared).
+const CT = { section: "character", data: null };
+const CT_SECTIONS = ["character", "skills", "gear", "tree", "jewels", "flasks", "quests", "leveling"];
+// the analysis tab that checks a section
+const CT_CHECK = { character: "overview", skills: "skills", gear: "gear", flasks: "gear", tree: "tree", jewels: "tree",
+  quests: "profile", leveling: "overview" };
+// what the drawer's search offers first in a section's notes
+const CT_KINDS = { skills: ["gem", "support"], gear: ["unique", "base", "rune"], flasks: ["unique", "base"],
+  tree: ["passive"], jewels: ["unique", "passive"] };
+
+async function openConstructor(section) {
+  if (!state.build) return;
+  if (section) CT.section = section;
+  hideTip();
+  state.page = "ctor";
+  switchTab.token = Symbol();  // a tab still being worked out is not drawn over the page
+  hideBuildChrome();
+  await authorLoad();
+  authorToggle(true, false);  // the drawer: game things to put into a note
+  const view = $("#view");
+  view.replaceChildren(loading(t("ctLoading")));
+  try {
+    CT.data = await cached("ctor-layout", () => api(`/api/constructor/layout?${buildQuery()}`));
+  } catch (e) { view.replaceChildren(errorCard(e)); return; }
+  ctDraw();
+}
+
+// back to the build's tabs (the one that checks the section, or the one left)
+function ctLeave(tab) {
+  hideTip();
+  authorToggle(false, false);
+  renderHeader();
+  switchTab(tab || state.tab);
+}
+
+// ---- an element: pressed, its notes open; over it, the author's tip and the game's card ----
+function ctEl(id, body, opts = {}) {
+  const b = auBlock(id);
+  const el = h("button", { class: "ct-el " + (opts.cls || "") + (b.tip ? " has-tip" : "") + (b.text ? " has-note" : ""),
+    onclick: (e) => { e.stopPropagation(); ctEdit(id, opts.title || "", opts.card); } },
+  body, b.tip || b.text ? h("span", { class: "ct-mark", title: t("ctMarked") }, b.text ? "📌" : "💬") : null);
+  return hoverTip(el, () => h("div", { class: "stack" }, b.tip ? h("div", { class: "ct-tip" }, ...auRich(b.tip)) : null,
+    opts.card ? opts.card() : null, h("div", { class: "muted small" }, t("ctClickHint"))));
+}
+
+// the note shown at once: the author's label, the text
+function ctNote(id, title) {
+  const b = auBlock(id);
+  if (!b.text) return null;
+  return h("div", { class: "ct-note" }, h("div", { class: "ct-note-head" }, b.label ? h("b", {}, b.label) : null,
+    title ? h("span", { class: "muted small" }, title) : null), h("div", { class: "au-text" }, ...auRich(b.text)));
+}
+
+// an element's notes: the tip and the note with its label, each kept as it is typed
+function ctEdit(id, title, card) {
+  hideTip();
+  const b = auBlock(id);
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) close(); } });
+  const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".au-pop")) { e.preventDefault(); close(); } };
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); AU.target = null; ctDraw(); };
+  const label = h("input", { type: "text", value: b.label || "", maxlength: 60, placeholder: t("ctLabelPh"), class: "ct-label",
+    oninput: (e) => auSave(id, { label: e.target.value }) });
+  back.append(h("div", { class: "ask card stack ct-editor", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "ct-title" }, I("pencil", "c-gold"), " ", title),
+    card ? h("div", { class: "ct-ed-card" }, card()) : null,
+    h("div", { class: "section-title" }, t("ctTip")), h("div", { class: "hint" }, t("ctTipHint")),
+    auEditor(b.tip || "", (v) => auSave(id, { tip: v }), t("ctTipPh")),
+    h("div", { class: "section-title" }, t("ctNote")), h("div", { class: "hint" }, t("ctNoteHint")),
+    label, auEditor(b.text || "", (v) => auSave(id, { text: v }), t("ctNotePh")),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: close }, t("ctDone")),
+      h("button", { class: "ghost", onclick: () => { auSave(id, { tip: "", text: "", label: "" }); close(); } }, t("ctClear")))));
+  document.body.append(back);
+  document.addEventListener("keydown", onKey, true);
+}
+
+// ---- the sections ----
+function ctItem(row) {
+  const it = row.item;
+  const lines = () => [...(it.implicit || []), ...(it.explicit || []), ...(it.runes || [])].map((m) => h("li", { title: m.line }, trMod(m.line)));
+  const card = () => linesTip(itemIcon(it.name, it.baseName, it.rarity), itemTitle(it), lines());
+  return h("div", { class: "card ct-slot r-" + (it.rarity || "normal").toLowerCase() },
+    ctEl(row.id, [h("span", { class: "muted small" }, slotName(row.slot)), itemIcon(it.name, it.baseName, it.rarity),
+      h("span", { class: "ct-item-name" }, itemTitle(it))], { cls: "ct-item", title: `${slotName(row.slot)} · ${itemTitle(it)}`, card }),
+    (it.runes || []).length ? h("div", { class: "muted small" }, it.runes.map((m) => trMod(m.line)).join(" · ")) : null,
+    ctNote(row.id));
+}
+
+const CT_DRAW = {
+  character: (d) => {
+    const c = d.character;
+    return h("div", { class: "card stack" },
+      h("div", { class: "row ct-who" }, h("b", {}, `${trName(c.class)} / ${c.ascendancy ? trName(c.ascendancy) : t("noAscendancy")} · ${t("level", c.level)}`),
+        c.mainSkill ? h("span", { class: "muted" }, t("ctMainSkill"), " ", gemName(c.mainSkill)) : null),
+      h("div", { class: "section-title" }, t("ctAbout")), h("div", { class: "hint" }, t("ctAboutHint")),
+      auEditor(auBlock("ov:about").text || "", (v) => auSave("ov:about", { text: v }), t("auAboutPh")));
+  },
+  skills: (d) => d.skills.map((g) => {
+    const name = g.actives.map((x) => trName(x)).join(" + ");
+    const gems = g.gems.map((x) => h("span", { class: "ct-gem" + (x.support ? " sup" : "") + (x.enabled ? "" : " off") },
+      ctEl(x.id, [icon(x.name), h("span", {}, trName(x.name))], { title: trName(x.name), card: () => gemTipCard(x.name) }),
+      h("span", { class: "muted small" }, t("ctGemLv", x.level, x.quality))));
+    return h("div", { class: "card stack ct-group" + (g.enabled ? "" : " off") },
+      ctEl(g.id, [h("span", { class: "ct-title" }, name), g.main ? h("span", { class: "chip ok" }, t("ctMain")) : null], { cls: "ct-head", title: name }),
+      ctNote(g.id), h("div", { class: "ct-gems" }, gems), ...g.gems.map((x) => ctNote(x.id, trName(x.name))));
+  }),
+  gear: (d) => h("div", { class: "ct-grid" }, d.gear.map(ctItem)),
+  flasks: (d) => (d.flasks.length ? h("div", { class: "ct-grid" }, d.flasks.map(ctItem)) : h("p", { class: "muted" }, t("ctNone"))),
+  tree: (d) => {
+    const node = (n) => ctEl(n.id, [icon(n.name, "ico passive"), h("span", {}, trName(n.name))],
+      { cls: "ct-chip", title: trName(n.name), card: () => auTip("passive", `${n.node}|${n.name}`) });
+    const part = (key, list) => (list.length ? h("div", { class: "card stack" }, h("div", { class: "section-title" }, t("ctTree_" + key)),
+      h("div", { class: "ct-chips" }, list.map(node)), ...list.map((n) => ctNote(n.id, trName(n.name)))) : null);
+    return [part("ascendancy", d.tree.ascendancy), part("keystones", d.tree.keystones), part("notables", d.tree.notables),
+      h("div", { class: "muted small" }, t("ctSmall", d.tree.small))];
+  },
+  jewels: (d) => (d.jewels.length ? h("div", { class: "ct-grid" }, d.jewels.map((j) => {
+    const it = j.item, gist = jewelGist({ item: it, effect: j.effect });
+    const card = () => h("div", { class: "stack" }, h("b", { class: "r-" + (it.rarity || "normal").toLowerCase() }, itemTitle(it)),
+      h("ul", { class: "item-lines small" }, it.lines.map((l) => h("li", {}, trMod(l)))), jewelEffect(j.effect));
+    return h("div", { class: "card ct-slot r-" + (it.rarity || "normal").toLowerCase() },
+      ctEl(j.id, [itemIcon(it.name, it.baseName, it.rarity), h("span", { class: "ct-item-name" }, itemTitle(it)),
+        gist ? h("span", { class: "jw-gist small" }, gist) : null, h("span", { class: "muted small" }, t("jwNear", trName(j.near)))],
+      { cls: "ct-item", title: itemTitle(it), card }), ctNote(j.id));
+  })) : h("p", { class: "muted" }, t("ctNone"))),
+  quests: (d) => h("div", { class: "ct-grid" }, d.quests.map((q) => {
+    const chosen = q.options.length && q.value && q.value !== "None" ? q.value : null;
+    const what = q.options.length ? (chosen ? chosen.split("\n").map((l) => trMod(l.trim())).join(" · ") : t("qNotChosen")) : trMod(q.stat || "");
+    const taken = q.options.length ? !!chosen : !!q.value;
+    return h("div", { class: "card ct-slot" + (taken ? "" : " off") },
+      ctEl(q.id, [h("span", { class: "ct-item-name" }, what),
+        h("span", { class: "muted small" }, `${questName(q)} · ${lrStageName(QUEST_ACT[q.act] || "maps")} · ${questArea(q.area)}`)],
+      { cls: "ct-item", title: questName(q) }), ctNote(q.id));
+  })),
+  // the levelling plan with the author's own lists and notes of each stage (the blocks the overview shows)
+  leveling: () => [h("div", { class: "hint" }, t("ctLevelingHint")), levelingCard()],
+};
+
+function ctDraw() {
+  if (state.page !== "ctor" || !CT.data) return;
+  auKinds(CT_KINDS[CT.section] || null);
+  const s = CT.section, sec = auBlock("sec:" + s);
+  const head = h("div", { class: "card stack" },
+    h("div", { class: "ct-title" }, I("pencil", "c-gold"), " ", t("ctTitle", state.build.name)), h("div", { class: "hint" }, t("ctSub")),
+    h("div", { class: "row" }, h("button", { class: "ghost", onclick: () => ctLeave() }, "← ", t("ctBack")),
+      h("button", { class: "ghost", title: t("ctCheckHint"), onclick: () => ctLeave(CT_CHECK[s]) }, "🔍 ", t("ctCheck"))));
+  const tabs = h("div", { class: "ct-tabs" }, CT_SECTIONS.map((x) => h("button", { class: x === s ? "is-on" : "",
+    onclick: () => { CT.section = x; hideTip(); ctDraw(); } }, t("ctSec_" + x))));
+  // the section's own notes, at its top
+  const notes = h("div", { class: "stack" }, ctNote("sec:" + s, null),
+    h("div", {}, h("button", { class: "ghost small", onclick: () => ctEdit("sec:" + s, t("ctSec_" + s)) },
+      sec.text || sec.tip ? t("ctSecEdit") : t("ctSecAdd"))));
+  $("#view").replaceChildren(h("div", { class: "stack ct-page" }, head, tabs, notes, ...[CT_DRAW[s](CT.data)].flat().filter(Boolean)));
+}

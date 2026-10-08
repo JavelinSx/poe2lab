@@ -1239,3 +1239,31 @@ body.au-on .app { margin-right: 340px; }
 .demand-share i { display: block; height: 100%; width: var(--v); background: linear-gradient(90deg, #3aa79a, #50dcc8); }
 .demand-bases { columns: 220px; column-gap: 18px; }
 .demand-n { color: #50dcc8; font-weight: 600; }
+
+/* the build author's constructor (ctor.js): sections, elements that open their notes, the notes */
+.ct-title { font-weight: 700; font-size: 16px; display: flex; gap: 6px; align-items: center; }
+.ct-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.ct-tabs button { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--text-2); cursor: pointer; }
+.ct-tabs button.is-on { border-color: var(--gold); color: var(--gold); background: var(--gold-bg); }
+.ct-el { display: inline-flex; gap: 6px; align-items: center; position: relative; background: none; border: 1px solid transparent;
+  border-radius: 8px; padding: 3px 6px; color: inherit; cursor: pointer; text-align: left; }
+.ct-el:hover { border-color: var(--gold-line); background: var(--gold-bg); }
+.ct-el.has-tip, .ct-el.has-note { border-color: var(--gold-line); }
+.ct-mark { font-size: 11px; margin-left: 2px; }
+.ct-head { width: 100%; justify-content: flex-start; }
+.ct-item { flex-direction: column; align-items: flex-start; width: 100%; }
+.ct-item-name { font-weight: 600; }
+.ct-gems, .ct-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ct-gem { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 0; border-radius: 8px; background: var(--panel-2); }
+.ct-gem.sup { background: transparent; border: 1px dashed var(--line); }
+.ct-gem.off, .ct-group.off, .ct-slot.off { opacity: .55; }
+.ct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.ct-slot { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ct-note { border-left: 3px solid var(--gold); padding: 6px 10px; background: var(--panel-2); border-radius: 6px; font-size: 13px; }
+.ct-note-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 2px; }
+.ct-tip { border-left: 3px solid var(--gold); padding-left: 8px; }
+.ct-editor { max-width: 640px; width: min(640px, 94vw); max-height: 90vh; overflow: auto; }
+.ct-ed-card { padding: 8px 10px; border-radius: 8px; background: var(--panel-2); }
+.ct-label { width: 220px; }
+.ct-who { gap: 14px; flex-wrap: wrap; align-items: center; }

@@ -190,7 +190,8 @@ $("#lang").addEventListener("click", async (e) => {
   loadStatus();
   loadLeagues();
   loadBuildList();
-  if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
+  if (state.page === "ctor") openConstructor();  // the constructor stays open in the other language
+  else if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
 const TAB_ORDER = ["overview", "skills", "gear", "tree", "loot", "profile", "assistant"];
@@ -472,7 +473,7 @@ async function renderNewBuild() {
   $("#view").replaceChildren(box);
 }
 $("#new-build").addEventListener("click", renderNewBuild);
-$("#author-btn").addEventListener("click", () => authorToggle());
+$("#author-btn").addEventListener("click", () => openConstructor());  // the constructor's own page (ctor.js)
 
 // the constructor's steps above the tabs of a build it made: what is done, what comes next
 const CTOR_STEPS = [["class", null], ["skill", "skills"], ["gear", "gear"], ["tree", "tree"], ["mech", "profile"], ["polish", "overview"], ["save", null]];
@@ -1026,6 +1027,7 @@ function readHash() {
 }
 
 async function switchTab(tab) {
+  if (state.page === "ctor" && AU.edit) authorToggle(false, false);
   state.page = null;
   if (tab !== state.tab) window.scrollTo(0, 0);  // a new tab starts at its top
   state.tab = tab;
@@ -1045,10 +1047,12 @@ async function switchTab(tab) {
     $("#scope").replaceChildren(...(sided ? [sideSwitch(tab)] : []));
     if (sided) view.replaceChildren(...[state.side === "build" ? guideRibbon() : null, host].filter(Boolean));
     const content = await (sided && state.side === "build" ? SIDE_VIEWS[tab] : TABS[tab])(host);
-    if (switchTab.token === token && content) host.replaceChildren(content);
-    if (switchTab.token === token) renderPlanStrip();
+    // a tab worked out late does not cover a page opened meanwhile (the constructor, the journal...)
+    const current = () => switchTab.token === token && !state.page;
+    if (current() && content) host.replaceChildren(content);
+    if (current()) renderPlanStrip();
   } catch (e) {
-    if (switchTab.token === token) view.replaceChildren(errorCard(e));
+    if (switchTab.token === token && !state.page) view.replaceChildren(errorCard(e));
   }
 }
 
@@ -6324,14 +6328,7 @@ function authorToggle(on = !AU.edit, redraw = true) {
 function auButton() {
   const b = $("#author-btn");
   if (!b) return;
-  b.classList.toggle("hidden", !state.build || !(state.tab in AU_TABS));
-  b.classList.toggle("is-on", AU.edit);
-  if (AU.edit) {
-    AU.kinds = AU_TABS[state.tab] || null;
-    const d = auDrawer();
-    d.drawKinds();
-    d.search();
-  }
+  b.classList.toggle("hidden", !state.build);
 }
 
 // ---- the blocks ----

@@ -3222,6 +3222,6 @@ app.mount("/icons", StaticFiles(directory=icons.ICONS, check_dir=False), name="i
 def index():
     # version static URLs by modification time so browsers never run a stale script
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for name in ("app.js", "i18n.js", "pob_labels.js", "treeart.js", "app.css"):
+    for name in ("app.js", "ctor.js", "i18n.js", "pob_labels.js", "treeart.js", "app.css"):
         html = html.replace(f"/static/{name}", f"/static/{name}?v={int((STATIC / name).stat().st_mtime)}")
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
