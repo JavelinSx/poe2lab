@@ -290,12 +290,35 @@ async function removeBuild(b) {
 function renderAddBuild() {
   const name = h("input", { type: "text", placeholder: t("addName") });
   const code = h("textarea", { rows: 8, placeholder: t("addCode"), spellcheck: "false" });
+  // a maxroll.gg guide or planner link: its stages ("Early", "Endgame"...) to pick one
+  const stage = h("div", { class: "row small" });
+  let variant = null, asked = "";
+  const MAXROLL = /maxroll\.gg\/poe2\/(planner|build-guides)\//i;
+  code.addEventListener("input", async () => {
+    const link = code.value.trim();
+    if (!MAXROLL.test(link)) { stage.replaceChildren(); variant = null; asked = ""; return; }
+    if (link === asked) return;
+    asked = link;
+    stage.replaceChildren(h("span", { class: "muted" }, t("addMaxrollLoading")));
+    try {
+      const m = await api(`/api/maxroll?link=${encodeURIComponent(link)}`);
+      if (asked !== link) return;
+      variant = m.default;
+      if (!name.value.trim()) name.placeholder = m.name;
+      stage.replaceChildren(h("label", {}, t("addMaxrollStage"), " ",
+        h("select", { onchange: (e) => { variant = Number(e.target.value); } },
+          m.profiles.map((p, i) => h("option", { value: i, selected: i === m.default }, p)))),
+        h("span", { class: "muted" }, t("addMaxrollHint")));
+    } catch (e) {
+      if (asked === link) stage.replaceChildren(h("span", { class: "bad" }, e.message));
+    }
+  });
   const go = h("button", { class: "primary", onclick: async () => {
     if (!code.value.trim()) { code.focus(); return; }
     go.disabled = true;
     go.textContent = t("adding");
     try {
-      const r = await api("/api/builds", { method: "POST", body: { name: name.value, code: code.value } });
+      const r = await api("/api/builds", { method: "POST", body: { name: name.value, code: code.value, variant } });
       toast(t("added", r.name), true);
       await openBuild(r.name);
       if (r.report) plannerReport(r.report);
@@ -322,7 +345,7 @@ function renderAddBuild() {
   }).catch(() => { /* no planner folder: nothing to offer */ });
   $("#view").replaceChildren(h("div", { class: "card stack add-build" },
     h("h3", {}, t("addTitle")), h("div", { class: "sub" }, t("addSub")),
-    name, code,
+    name, code, stage,
     h("div", { class: "row small" }, h("button", { class: "ghost small", onclick: () => file.click() }, t("addFile")),
       h("span", { class: "muted" }, t("addFileHint")), file),
     fromGame,

@@ -308,6 +308,15 @@ return _poe2lab_json(out)""")
         )
         self.recalc()
 
+    def second_weapon_set(self) -> bool:
+        """Whether PoB computes the build with its second weapon set (the swap weapons)."""
+        return self._json("return _poe2lab_json(build.itemsTab.activeItemSet.useSecondWeaponSet == true)")
+
+    def use_second_weapon_set(self, on: bool):
+        """Compute the build with its second weapon set (True) or its first."""
+        self._lua(f"build.itemsTab.activeItemSet.useSecondWeaponSet = {'true' if on else 'false'}")
+        self.recalc()
+
     def skill_damage(self, config: dict | None = None) -> list[dict]:
         """Damage of every active skill of every enabled socket group if it were the main skill (the build's choice
         is restored). For a main skill PoB cannot compute (0 DPS) this shows where the damage actually is. With each

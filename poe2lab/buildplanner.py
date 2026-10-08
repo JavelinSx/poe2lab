@@ -48,6 +48,7 @@ KEEP_STATE = 0.5  # a state is kept only when counting it moves damage or effect
 _MARKUP = re.compile(r"<[^<>{}]*>\{")  # the planner's text markup: <bold>{text}, <rgb(r,g,b)>{text}
 _NUMBERED = re.compile(r"^\s*\d+\.\s*(.+)$")  # "1. +34 to maximum Energy Shield"
 _GEM_TEXT = re.compile(r"Level (\d+)(?:,\s*(\d+)% Quality)?")
+_WEAPON_SET = re.compile(r"Weapon Set: Set ([12])")
 
 
 PLANNER_ENV = "POE2LAB_BUILDPLANNER"  # another folder than the game's (tests)
@@ -263,15 +264,22 @@ def skeleton(data: dict, resolved: dict, choices: dict[str, str] | None = None,
             if not m and not info["support"]:
                 defaulted.append((len(groups) + 1, len(gems)))
         if gems:
-            groups.append('<Skill enabled="true" mainActiveSkill="1" label="" slot="">' + "".join(gems) + "</Skill>")
+            # "Weapon Set: Set 2" in the skill's text (PoB's own skill text says it so): used with that set only
+            ws = _WEAPON_SET.search(_plain(_gem(s)[1]))
+            sets = f' set1="{str(ws.group(1) == "1").lower()}" set2="{str(ws.group(1) == "2").lower()}"' if ws else ""
+            groups.append(f'<Skill enabled="true" mainActiveSkill="1" label="" slot=""{sets}>' + "".join(gems) + "</Skill>")
 
+    # the main skill (a guide's first group) used with the second weapon set only: PoB computes that set
+    first = data.get("skills") or []
+    ws = _WEAPON_SET.search(_plain(_gem(first[0])[1])) if first else None
+    second = ' useSecondWeaponSet="true"' if ws and ws.group(1) == "2" else ""
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<PathOfBuilding2>'
            f'<Build className={quoteattr(cls["className"])} ascendClassName={quoteattr(cls["ascendClassName"])} '
            + (f'level="{int(level)}" characterLevelAutoMode="false"' if level else 'level="90" characterLevelAutoMode="true"')
            + ' mainSocketGroup="1" targetVersion="0_1" viewMode="TREE"/>'
            f'<Tree activeSpec="1">{"".join(spec)}</Tree>'
            '<Skills activeSkillSet="1"><SkillSet id="1">' + "".join(groups) + "</SkillSet></Skills>"
-           '<Items activeItemSet="1"><ItemSet id="1"/></Items>'
+           f'<Items activeItemSet="1"{second}><ItemSet id="1"{second}/></Items>'
            "</PathOfBuilding2>")
     return xml, missing, defaulted
 
@@ -318,6 +326,9 @@ def item_text(entry: dict, bases: dict, uniques: dict) -> str | None:
         title = lines[at - 1]  # a rare's own name, above its base (PoB's export, poe2lab's jewel notes)
     base = lines[at] if rarity == "RARE" else max((b for b in bases if b in lines[at]), key=len)
     mods = lines[at + 1:]
+    # sockets and their runes (poe2lab.maxroll writes them): properties of the item, PoB counts the runes itself
+    props = [m for m in mods if m.startswith(("Sockets: ", "Rune: "))]
+    mods = [m for m in mods if m not in props]
     implicit = []
     for template in (l for l in (bases[base].get("implicit") or "").split("\n") if l.strip()):
         rolled = next((m for m in mods if pattern(m) == pattern(template)), None)
@@ -325,7 +336,7 @@ def item_text(entry: dict, bases: dict, uniques: dict) -> str | None:
             mods.remove(rolled)
         implicit.append(rolled or _middle(template))
     head = [f"Rarity: {rarity}", title] + ([base] if rarity == "RARE" else []) + [
-        f"Item Level: {ITEM_LEVEL}"] + _quality_line(bases[base], entry) + [f"Implicits: {len(implicit)}"]
+        f"Item Level: {ITEM_LEVEL}"] + _quality_line(bases[base], entry) + props + [f"Implicits: {len(implicit)}"]
     return "\n".join(head + implicit + mods)
 
 
@@ -409,11 +420,28 @@ def _gem_entry(entry, gems: dict) -> dict:
             "note": None if not note or (m and m.group(0) == note) else note}
 
 
-def to_code(text: str, engine) -> tuple[str, dict]:
+def _main_first(engine, rows: list[dict]) -> dict | None:
+    """The guide's first skill group (its main skill, as a maxroll planner lists it) dealing damage: its strongest
+    skill, with the weapon set it deals the most with (a staff skill on the swap weapons: the second set)."""
+    def best(rows_):
+        return max((r for r in rows_ if r["group"] == 1 and r["dps"] > 0), key=lambda r: r["dps"], default=None)
+    found = best(rows)
+    if not engine.socket_groups():
+        return found
+    was = engine.second_weapon_set()
+    engine.use_second_weapon_set(not was)
+    other = best(engine.skill_damage())
+    if other and (found is None or other["dps"] > found["dps"]):
+        return other
+    engine.use_second_weapon_set(was)
+    return found
+
+
+def to_code(text: str, engine, main_first: bool = False) -> tuple[str, dict]:
     """(a PoB code of the build, a report of everything the file holds and what became of it: the passives, gems and
     items with their levels, the notes, what could not be resolved, the attributes, the level, fields unknown to
     this reader, and `plan` - the guide's own levels and notes, to keep with the build). `engine` is a PobEngine the
-    build can be loaded into (it replaces what it held)."""
+    build can be loaded into (it replaces what it held). `main_first`: the first skill group is the main skill."""
     data = parse(text)
     if data is None:
         raise BuildPlannerError("это не файл планировщика билдов (.build)")
@@ -460,8 +488,10 @@ def to_code(text: str, engine) -> tuple[str, dict]:
                                      "end_game": END_GAME_LEVEL})
     balance = engine._json(_BALANCE % {"nodes": ", ".join(f"{{ {i}, {lua_string(d)} }}" for i, d in free)})
 
-    # the format does not say which skill is the main one: the one PoB finds dealing the most damage
-    strongest = next(iter(engine.skill_damage()), None)
+    # the format does not say which skill is the main one: the one PoB finds dealing the most damage - or, for a guide
+    # that lists its main skill first (`main_first`: a maxroll planner), that one
+    rows = engine.skill_damage()
+    strongest = (_main_first(engine, rows) if main_first else None) or next(iter(rows), None)
     if strongest and strongest["dps"] > 0:
         engine.set_main_skill(strongest["group"], strongest["skill"])
     states = _count_states(engine)  # after the main skill: what a state changes is measured on its damage

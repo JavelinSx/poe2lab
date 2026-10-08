@@ -45,7 +45,7 @@ from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
 from .. import (author, buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext,
-               jewelcraft, journal, library, lootfilter, mcpconnect, newbuild, pobapp, quality)
+               jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -481,17 +481,46 @@ def builds_hidden():
 
 class AddBuildRequest(BaseModel):
     name: str = ""
-    code: str  # PoB code, a pobb.in link, or the game's build planner file (.build: Mobalytics, PoB's export)
+    code: str  # PoB code, a pobb.in link, the game's build planner file (.build: Mobalytics, PoB's export), or a
+    #            maxroll.gg build guide / planner link
+    variant: int | None = None  # which of a maxroll planner's builds (its stages), from 0; none: the last
 
 
 @app.post("/api/builds")
 def add_build(req: AddBuildRequest):
-    return _add_build(req.name, req.code)
+    return _add_build(req.name, req.code, req.variant)
 
 
-def _add_build(name: str, code: str) -> dict:
+@app.get("/api/maxroll")
+def maxroll_planner(link: str):
+    """A maxroll.gg build guide or planner: its name and builds (the guide's stages: "Early", "Endgame"...), to pick
+    one before adding it."""
+    try:
+        pid = maxroll.planner_id(link)
+        if not pid:
+            raise HTTPException(400, "это не ссылка на гайд или планировщик maxroll.gg")
+        planner = maxroll.fetch(pid)
+    except maxroll.MaxrollError as err:
+        raise HTTPException(400, str(err))
+    names = maxroll.profiles(planner)
+    return {"id": pid, "name": planner.get("name") or "", "profiles": names, "default": len(names) - 1}
+
+
+def _add_build(name: str, code: str, variant: int | None = None) -> dict:
     report = None
-    if buildplanner.parse(code) is not None:
+    try:
+        pid = maxroll.planner_id(code)
+    except maxroll.MaxrollError as err:
+        raise HTTPException(400, str(err))
+    if pid:
+        # a maxroll guide: one of its stages through the build planner format, in an engine of its own
+        try:
+            planner = maxroll.fetch(pid)
+            index = len(planner["data"]["profiles"]) - 1 if variant is None else variant
+            code, report = maxroll.to_code(planner, index, PobEngine())
+        except (maxroll.MaxrollError, buildplanner.BuildPlannerError, PobError) as err:
+            raise HTTPException(400, f"не удалось собрать билд из планировщика maxroll: {err}")
+    elif buildplanner.parse(code) is not None:
         # a build planner file: PoB builds it in an engine of its own (the open build stays as it is)
         try:
             code, report = buildplanner.to_code(code, PobEngine())
