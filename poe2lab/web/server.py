@@ -2876,6 +2876,22 @@ def constructor_set_min(req: StageCode, build: str | None = None):
             raise HTTPException(400, str(err))
 
 
+@app.post("/api/constructor/max")
+def constructor_set_max(req: StageCode, build: str | None = None):
+    """The build itself (its Макс) brought up to date from PoB - the author played on and changed things: the notes
+    stay under their elements' ids (the ones whose element is gone the constructor lists to move or drop). With the
+    player's character in the build, it is the build that changes here, not the character."""
+    with session.lock:
+        session.require(build)
+        name = session.path.stem
+        try:
+            library.replace(name, req.code)
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+        _errors(lambda: session.load(name))
+        return _json(_summary())
+
+
 @app.delete("/api/constructor/min")
 def constructor_clear_min(build: str | None = None):
     with session.lock:

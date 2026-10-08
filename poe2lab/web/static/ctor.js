@@ -4,7 +4,8 @@
 // shown over it, and a note shown at once under the author's own label. Nothing is calculated here: the program's
 // advice is on "check with the program", the analysis tab of the section. Runs after app.js (its helpers are shared).
 // the guide's stage the page shows: the build itself (Макс) or its Мин (the same build at its start or on a budget)
-const CT = { section: "character", stage: "max", data: null, hints: {}, hintsOpen: null, taken: new Set() };
+const CT = { section: "character", stage: "max", data: null, all: { max: null, min: null }, hints: {}, hintsOpen: null,
+  taken: new Set() };
 const CT_SECTIONS = ["character", "skills", "gear", "tree", "jewels", "flasks", "quests", "leveling"];
 // the analysis tab that checks a section
 const CT_CHECK = { character: "overview", skills: "skills", gear: "gear", flasks: "gear", tree: "tree", jewels: "tree",
@@ -32,7 +33,15 @@ async function openConstructor(section) {
     CT.stage = "max";  // the Мин was taken off meanwhile
     try { CT.data = await ctLayout("max"); } catch (e2) { view.replaceChildren(errorCard(e2)); return; }
   }
+  CT.all = { max: null, min: null, [CT.stage]: CT.data };
   ctDraw();
+  ctOtherStage();
+}
+// the other stage laid out in the background (the notes without their element are looked for in both)
+async function ctOtherStage() {
+  const other = CT.stage === "max" ? "min" : "max";
+  if (CT.all[other] || (other === "min" && !(CT.data.stages || {}).min)) return;
+  try { CT.all[other] = await ctLayout(other); ctDraw(); } catch (_) { /* the stage is gone: nothing to compare with */ }
 }
 const ctLayout = (stage) => cached(`ctor-layout:${stage}`, () => api(`/api/constructor/layout?stage=${stage}&${buildQuery()}`));
 
@@ -42,24 +51,35 @@ async function ctStage(stage) {
   hideTip();
   $("#view").replaceChildren(loading(t("ctLoading")));
   try { CT.data = await ctLayout(stage); } catch (e) { toast(e.message); CT.stage = "max"; CT.data = await ctLayout("max"); }
+  CT.all[CT.stage] = CT.data;
   ctDraw();
+  ctOtherStage();
 }
-function ctMinDialog() {
+function ctCodeDialog(stage) {
   const code = h("textarea", { rows: 6, placeholder: t("ctMinPh"), spellcheck: "false" });
   const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) back.remove(); } });
   const go = h("button", { class: "primary", onclick: async () => {
     go.disabled = true;
     try {
-      const info = await api(`/api/constructor/min?${buildQuery()}`, { method: "POST", body: { code: code.value } });
+      const r = await api(`/api/constructor/${stage}?${buildQuery()}`, { method: "POST", body: { code: code.value } });
       back.remove();
-      delete state.cache["ctor-layout:min"];
-      delete state.cache["ctor-layout:max"];  // its answer says whether a Мин is there
-      toast(t("ctMinLoaded", `${trName(info.class)} / ${info.ascendancy ? trName(info.ascendancy) : t("noAscendancy")} · ${t("level", info.level)}`), true);
-      ctStage("min");
+      if (stage === "max") {  // the build itself changed: every tab's numbers too
+        state.build = r;
+        resetCache();
+        loadBuildList();
+        toast(t("ctMaxLoaded"), true);
+      } else {
+        delete state.cache["ctor-layout:min"];
+        delete state.cache["ctor-layout:max"];  // its answer says whether a Мин is there
+        toast(t("ctMinLoaded", `${trName(r.class)} / ${r.ascendancy ? trName(r.ascendancy) : t("noAscendancy")} · ${t("level", r.level)}`), true);
+      }
+      CT.hints = {};
+      CT.stage = stage;
+      openConstructor();
     } catch (e) { toast(e.message); go.disabled = false; }
   } }, t("ctMinLoad"));
   back.append(h("div", { class: "ask card stack ct-editor", role: "dialog", "aria-modal": "true" },
-    h("div", { class: "ct-title" }, t("ctMinTitle")), h("div", { class: "hint" }, t("ctMinSub")), code,
+    h("div", { class: "ct-title" }, t(stage === "max" ? "ctMaxTitle" : "ctMinTitle")), h("div", { class: "hint" }, t(stage === "max" ? "ctMaxSub" : "ctMinSub")), code,
     h("div", { class: "row" }, go, h("button", { class: "ghost", onclick: () => back.remove() }, t("cancel")))));
   document.body.append(back);
   code.focus();
@@ -80,7 +100,8 @@ function ctStageBar() {
     t("ctStage_" + stage));
   return h("div", { class: "row ct-stages" }, h("span", { class: "muted small" }, t("ctStage")),
     h("div", { class: "ct-tabs" }, btn("max"), has ? btn("min") : null),
-    has ? h("button", { class: "ghost small", onclick: ctMinDialog }, t("ctMinReplace")) : h("button", { class: "ghost small", onclick: ctMinDialog }, t("ctMinAdd")),
+    h("button", { class: "ghost small", title: t("ctMaxHint"), onclick: () => ctCodeDialog("max") }, t("ctMaxUpdate")),
+    h("button", { class: "ghost small", onclick: () => ctCodeDialog("min") }, t(has ? "ctMinReplace" : "ctMinAdd")),
     has ? h("button", { class: "ghost small", onclick: ctMinRemove }, t("ctMinRemove")) : null,
     CT.stage === "min" ? h("span", { class: "hint" }, t("ctMinHint")) : null);
 }
@@ -271,6 +292,74 @@ function ctHintsPanel(s) {
   return box;
 }
 
+// ---- the notes whose element is gone (the build updated from PoB: a gem, an item, a passive changed) ----
+const CT_ELEMENT = /^(gem|sk|gear|node|jwl|qst):/;
+// every element of both stages: id -> its name as the page shows it
+function ctElements() {
+  const out = new Map();
+  for (const [stage, d] of Object.entries(CT.all)) {
+    if (!d) continue;
+    const tag = stage === "min" ? ` (${t("ctStage_min")})` : "";
+    for (const g of d.skills) {
+      out.set(g.id, g.actives.map((a) => trName(a)).join(" + "));
+      for (const x of g.gems) out.set(x.id, trName(x.name));
+    }
+    for (const r of [...d.gear, ...d.flasks]) out.set(r.id, `${slotName(r.slot)} · ${itemTitle(r.item)}${tag}`);
+    for (const n of [...d.tree.ascendancy, ...d.tree.keystones, ...d.tree.notables]) out.set(n.id, trName(n.name));
+    for (const j of d.jewels) out.set(j.id, `${itemTitle(j.item)}${tag}`);
+    for (const q of d.quests) out.set(q.id, questName(q));
+  }
+  return out;
+}
+// a gone element named by its id: what the author knew it as
+function ctIdName(id) {
+  const [kind, rest] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];
+  const [what, stage] = rest.split("@");
+  const tag = stage ? ` (${t("ctStage_" + stage)})` : "";
+  if (kind === "gem") return trName(what);
+  if (kind === "sk") return what.split("+").map((a) => trName(a)).join(" + ");
+  if (kind === "gear") return slotName(what) + tag;
+  if (kind === "node") return t("ctNodeId", what);
+  if (kind === "jwl") return t("ctJewelId", what) + tag;
+  return what;
+}
+function ctOrphans() {
+  if ((CT.data.stages || {}).min && !CT.all.min) return [];  // the Мин is still being laid out
+  if (!CT.all.max) return [];
+  const els = ctElements();
+  return Object.keys(AU.blocks).filter((id) => CT_ELEMENT.test(id) && !els.has(id)
+    && (AU.blocks[id].text || AU.blocks[id].tip || AU.blocks[id].list));
+}
+const ctJoin = (a, b) => [a, b].filter(Boolean).join("\n");
+// a note moved to an element of the same kind (after what that one has); the old place emptied
+function ctMove(from, to) {
+  const a = auBlock(from), b = auBlock(to);
+  auSave(to, { text: ctJoin(b.text, a.text), tip: ctJoin(b.tip, a.tip), label: b.label || a.label });
+  auSave(from, { text: "", tip: "", label: "", list: undefined });
+  toast(t("ctMoved"), true);
+  ctDraw();
+}
+async function ctDrop(id) {
+  if (!(await confirmInPage(t("ctDropAsk"), t("ctDrop")))) return;
+  auSave(id, { text: "", tip: "", label: "", list: undefined });
+  ctDraw();
+}
+function ctOrphanCard() {
+  const orphans = ctOrphans();
+  if (!orphans.length) return null;
+  const els = [...ctElements()];
+  return h("div", { class: "card stack ct-orphans" }, h("div", { class: "ct-title" }, "⚠ ", t("ctOrphans", orphans.length)),
+    h("div", { class: "hint" }, t("ctOrphansSub")), ...orphans.map((id) => {
+      const b = AU.blocks[id], kind = id.slice(0, id.indexOf(":"));
+      const sel = h("select", {}, h("option", { value: "" }, t("ctMoveTo")),
+        els.filter(([k]) => k.startsWith(kind + ":")).map(([k, name]) => h("option", { value: k }, name)));
+      return h("div", { class: "ct-hint" }, h("div", { class: "ct-hint-t" }, h("b", {}, ctIdName(id)),
+        h("div", { class: "small" }, b.label ? h("b", {}, b.label + ": ") : null, ...auRich((b.text || b.tip || "").slice(0, 200)))),
+      sel, h("button", { class: "ghost small", onclick: () => { if (sel.value) ctMove(id, sel.value); else toast(t("ctMoveTo")); } }, t("ctMove")),
+      h("button", { class: "ghost small", onclick: () => ctDrop(id) }, t("ctDrop")));
+    }));
+}
+
 function ctDraw() {
   if (state.page !== "ctor" || !CT.data) return;
   auKinds(CT_KINDS[CT.section] || null);
@@ -289,5 +378,6 @@ function ctDraw() {
     h("button", { class: "ghost small" + (CT.hintsOpen === s ? " is-on" : ""), title: t("ctHintsHint"),
       onclick: () => { CT.hintsOpen = CT.hintsOpen === s ? null : s; ctDraw(); } }, "🔍 ", t("ctHints"))),
     CT.hintsOpen === s ? ctHintsPanel(s) : null);
-  $("#view").replaceChildren(h("div", { class: "stack ct-page" }, head, tabs, notes, ...[CT_DRAW[s](CT.data)].flat().filter(Boolean)));
+  $("#view").replaceChildren(h("div", { class: "stack ct-page" }, ...[head, ctOrphanCard(), tabs, notes,
+    ...[CT_DRAW[s](CT.data)].flat()].filter(Boolean)));
 }

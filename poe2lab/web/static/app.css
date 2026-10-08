@@ -1272,3 +1272,5 @@ body.au-on .app { margin-right: 340px; }
 .ct-hint { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
 .ct-hint-t { flex: 1 1 320px; min-width: 0; font-size: 13px; }
 button.ghost.small.is-on { border-color: var(--gold); color: var(--gold); }
+.ct-orphans { border-color: var(--warn); }
+.ct-orphans select { max-width: 260px; }
