@@ -3,7 +3,8 @@
 // notables, jewels, flasks and charms, reward choices, the levelling plan. Any element pressed opens its notes: a tip
 // shown over it, and a note shown at once under the author's own label. Nothing is calculated here: the program's
 // advice is on "check with the program", the analysis tab of the section. Runs after app.js (its helpers are shared).
-const CT = { section: "character", data: null };
+// the guide's stage the page shows: the build itself (Макс) or its Мин (the same build at its start or on a budget)
+const CT = { section: "character", stage: "max", data: null };
 const CT_SECTIONS = ["character", "skills", "gear", "tree", "jewels", "flasks", "quests", "leveling"];
 // the analysis tab that checks a section
 const CT_CHECK = { character: "overview", skills: "skills", gear: "gear", flasks: "gear", tree: "tree", jewels: "tree",
@@ -24,9 +25,63 @@ async function openConstructor(section) {
   const view = $("#view");
   view.replaceChildren(loading(t("ctLoading")));
   try {
-    CT.data = await cached("ctor-layout", () => api(`/api/constructor/layout?${buildQuery()}`));
-  } catch (e) { view.replaceChildren(errorCard(e)); return; }
+    CT.data = await ctLayout(CT.stage);
+  } catch (e) {
+    if (CT.stage === "max") { view.replaceChildren(errorCard(e)); return; }
+    CT.stage = "max";  // the Мин was taken off meanwhile
+    try { CT.data = await ctLayout("max"); } catch (e2) { view.replaceChildren(errorCard(e2)); return; }
+  }
   ctDraw();
+}
+const ctLayout = (stage) => cached(`ctor-layout:${stage}`, () => api(`/api/constructor/layout?stage=${stage}&${buildQuery()}`));
+
+// ---- the build's two stages: Макс (the build) and Мин, loaded from PoB ----
+async function ctStage(stage) {
+  CT.stage = stage;
+  hideTip();
+  $("#view").replaceChildren(loading(t("ctLoading")));
+  try { CT.data = await ctLayout(stage); } catch (e) { toast(e.message); CT.stage = "max"; CT.data = await ctLayout("max"); }
+  ctDraw();
+}
+function ctMinDialog() {
+  const code = h("textarea", { rows: 6, placeholder: t("ctMinPh"), spellcheck: "false" });
+  const back = h("div", { class: "ask-back", onclick: (e) => { if (e.target === back) back.remove(); } });
+  const go = h("button", { class: "primary", onclick: async () => {
+    go.disabled = true;
+    try {
+      const info = await api(`/api/constructor/min?${buildQuery()}`, { method: "POST", body: { code: code.value } });
+      back.remove();
+      delete state.cache["ctor-layout:min"];
+      delete state.cache["ctor-layout:max"];  // its answer says whether a Мин is there
+      toast(t("ctMinLoaded", `${trName(info.class)} / ${info.ascendancy ? trName(info.ascendancy) : t("noAscendancy")} · ${t("level", info.level)}`), true);
+      ctStage("min");
+    } catch (e) { toast(e.message); go.disabled = false; }
+  } }, t("ctMinLoad"));
+  back.append(h("div", { class: "ask card stack ct-editor", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "ct-title" }, t("ctMinTitle")), h("div", { class: "hint" }, t("ctMinSub")), code,
+    h("div", { class: "row" }, go, h("button", { class: "ghost", onclick: () => back.remove() }, t("cancel")))));
+  document.body.append(back);
+  code.focus();
+}
+async function ctMinRemove() {
+  if (!(await confirmInPage(t("ctMinAsk"), t("ctMinRemove")))) return;
+  try {
+    await api(`/api/constructor/min?${buildQuery()}`, { method: "DELETE" });
+    delete state.cache["ctor-layout:min"];
+    delete state.cache["ctor-layout:max"];
+    toast(t("ctMinRemoved"), true);
+    ctStage("max");
+  } catch (e) { toast(e.message); }
+}
+function ctStageBar() {
+  const has = CT.data.stages && CT.data.stages.min;
+  const btn = (stage) => h("button", { class: CT.stage === stage ? "is-on" : "", onclick: () => { if (CT.stage !== stage) ctStage(stage); } },
+    t("ctStage_" + stage));
+  return h("div", { class: "row ct-stages" }, h("span", { class: "muted small" }, t("ctStage")),
+    h("div", { class: "ct-tabs" }, btn("max"), has ? btn("min") : null),
+    has ? h("button", { class: "ghost small", onclick: ctMinDialog }, t("ctMinReplace")) : h("button", { class: "ghost small", onclick: ctMinDialog }, t("ctMinAdd")),
+    has ? h("button", { class: "ghost small", onclick: ctMinRemove }, t("ctMinRemove")) : null,
+    CT.stage === "min" ? h("span", { class: "hint" }, t("ctMinHint")) : null);
 }
 
 // back to the build's tabs (the one that checks the section, or the one left)
@@ -146,7 +201,8 @@ function ctDraw() {
   const head = h("div", { class: "card stack" },
     h("div", { class: "ct-title" }, I("pencil", "c-gold"), " ", t("ctTitle", state.build.name)), h("div", { class: "hint" }, t("ctSub")),
     h("div", { class: "row" }, h("button", { class: "ghost", onclick: () => ctLeave() }, "← ", t("ctBack")),
-      h("button", { class: "ghost", title: t("ctCheckHint"), onclick: () => ctLeave(CT_CHECK[s]) }, "🔍 ", t("ctCheck"))));
+      h("button", { class: "ghost", title: t("ctCheckHint"), onclick: () => ctLeave(CT_CHECK[s]) }, "🔍 ", t("ctCheck"))),
+    ctStageBar());
   const tabs = h("div", { class: "ct-tabs" }, CT_SECTIONS.map((x) => h("button", { class: x === s ? "is-on" : "",
     onclick: () => { CT.section = x; hideTip(); ctDraw(); } }, t("ctSec_" + x))));
   // the section's own notes, at its top

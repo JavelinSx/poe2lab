@@ -2837,12 +2837,54 @@ def author_set(req: AuthorBlock, build: str | None = None):
 
 
 @app.get("/api/constructor/layout")
-def constructor_layout(build: str | None = None):
+def constructor_layout(stage: str = "max", build: str | None = None):
     """The character laid out for the author's constructor, by section, each element with the id its notes are
-    kept under (poe2lab.constructor). Nothing is calculated."""
+    kept under (poe2lab.constructor). Nothing is calculated. `stage`: the build itself (max) or its Мин (min).
+    A build with the player's character in it is laid out as the build, not the character."""
+    if stage not in constructor.STAGES:
+        raise HTTPException(400, f"неизвестный этап {stage!r}")
     with session.lock:
         session.require(build)
-        return _json(session.cached("ctor-layout", lambda: constructor.layout(session.engine)))
+        name = session.path.stem
+        minimum = library.min_path(name)
+
+        def compute():
+            if stage == "max" and session.main is None:
+                return constructor.layout(session.engine)
+            source = minimum if stage == "min" else session.path
+            if not source.exists():
+                raise HTTPException(404, "у билда нет этапа «Мин»: загрузи его из PoB")
+            engine = open_build(source, corrections=False, profile_of=session.path)[0]
+            return constructor.layout(engine, stage=stage)
+
+        key = ("ctor-layout", stage, minimum.stat().st_mtime if stage == "min" and minimum.exists() else 0)
+        return _json(session.cached(key, compute) | {"stages": {"max": True, "min": minimum.exists()}})
+
+
+class StageCode(BaseModel):
+    code: str  # a PoB code or a pobb.in link
+
+
+@app.post("/api/constructor/min")
+def constructor_set_min(req: StageCode, build: str | None = None):
+    """The build's Мин stage loaded from PoB (the previous one to builds/.trash)."""
+    with session.lock:
+        session.require(build)
+        try:
+            return library.set_min(session.path.stem, req.code)
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+
+
+@app.delete("/api/constructor/min")
+def constructor_clear_min(build: str | None = None):
+    with session.lock:
+        session.require(build)
+        try:
+            library.clear_min(session.path.stem)
+        except library.LibraryError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
 
 
 # ---------- every gem the game gives, for the hover card of any gem name (not only the open build's) ----------

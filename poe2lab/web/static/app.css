@@ -1267,3 +1267,4 @@ body.au-on .app { margin-right: 340px; }
 .ct-ed-card { padding: 8px 10px; border-radius: 8px; background: var(--panel-2); }
 .ct-label { width: 220px; }
 .ct-who { gap: 14px; flex-wrap: wrap; align-items: center; }
+.ct-stages { gap: 10px; flex-wrap: wrap; align-items: center; }

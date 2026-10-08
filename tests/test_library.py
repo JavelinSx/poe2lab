@@ -53,3 +53,18 @@ def test_remove_moves_code_builds_to_trash_and_hides_pob_builds(lib):
     assert [e["name"] for e in library.entries()] == [] and library.hidden_count() == 1
     library.unhide_all()
     assert [e["name"] for e in library.entries()] == ["Saved in PoB"]
+
+
+def test_a_builds_min_stage_lives_beside_it(lib):
+    name = library.add("", CODE)
+    info = library.set_min(name, CODE)
+    assert info["class"] and library.min_path(name).exists()
+    # not a build of the list of its own, and the build says it has one
+    listed = [b for b in library.entries() if b["kind"] == "code"]
+    assert [b["name"] for b in listed] == [name] and listed[0]["hasMin"]
+    library.set_min(name, CODE)  # replaced: the previous one to the bin
+    assert any(p.name.endswith(".min.txt") for p in (library.PROJECT_BUILDS / ".trash").iterdir())
+    library.clear_min(name)
+    assert not library.min_path(name).exists()
+    with pytest.raises(library.LibraryError):
+        library.clear_min(name)

@@ -6,7 +6,8 @@ author's notes are kept under (poe2lab.author), so a note stays on its element w
 
 Element ids: "gem:<name>" (a gem, wherever it is socketed), "sk:<active names joined by +>" (a socket group),
 "gear:<slot>" (an item slot, flasks and charms too), "node:<id>" (a passive), "jwl:<socket node id>" (a jewel),
-"qst:<PoB variable>" (a reward choice), "sec:<section>" (a section's own notes)."""
+"qst:<PoB variable>" (a reward choice), "sec:<section>" (a section's own notes). The build's Мин stage (the same build at
+its start or on a budget) has its own gear and jewels: their ids end in "@min"; gems and passives share their notes."""
 from .analysis import jewels as jewel_effects
 
 SECTIONS = ("character", "skills", "gear", "tree", "jewels", "flasks", "quests", "leveling")
@@ -26,8 +27,17 @@ def _item(it: dict) -> dict:
     return {k: it.get(k) for k in keep} | {"lines": [m["line"] for m in (it.get("implicit") or []) + (it.get("explicit") or [])]}
 
 
-def layout(engine, quest_rows: list[dict] | None = None) -> dict:
+STAGES = ("max", "min")
+
+
+def stage_suffix(stage: str) -> str:
+    """What a stage's own elements' ids end in: the Макс (the build itself) none, the Мин "@min"."""
+    return "" if stage == "max" else f"@{stage}"
+
+
+def layout(engine, quest_rows: list[dict] | None = None, stage: str = "max") -> dict:
     """The character as PoB has it, by section, with the id of each element."""
+    own = stage_suffix(stage)
     info = engine.info()
     groups = []
     for g in engine.skill_groups():
@@ -40,7 +50,7 @@ def layout(engine, quest_rows: list[dict] | None = None) -> dict:
     worn = engine.equipped_item_details()
     gear, flasks = [], []
     for it in sorted(worn, key=lambda x: (GEAR_ORDER.index(x["slot"]) if x["slot"] in GEAR_ORDER else 99, x["slot"])):
-        row = {"id": f"gear:{it['slot']}", "slot": it["slot"], "item": _item(it)}
+        row = {"id": f"gear:{it['slot']}{own}", "slot": it["slot"], "item": _item(it)}
         (flasks if it["slot"].startswith(FLASK_SLOTS) else gear).append(row)
     nodes = engine.allocated_nodes()
     tree = {"ascendancy": [n for n in nodes if n["ascendancy"] and n["type"] in ("Notable", "Keystone")],
@@ -50,7 +60,7 @@ def layout(engine, quest_rows: list[dict] | None = None) -> dict:
     for part in ("ascendancy", "keystones", "notables"):
         tree[part] = [{"id": f"node:{n['id']}", "node": n["id"], "name": n["name"], "type": n["type"]} for n in tree[part]]
     effects = engine.jewel_effects()
-    jewels = [{"id": f"jwl:{s['node']}", "node": s["node"], "slot": s["slot"], "near": s["near"], "item": _item(s["item"]),
+    jewels = [{"id": f"jwl:{s['node']}{own}", "node": s["node"], "slot": s["slot"], "near": s["near"], "item": _item(s["item"]),
                "effect": jewel_effects.describe(s["item"], effects.get(s["node"]))}
               for s in engine.jewel_sockets() if s["item"]]
     quests = [{"id": f"qst:{q['var']}", "var": q["var"], "act": q["act"], "area": q["area"], "info": q["info"],
@@ -59,4 +69,4 @@ def layout(engine, quest_rows: list[dict] | None = None) -> dict:
     return {"character": {"class": info["class"], "ascendancy": info["ascendancy"], "level": info["level"],
                           "mainSkill": engine.main_skill()},
             "skills": groups, "gear": gear, "flasks": flasks, "tree": tree, "jewels": jewels, "quests": quests,
-            "sections": list(SECTIONS)}
+            "sections": list(SECTIONS), "stage": stage}

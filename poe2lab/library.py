@@ -49,11 +49,12 @@ def entries() -> list[dict]:
     lib = _load()
     out = [{"name": p.stem, "kind": "pob", "file": str(p)} for p in list_pob_builds() if str(p) not in lib["hidden"]]
     out += [{"name": p.stem, "kind": "code", "file": str(p)} for p in sorted(PROJECT_BUILDS.glob("*.txt"))
-            if not p.name.endswith(MAIN_SUFFIX)]
+            if not p.name.endswith((MAIN_SUFFIX, MIN_SUFFIX))]
     for b in out:
         b["favorite"] = b["name"] in lib["favorites"]
         b["hasProfile"] = (PROJECT_BUILDS / f"{b['name']}.profile.json").exists()
         b["hasMain"] = main_path(b["name"]).exists()
+        b["hasMin"] = min_path(b["name"]).exists()
     out.sort(key=lambda b: not b["favorite"])  # stable: keeps the order inside each group
     return out
 
@@ -148,6 +149,38 @@ def set_main(name: str, text: str) -> dict:
     return info
 
 
+# The author's "Мин": the same build at its start or on a budget, next to the build (its "Макс") - the guide's two
+# stages; the author's notes on gems and passives are the same for both, on gear each stage has its own.
+MIN_SUFFIX = ".min.txt"
+
+
+def min_path(name: str) -> Path:
+    return PROJECT_BUILDS / f"{name}{MIN_SUFFIX}"
+
+
+def set_min(name: str, text: str) -> dict:
+    """The build's Мин stage (a PoB code or pobb.in link) put next to the build `name`: the previous one to
+    builds/.trash. Returns its class, ascendancy and level."""
+    code = fetch_code(text)
+    info = describe_code(code)
+    path = min_path(name)
+    PROJECT_BUILDS.mkdir(exist_ok=True)
+    if path.exists():
+        TRASH.mkdir(parents=True, exist_ok=True)
+        path.replace(TRASH / f"{time.strftime('%Y%m%d-%H%M%S')} {path.name}")
+    path.write_text(code + "\n", encoding="utf-8")
+    return info
+
+
+def clear_min(name: str):
+    """The build's Мин stage taken off (to builds/.trash)."""
+    path = min_path(name)
+    if not path.exists():
+        raise LibraryError(f"у билда «{name}» нет этапа «Мин»")
+    TRASH.mkdir(parents=True, exist_ok=True)
+    path.replace(TRASH / f"{time.strftime('%Y%m%d-%H%M%S')} {path.name}")
+
+
 def clear_main(name: str):
     """The player's character taken off the build (to builds/.trash): the build is a build of its own again."""
     path = main_path(name)
@@ -177,7 +210,7 @@ def remove(name: str) -> str:
         return "hidden"
     TRASH.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    for src in (PROJECT_BUILDS / f"{name}.txt", PROJECT_BUILDS / f"{name}.profile.json", main_path(name)):
+    for src in (PROJECT_BUILDS / f"{name}.txt", PROJECT_BUILDS / f"{name}.profile.json", main_path(name), min_path(name)):
         if src.exists():
             src.replace(TRASH / f"{stamp} {src.name}")  # a timestamp prefix: removing twice never overwrites
     _save(lib)
