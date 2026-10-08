@@ -178,7 +178,7 @@ const CT_DRAW = {
   skills: (d) => d.skills.map((g) => {
     const name = g.actives.map((x) => trName(x)).join(" + ");
     const gems = g.gems.map((x) => h("span", { class: "ct-gem" + (x.support ? " sup" : "") + (x.enabled ? "" : " off") },
-      ctEl(x.id, [icon(x.name), h("span", {}, trName(x.name))], { title: trName(x.name), card: () => gemTipCard(x.name) }),
+      ctEl(x.id, [icon(x.name), h("span", {}, trName(x.name))], { title: trName(x.name), card: () => gemTipCard(x.name, null, false) }),
       h("span", { class: "muted small" }, t("ctGemLv", x.level, x.quality))));
     return h("div", { class: "card stack ct-group" + (g.enabled ? "" : " off") },
       ctEl(g.id, [h("span", { class: "ct-title" }, name), g.main ? h("span", { class: "chip ok" }, t("ctMain")) : null], { cls: "ct-head", title: name }),

@@ -1274,3 +1274,7 @@ body.au-on .app { margin-right: 340px; }
 button.ghost.small.is-on { border-color: var(--gold); color: var(--gold); }
 .ct-orphans { border-color: var(--warn); }
 .ct-orphans select { max-width: 260px; }
+/* the author's words where the player meets the element: over it and beside it */
+.au-hover { display: flex; gap: 6px; align-items: flex-start; padding: 6px 8px; border-left: 3px solid var(--gold);
+  background: var(--gold-bg); border-radius: 6px; font-size: 13px; }
+.au-label { margin-right: 6px; color: var(--gold); }

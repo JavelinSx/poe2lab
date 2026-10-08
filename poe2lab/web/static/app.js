@@ -1431,10 +1431,10 @@ TABS.overview = async (view) => {
   const failed = (r.failed || []).length ? h("div", { class: "action" }, t("ovFailed", r.failed.join(", ")), " ",
     h("button", { class: "ghost small", onclick: () => reportError({ message: t("ovFailed", r.failed.join(", ")) }) }, "📨 ", t("errReport"))) : null;
   // what to do next beside the numbers; the way to the build under them, across the page
-  return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")),
+  return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")), auSecNote("character"),
     h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
       foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
-    unmodeledCard(), levelingCard(), questMapCard());
+    unmodeledCard(), auSecNote("leveling"), levelingCard(), auSecNote("quests"), questMapCard());
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -1666,8 +1666,8 @@ TABS.gear = async (view) => {
   }
 
   draw();
-  return h("div", { class: "stack" }, h("div", { class: "gear-top" }, h("div", { class: "card" }, dollBox), side),
-    path, uniquesCard(), craftGuide());
+  return h("div", { class: "stack" }, ...[auSecNote("gear"), auSecNote("flasks")].filter(Boolean),
+    h("div", { class: "gear-top" }, h("div", { class: "card" }, dollBox), side), path, uniquesCard(), craftGuide());
 };
 
 // The uniques linked to the build's skills, with their prices: for a levelling character the ones it can wear soon
@@ -2929,12 +2929,13 @@ TABS.tree = async (view) => {
   const lvTree = auBlock("tree:leveling").list;
   return h("div", { class: "stack" },
     mapBox, stale,
-    auCard("tree:about", t("auTreeTitle"), t("auTreePh")),
+    auCard("tree:about", t("auTreeTitle"), t("auTreePh")), auSecNote("tree"),
     AU.edit || lvTree ? h("div", { class: "card au-card" }, h("h3", {}, I("pencil", "c-gold"), " ", t("auTreeLv")),
       h("div", { class: "sub" }, t("auTreeLvSub")), h("div", { class: "lr-sec-v au-tree-lv" }, ...auList("tree:leveling", [], [], ["passive"]))) : null,
     planCard(r.plan, r.points),
     asc.error ? h("div", { class: "card" }, h("p", { class: "muted" }, asc.error))
       : foldedCard(ascendancyCard(asc, graph), "ascendancy", asc.ascendancy ? t("tvAscPoints", asc.points, asc.maxPoints) : null),
+    auSecNote("jewels"),
     jw.error ? h("div", { class: "card" }, h("p", { class: "muted" }, jw.error)) : foldedCard(jewelCard(jw), "jewels", t("jwSum", filled, jw.sockets.length)),
     packsCard,
     foldedCard(growth, "growth", best ? t("treeGrowthSum", trName(best.name), fmt(best.perPoint, 1)) : null),
@@ -3172,7 +3173,7 @@ function jewelGist(s) {
 function jewelCard(jw) {
   const art = (s) => s.item ? itemIcon(s.item.name, s.item.baseName, s.item.rarity) || h("span", { class: "jw-gem" }) : h("span", { class: "jw-hole" });
   // over a jewel: its lines and what it does on the tree
-  const tip = (s) => () => h("div", { class: "stack" }, h("b", { class: "r-" + (s.item.rarity || "normal").toLowerCase() }, itemTitle(s.item)),
+  const tip = (s) => () => h("div", { class: "stack" }, auTipBox("jwl:" + s.node), h("b", { class: "r-" + (s.item.rarity || "normal").toLowerCase() }, itemTitle(s.item)),
     h("ul", { class: "item-lines small" }, [...s.item.implicit, ...s.item.explicit].map((m) => h("li", {}, trMod(m.line)))), jewelEffect(s.effect));
   const tile = (s) => {
     const gist = s.item ? jewelGist(s) : null;
@@ -3182,7 +3183,8 @@ function jewelCard(jw) {
     h("div", { class: "jw-name" }, s.item ? itemTitle(s.item) : t("jwEmpty")),
     gist ? h("div", { class: "jw-gist small" }, gist) : null,
     h("div", { class: "muted small" }, t("jwNear", trName(s.near))),
-    s.without ? h("div", { class: "jw-without" }, h("span", { class: "muted small" }, t("jwWithout")), deltas(s.without, JW_DELTA, 0.3)) : null);
+    s.without ? h("div", { class: "jw-without" }, h("span", { class: "muted small" }, t("jwWithout")), deltas(s.without, JW_DELTA, 0.3)) : null,
+    ...auElNotes([["jwl:" + s.node, itemTitle(s.item || {})]]));
     return s.item ? hoverTip(el, tip(s)) : el;
   };
   return h("div", { class: "card" }, h("h3", {}, t("jwTitle")),
@@ -3840,6 +3842,7 @@ function questMapCard() {
         : pick ? "★ " + t("qmBestOf", q.options.length) : t("qNotChosen")) : null,
       h("div", { class: "qm-who" }, who, h("span", {}, questName(q))),
       h("div", { class: "qm-where muted small" }, questArea(q.area), " · ", t("lrLv", q.level)),
+      ...auElNotes([[`qst:${q.var}`, questName(q)]]),
       h("span", { class: "qm-mark" }, taken(q) ? "✓" : ""));
     };
     const acts = [...new Set(all.map((q) => QUEST_ACT[q.act] || "maps"))];
@@ -3925,7 +3928,7 @@ TABS.skills = async (view) => {
   report().then((rep) => damage.replaceChildren(...renderDamage(rep)))
     .catch((e) => damage.replaceChildren(h("p", { class: "muted" }, e.message)));
   const explained = h("div", { class: "grid two masonry" }, loading(t("exLoading")));
-  body.replaceChildren(...renderSkillsBuild(r), h("div", { class: "section-title" }, "🔍 ", t("exTitle")), explained,
+  body.replaceChildren(...[auSecNote("skills"), ...renderSkillsBuild(r)].filter(Boolean), h("div", { class: "section-title" }, "🔍 ", t("exTitle")), explained,
     h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
   betterSupports(body);
   DATA.skills("explain")
@@ -4757,6 +4760,7 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
       n.jewel ? h("div", { class: "tip-name r-" + (n.jewel.rarity || "normal").toLowerCase() }, "◆ ", itemTitle({ name: n.jewel.name, baseName: n.jewel.base })) : null,
       n.jewel && n.jewel.lines ? h("ul", { class: "item-lines small" }, n.jewel.lines.map((l) => h("li", {}, trMod(l)))) : null,
       n.jewel ? jewelEffect(n.jewel.effect) : null,
+      auTipBox("node:" + n.id), ...auElNotes([["node:" + n.id, trName(n.name)]]),
       stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null,
       act ? h("div", { class: "tv-act " + (why ? "warn" : n.alloc ? "neg" : "pos") }, act) : null].filter(Boolean));
     tip.classList.remove("hidden");
@@ -4874,12 +4878,13 @@ function loadAllGems() {
   }
   return gemAllLoading;
 }
-function gemTipCard(name, note) {
+function gemTipCard(name, note, author = true) {
   const gem = GEM_TIPS.get(name) || GEM_ALL.get(name);
-  if (!gem && !note && (LANG === "en" || trName(name) === name)) return null;  // nothing to add to the name
+  const own = author ? auTipBox("gem:" + name) : null;
+  if (!gem && !note && !own && (LANG === "en" || trName(name) === name)) return null;  // nothing to add to the name
   const lines = gem ? (LANG !== "en" && gem.linesLocal && gem.linesLocal.length ? gem.linesLocal : (gem.lines || []).map(trMod)) : [];
   const desc = gem && gameText(gem.description);
-  return h("div", { class: "stack" },
+  return h("div", { class: "stack" }, own,
     h("div", { class: "row", style: "gap:8px;align-items:center" }, icon(name), h("b", {}, trName(name)),
       gem ? h("span", { class: "muted small" }, gem.support ? t("skTipSupport") : t("skTipActive")) : null),
     LANG !== "en" && trName(name) !== name ? h("div", { class: "muted small" }, name) : null,
@@ -5106,6 +5111,7 @@ function renderSkillsBuild(r) {
       triggerBlock(g),
       supports.length ? h("div", { class: "sk-pills" }, supports.map((x) => supportPill(x, g))) : null,
       auNote("sk:" + g.actives.map((a) => a.name).join("+"), t("auLinkPh")),
+      ...auElNotes(g.gems.map((x) => ["gem:" + x.name, trName(x.name)])),
       h("details", { class: "sk-more" }, h("summary", { class: "muted small" }, t("skMore")),
         g.actives[0] && (g.actives[0].typeTags || []).length ? typeChips(g.actives[0].typeTags) : null,
         g.gems.filter((x) => !x.support).map((x) => gemRow(x, g)),
@@ -6334,10 +6340,29 @@ function auButton() {
 // ---- the blocks ----
 // the author's note under a block: nothing when empty (until the constructor is on)
 function auNote(id, ph, badge = true) {
-  const text = auBlock(id).text || "";
+  const text = auBlock(id).text || "", label = auBlock(id).label;
   if (!AU.edit) return text ? h("div", { class: "au-note" }, badge ? h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")) : null,
-    h("div", { class: "au-text" }, ...auRich(text))) : null;
+    h("div", { class: "au-text" }, label ? h("b", { class: "au-label" }, label) : null, ...auRich(text))) : null;
   return h("div", { class: "au-note is-edit" }, auEditor(text, (v) => auSave(id, { text: v }), ph || t("auNotePh")));
+}
+// The author's notes from the constructor where the player meets the element: the tip in the element's hover card,
+// the note shown at once beside the element (a group's gems under the group), a section's note at its tab's top.
+function auTipBox(id) {
+  const b = auBlock(id);
+  if (!b.tip) return null;
+  return h("div", { class: "au-hover" }, h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")), h("span", {}, ...auRich(b.tip)));
+}
+function auElNotes(pairs) {
+  return pairs.map(([id, name]) => {
+    const b = auBlock(id);
+    return b.text ? h("div", { class: "au-note" }, h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")),
+      h("div", { class: "au-text" }, b.label ? h("b", { class: "au-label" }, b.label) : null, h("span", { class: "muted" }, `${name}: `), ...auRich(b.text))) : null;
+  }).filter(Boolean);
+}
+function auSecNote(sec) {
+  const b = auBlock("sec:" + sec);
+  return b.text ? h("div", { class: "card au-card" }, h("h3", {}, I("pencil", "c-gold"), " ", b.label || t("ctSec_" + sec)),
+    h("div", { class: "au-text" }, ...auRich(b.text))) : null;
 }
 // a card of its own for a block with nothing else in it (the build's description, a slot's note)
 function auCard(id, title, ph) {
