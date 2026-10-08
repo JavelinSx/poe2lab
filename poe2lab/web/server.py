@@ -27,7 +27,7 @@ from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.tree import take_package
-from ..analysis import leveling, quests as quest_rewards
+from ..analysis import jewels as jewel_effects, leveling, quests as quest_rewards
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -1419,6 +1419,14 @@ def tree_graph(build: str | None = None):
 def _tree_graph_with_icons() -> dict:
     """Each node gets its own picture (by the icon path PoB keeps for it), when the icons are unpacked."""
     graph = session.engine.tree_graph()
+    # a socket's jewel: its lines and what it does on the tree (a timeless jewel's conqueror, From Nothing...)
+    effects = session.engine.jewel_effects()
+    items = {s["node"]: s["item"] for s in session.engine.jewel_sockets() if s["item"]}
+    for n in graph["nodes"]:
+        if n.get("jewel") and n["id"] in items:
+            it = items[n["id"]]
+            n["jewel"]["lines"] = [m["line"] for m in it["implicit"] + it["explicit"]]
+            n["jewel"]["effect"] = jewel_effects.describe(it, effects.get(n["id"]))
     have = {p.name for p in icons.ICONS.glob("*.png")} if icons.ICONS.is_dir() else set()
     for n in graph["nodes"]:
         file = icons._file_name(n.pop("icon")) if n.get("icon") else ""
@@ -1574,11 +1582,17 @@ def jewels(build: str | None = None):
 
         def compute():
             e, cfg = session.engine, session.profile.config()
-            base = e.what_if(config=cfg)
+            # the damage on the skill that has it (a main skill PoB gives none - Mirror of Refraction - shows nothing)
+            group = _damage_group(e, cfg)
+            base = e.what_if(config=cfg, main_socket_group=group)
+            effects = e.jewel_effects()
             out = []
             for s in sorted(e.jewel_sockets(), key=lambda s: (not s["item"], s["near"])):
                 if s["item"]:
-                    s["without"] = metric_changes(e.what_if(config=cfg, remove_slot=s["slot"]), base)
+                    # taken out for real: a timeless jewel's swaps and From Nothing's nodes go with it
+                    with e.without_jewel(s["slot"]):
+                        s["without"] = metric_changes(e.what_if(config=cfg, main_socket_group=group), base)
+                    s["effect"] = jewel_effects.describe(s["item"], effects.get(s["node"]))
                 out.append(s)
             return {"sockets": out}
 

@@ -28,6 +28,8 @@ TABLES = {  # table -> (key column, text columns)
     "buffdefinitions": ("Id", ["Name"]),
     "leaguenames": ("Id", ["Name1"]),
     "passiveskills": ("Id", ["Name"]),
+    # a timeless jewel's conqueror's passives (keystones, notables) that replace the tree's
+    "alternatepassiveskills": ("Id", ["Name"]),
 }
 # The game's own explanations of its terms (the popups on hover): Id, name and text in English and in `lang`.
 KEYWORDS = "keywordpopups"
@@ -619,6 +621,8 @@ def stale(lang: str, game: Path | None = None) -> bool:
     if (not available(lang) or not names_path(lang).is_file() or not keywords_path(lang).is_file()
             or not currency_path(lang).is_file()):
         return True  # keywords.json, currency.json: unpacks made before the term popups / currency texts
+    if any(not (RAW / "data/balance" / f"{table}.datc64").is_file() for table in TABLES):
+        return True  # a name table added since the unpack
     ok = GAME_CACHE / "icons" / "items.ok"
     from .icons import ART_VERSION  # icons imports this module
     if not ok.is_file() or (ok.read_text(encoding="utf-8").split() or [""])[0] != str(ART_VERSION):

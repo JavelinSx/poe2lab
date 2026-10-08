@@ -938,6 +938,9 @@ tr.dense .fit-chips { margin-top: 2px; }
 .jw-art { height: 54px; display: flex; align-items: center; justify-content: center; }
 .jw-art .item-ico { margin: 0; }
 .jw-name { font-weight: 600; line-height: 1.2; }
+.jw-gist { color: var(--mod-text); line-height: 1.25; }
+.je { gap: 4px; font-size: 12.5px; }
+.je-swap { border-left: 2px solid var(--gold-line); padding-left: 8px; }
 .jw-hole { width: 40px; height: 40px; border-radius: 50%; border: 2px dashed #3a414d; }
 .jw-gem { display: inline-block; width: 26px; height: 26px; margin: 7px; transform: rotate(45deg); border-radius: 5px; background: #9a9a9a; }
 .jw-gem.c-str { background: #c8463a; }

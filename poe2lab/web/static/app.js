@@ -3000,14 +3000,64 @@ const JW_DELTA = [["dps", "m_dps"], ["ehp", "m_ehp"]];
 const JW_RANGE = /\(-?[\d.]+--?[\d.]+\)/;
 const jwName = (n) => itemTitle({ name: n, baseName: (n || "").split(", ")[1] || "" });
 
+// What a jewel does on the tree beyond its lines (poe2lab.analysis.jewels): a timeless jewel's conqueror and the
+// passives it swaps, From Nothing's keystone and the nodes taken without a path, a Time-Lost jewel's sum over its radius
+const JE_KIND = (k) => t("jeKind_" + k);
+const jeNames = (reached) => {
+  const big = reached.filter((n) => n.type === "notable" || n.type === "keystone").map((n) => trName(n.name));
+  const small = reached.length - big.length;
+  return [...big, small ? t("jeMoreSmall", small) : null].filter(Boolean).join(", ");
+};
+function jewelEffect(e) {
+  if (!e) return null;
+  const rows = [];
+  if (e.kind === "timeless") {
+    rows.push(h("div", {}, "⚔ ", t("jeTimeless", t("jeConq_" + e.conqueror.kind), e.conqueror.seed)));
+    for (const r of e.replaced) rows.push(h("div", { class: "je-swap" }, h("div", {}, h("span", { class: "muted" }, trName(r.name)), " → ", h("b", {}, trName(r.now))),
+      h("ul", { class: "item-lines small" }, r.lines.map((l) => h("li", {}, trMod(l))))));
+    if (e.unknown.length) rows.push(h("div", { class: "hint" }, t("jeUnknown", e.unknown.length, e.unknown.map((x) => trName(x)).join(", "))));
+    if (e.small) rows.push(h("div", { class: "muted small" }, t("jeSmall", e.small)));
+  } else if (e.kind === "fromNothing") {
+    rows.push(h("div", {}, t("jeNothing", trName(e.keystone), e.reached.length)));
+    if (e.reached.length) rows.push(h("div", { class: "muted small" }, jeNames(e.reached)));
+  } else if (e.kind === "radiusMods") {
+    for (const g of e.grants) rows.push(h("div", {}, g.total ? t("jeGrant", g.count, JE_KIND(g.kind), trMod(g.total)) : t("jeEffectOf", g.count, JE_KIND(g.kind))));
+  } else {
+    rows.push(h("div", {}, t(e.kind === "leap" ? "jeLeap" : "jeReach", e.reached.length)));
+    if (e.reached.length) rows.push(h("div", { class: "muted small" }, jeNames(e.reached)));
+  }
+  return h("div", { class: "je stack" }, e.radius ? h("div", { class: "muted small" }, t("jeRadius", t("jeRadius_" + e.radius.replace(/ /g, "")))) : null, ...rows);
+}
+// the same in one line, for a socket's tile
+function jewelGist(s) {
+  const e = s.effect, it = s.item;
+  if (e && e.kind === "timeless") {
+    const r = e.replaced[0];
+    return r ? `⚔ ${trName(r.name)} → ${trName(r.now)}` : `⚔ ${t("jeConq_" + e.conqueror.kind)}: ${t("jeUnknownShort", e.unknown.length)}`;
+  }
+  if (e && e.kind === "fromNothing") return t("jeNothingShort", trName(e.keystone), e.reached.length);
+  if (e && e.kind === "radiusMods") return e.grants.map((g) => (g.total ? trMod(g.total) : t("jeEffectOf", g.count, JE_KIND(g.kind)))).join(" · ");
+  if (e) return t(e.kind === "leap" ? "jeLeap" : "jeReach", e.reached.length);
+  // a unique without a radius: its own line says what it gives
+  return it.rarity === "UNIQUE" && it.explicit.length ? trMod(it.explicit[0].line) : null;
+}
+
 function jewelCard(jw) {
   const art = (s) => s.item ? itemIcon(s.item.name, s.item.baseName, s.item.rarity) || h("span", { class: "jw-gem" }) : h("span", { class: "jw-hole" });
-  const tile = (s) => h("button", { class: "jw-socket" + (s.item ? " r-" + (s.item.rarity || "normal").toLowerCase() : " vacant"),
-    title: t("jwOpen"), onclick: () => jewelEditor(s) },
-  h("div", { class: "jw-art" }, art(s)),
-  h("div", { class: "jw-name" }, s.item ? itemTitle(s.item) : t("jwEmpty")),
-  h("div", { class: "muted small" }, t("jwNear", trName(s.near))),
-  s.without ? h("div", { class: "jw-without" }, h("span", { class: "muted small" }, t("jwWithout")), deltas(s.without, JW_DELTA, 0.3)) : null);
+  // over a jewel: its lines and what it does on the tree
+  const tip = (s) => () => h("div", { class: "stack" }, h("b", { class: "r-" + (s.item.rarity || "normal").toLowerCase() }, itemTitle(s.item)),
+    h("ul", { class: "item-lines small" }, [...s.item.implicit, ...s.item.explicit].map((m) => h("li", {}, trMod(m.line)))), jewelEffect(s.effect));
+  const tile = (s) => {
+    const gist = s.item ? jewelGist(s) : null;
+    const el = h("button", { class: "jw-socket" + (s.item ? " r-" + (s.item.rarity || "normal").toLowerCase() : " vacant"),
+      title: s.item ? null : t("jwOpen"), onclick: () => jewelEditor(s) },
+    h("div", { class: "jw-art" }, art(s)),
+    h("div", { class: "jw-name" }, s.item ? itemTitle(s.item) : t("jwEmpty")),
+    gist ? h("div", { class: "jw-gist small" }, gist) : null,
+    h("div", { class: "muted small" }, t("jwNear", trName(s.near))),
+    s.without ? h("div", { class: "jw-without" }, h("span", { class: "muted small" }, t("jwWithout")), deltas(s.without, JW_DELTA, 0.3)) : null);
+    return s.item ? hoverTip(el, tip(s)) : el;
+  };
   return h("div", { class: "card" }, h("h3", {}, t("jwTitle")),
     jw.sockets.length ? h("div", { class: "sub" }, t("jwSub")) : null,
     jw.sockets.length ? h("div", { class: "jw-grid" }, jw.sockets.map(tile)) : h("p", { class: "muted" }, t("jwNone")));
@@ -4580,6 +4630,8 @@ function openTreeViewer(graph, tree, asc, opts = {}) {
       tags.length ? h("div", { class: "muted small" }, tags.join(" · ")) : null,
       n.asc ? h("div", { class: "muted small" }, trName(n.asc)) : null,
       n.jewel ? h("div", { class: "tip-name r-" + (n.jewel.rarity || "normal").toLowerCase() }, "◆ ", itemTitle({ name: n.jewel.name, baseName: n.jewel.base })) : null,
+      n.jewel && n.jewel.lines ? h("ul", { class: "item-lines small" }, n.jewel.lines.map((l) => h("li", {}, trMod(l)))) : null,
+      n.jewel ? jewelEffect(n.jewel.effect) : null,
       stats(n.stats), w && w.changes ? h("div", { class: "small" }, h("span", { class: "muted" }, t("tvWorth", fmt(w.value, 1), w.points)), deltas(w.changes, METRIC, 0.3)) : null,
       act ? h("div", { class: "tv-act " + (why ? "warn" : n.alloc ? "neg" : "pos") }, act) : null].filter(Boolean));
     tip.classList.remove("hidden");

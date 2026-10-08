@@ -931,6 +931,18 @@ local snap = {{ nodes = {{}}, overrides = copyTable(build.spec.hashOverrides or 
 for id, node in pairs(build.spec.allocNodes) do snap.nodes[id] = node.allocMode or 0 end
 _poe2lab_tree_snaps[ {lua_string(name)} ] = snap""")
 
+    @contextmanager
+    def without_jewel(self, slot: str):
+        """The jewel of a tree socket ("Jewel <node id>") taken out for real: what it does to the tree goes with it -
+        a timeless jewel's swapped keystones, the nodes taken through From Nothing - which what_if(remove_slot=...)
+        cannot show (it changes the calculation, not the tree). Put back on exit with the tree exactly as it was."""
+        self.tree_snapshot("_without_jewel")
+        try:
+            with self.swapped_items({slot: None}):
+                yield self
+        finally:
+            self.tree_restore("_without_jewel")
+
     def tree_restore(self, name: str):
         """Put back an allocation remembered by tree_snapshot, exactly, and recalculate."""
         self._lua(f"""
@@ -1228,6 +1240,48 @@ for nodeId, slot in pairs(build.itemsTab.sockets) do
   end
 end
 return _poe2lab_json(out)""")
+
+    def jewel_effects(self) -> dict[int, dict]:
+        """What each socketed jewel does to the tree, by socket node id: its radius (PoB's label), the allocated nodes it
+        reaches - around the socket, or for From Nothing around its keystone - each with its name on the tree and what
+        it is now (a timeless jewel's conqueror replaces it) and its lines; a timeless jewel's conqueror and seed, From
+        Nothing's keystone, whether the jewel changes the nodes in its radius (Time-Lost: "Small Passive Skills in
+        Radius also grant...")."""
+        rows = self._json("""
+local spec, out = build.spec, _poe2lab_array({})
+local function view(id)
+  local now, was = spec.nodes[id], spec.tree.nodes[id]
+  return { id = id, type = now.type or "", name = was and was.dn or now.dn or "", now = now.dn or "",
+           lines = _poe2lab_array(now.sd or {}), conquered = now.conqueredBy and true or false,
+           attribute = now.isAttribute and true or false }
+end
+for nodeId, slot in pairs(build.itemsTab.sockets) do
+  local item = build.itemsTab.items[slot.selItemId]
+  local socket = spec.nodes[nodeId]
+  if item and socket and spec.allocNodes[nodeId] then
+    local jd, ri = item.jewelData or {}, item.jewelRadiusIndex
+    local r = { node = nodeId, radius = ri and data.jewelRadius[ri] and data.jewelRadius[ri].label or false,
+                nodes = _poe2lab_array({}), radiusMods = jd.funcList and true or false, leap = jd.intuitiveLeapLike and true or false }
+    if jd.conqueredBy then
+      r.conqueror = { kind = jd.conqueredBy.conqueror and jd.conqueredBy.conqueror.type or "", seed = jd.conqueredBy.id }
+    end
+    local around = socket
+    if jd.fromNothingKeystone then
+      r.keystone = jd.fromNothingKeystone
+      for name, key in pairs(spec.tree.keystoneMap) do
+        if name == jd.fromNothingKeystone or (key.dn or ""):lower() == jd.fromNothingKeystone then around = key; r.keystone = key.dn end
+      end
+    end
+    if ri and around.nodesInRadius and around.nodesInRadius[ri] then
+      for id in pairs(around.nodesInRadius[ri]) do
+        if spec.allocNodes[id] and spec.nodes[id] and id ~= nodeId then r.nodes[#r.nodes + 1] = view(id) end
+      end
+    end
+    out[#out + 1] = r
+  end
+end
+return _poe2lab_json(out)""")
+        return {r["node"]: r for r in rows}
 
     def resolve_ranges(self, pairs: list[tuple[str, float]]) -> list[str]:
         """Item lines with each range - "(4-8)%" - resolved where its roll puts it (0: the low end, 1: the high
