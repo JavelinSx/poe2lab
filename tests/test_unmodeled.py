@@ -64,3 +64,61 @@ def test_a_correction_is_priced_by_taking_it_out():
     assert fx[1]["ehp"] > 1 and abs(fx[1]["dps"]) < 0.5
     # the corrections are back as they were
     assert e.what_if()["CombinedDPS"] == before["CombinedDPS"]
+
+
+# ---- a line PoB cannot read even its own way, counted with the player's numbers ----
+
+def gap(where, text):
+    return Gap("skill", where, text, text, True)
+
+
+SLAM = {3: [{"name": "Furious Slam", "minion": False}], 5: [{"name": "Wardbound Minions", "minion": True}]}
+
+
+def test_how_a_line_is_counted_with_the_players_numbers():
+    yes = lambda line: True  # noqa: E731
+    m = unmodeled.model_for(gap("Unleash (группа 3)", "Supported Skills Repeat 1 time per Seal broken"), SLAM, yes)
+    # a repeat is one more use of the skill it supports - that skill's damage, not the whole build's
+    assert m["kind"] == "repeat" and m["skill"] == "Furious Slam"
+    assert unmodeled.line_for(m, {"n": 2}) == "Furious Slam deals 200% more Damage"
+    # a minion skill cast again is not its minions hitting twice: the player says how much, for the minions
+    m = unmodeled.model_for(gap("Unleash (группа 5)", "Supported Skills Repeat 1 time per Seal broken"), SLAM, yes)
+    assert m["kind"] == "more" and m["minion"]
+    assert unmodeled.line_for(m, {"pct": 40}) == "Minions deal 40% more Damage"
+    m = unmodeled.model_for(gap("Armour Break III (группа 3)",
+                                "20% chance to gain an Endurance Charge when Supported Skills Fully Break Armour"), SLAM, yes)
+    assert m["kind"] == "charges" and unmodeled.line_for(m, {"n": 2}) == "+2 to Minimum Endurance Charges"
+    m = unmodeled.model_for(gap("Uruk's Smelting (группа 3)", "Fully Breaking Armour with Supported Skills causes "
+                                "affected targets to permanently take 5% increased Physical Damage, up to 20%"), SLAM, yes)
+    assert m["kind"] == "taken" and unmodeled.line_for(m, {}) == "Nearby Enemies take 20% increased Physical Damage"
+    m = unmodeled.model_for(gap("Uruk's Smelting (группа 3)", "Supported Skills Break 70% more Armour"), SLAM, yes)
+    assert m["kind"] == "armour"
+    # a skill set off by breaking armour is its own damage, not broken armour
+    m = unmodeled.model_for(gap("Armour Explosion (группа 3)",
+                                "Supported Skills trigger an Explosion when they Fully Break an enemy's Armour"), SLAM, yes)
+    assert m["kind"] == "more"
+    # a skill PoB cannot name: the whole build's damage
+    m = unmodeled.model_for(gap("Tireless (группа 3)", "Something unknown"), SLAM, lambda line: False)
+    assert m["skill"] is None and unmodeled.line_for(m, {"pct": 15}) == "15% more Damage"
+
+
+def test_a_line_kept_in_whole_numbers_at_any_uptime():
+    # PoB reads "17.5% more Damage" as nothing: a line in whole numbers stays in whole numbers
+    assert Correction("35% more Damage", "test", uptime=0.5).line == "18% more Damage"
+    assert Correction("30% increased Skill Speed", "test", uptime=0.75).line == "23% increased Skill Speed"
+
+
+def test_broken_armour_is_counted_once():
+    from poe2lab.engine import PobEngine
+    from poe2lab.knowledge import collect
+    e = PobEngine()
+    e.load_code((FIXTURES / "titan.txt").read_text(encoding="utf-8").strip())
+    gaps = collect(e).gaps
+    actives = unmodeled.actives_by_damage(e.skill_groups(), e.skill_damage({}))
+    armour = [r for r in unmodeled.estimates(e, gaps, {}, 1, set(), actives)["unpriced"] if r["model"]["kind"] == "armour"]
+    assert armour and not any(r["model"]["counted"] for r in armour)
+    line = unmodeled.line_for(armour[0]["model"], {}, e, {}, 1)
+    assert line.endswith("% more Damage") and e.can_parse_mod(line)
+    # one correction for the state, and every breaking line says it is counted
+    again = unmodeled.estimates(e, gaps, {}, 1, {unmodeled.ARMOUR_KEY}, actives)["unpriced"]
+    assert all(r["model"]["counted"] for r in again if r["model"]["kind"] == "armour")

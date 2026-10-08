@@ -344,6 +344,11 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: now
 .um-main .where { color: var(--gold); }
 .um-est { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .um-up input { width: 64px; }
+.um-model { gap: 6px; }
+.um-ask { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.um-num { width: 80px; }
+.um-result { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 22px; }
+.um-manual { margin-top: 8px; }
 .gap { padding: 10px 12px; border-radius: 8px; background: var(--panel-2); margin-bottom: 8px; }
 .gap .where { font-size: 13px; color: var(--gold); }
 .gap .stat { font-size: 12px; color: var(--muted); font-family: Consolas, monospace; }

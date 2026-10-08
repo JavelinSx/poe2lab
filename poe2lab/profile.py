@@ -27,7 +27,11 @@ class Correction:
     def line(self) -> str:
         if self.uptime >= 1:
             return self.mod
-        scale = lambda m: f"{float(m.group()) * self.uptime:g}"  # noqa: E731
+        # PoB reads most lines with whole numbers only ("17.5% more Damage" is not a mod to it): a line written in
+        # whole numbers stays in whole numbers
+        whole = "." not in self.mod
+        scale = lambda m: (str(int(float(m.group()) * self.uptime + 0.5)) if whole  # noqa: E731
+                           else f"{float(m.group()) * self.uptime:g}")
         # "Adds 26 to 42 Physical Damage": both ends of the range; otherwise the mod's first number
         if _RANGE.search(self.mod):
             return _RANGE.sub(lambda m: f"{scale(_NUMBER.match(m.group(1)))} to {scale(_NUMBER.match(m.group(2)))}",

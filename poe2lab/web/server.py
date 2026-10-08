@@ -44,8 +44,8 @@ from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
-from .. import (author, buildplanner, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft, itemtext,
-               jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality)
+from .. import (author, buildplanner, constructor, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft,
+               itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -1270,16 +1270,57 @@ def unmodeled_view(build: str | None = None):
         def compute():
             e, cfg = session.engine, session.profile.config()
             m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
-            group = _damage_group(e, cfg)
+            group = _counted_group(e, cfg)
             corrections = session.bp.corrections if session.bp else []
             effects = unmodeled.corrections_effect(e, CORRECTION_BLOCK, [c.line for c in corrections], cfg, group)
             rows = [{"index": i, "mod": c.mod, "line": c.line, "source": c.source, "uptime": c.uptime,
                      "confirmed": c.confirmed, "changes": ch} for i, (c, ch) in enumerate(zip(corrections, effects))]
             # a line the player already corrected is not offered again
-            out = unmodeled.estimates(e, m.gaps, cfg, group, unmodeled.covered_by(corrections))
+            out = unmodeled.estimates(e, m.gaps, cfg, group, unmodeled.covered_by(corrections), _actives(e))
             return {"corrections": rows, **out, "big_pct": unmodeled.BIG}
 
         return _json(session.cached("unmodeled", compute))
+
+
+def _counted_group(e, cfg: dict) -> int:
+    """The socket group the damage is counted on, by its index (the main one included: _damage_group gives None
+    for it, and a line of the main skill must not read as another skill's)."""
+    return _damage_group(e, cfg) or e.info()["mainSocketGroup"]
+
+
+def _actives(e) -> dict[int, list[dict]]:
+    rows = session.cached(("skill-numbers",), lambda: e.skill_damage(session.profile.config()))
+    return unmodeled.actives_by_damage(e.skill_groups(), rows)
+
+
+class UnmodeledTry(BaseModel):
+    key: str  # the line's "where: text", as /api/unmodeled lists it
+    values: dict = {}  # the player's numbers for the line's model (unmodeled.model_for)
+    uptime: float = 1.0
+
+
+@app.post("/api/unmodeled/try")
+def unmodeled_try(req: UnmodeledTry, build: str | None = None):
+    """A line PoB cannot count, counted with the player's numbers: the PoB line it makes and what it would change
+    (nothing is saved: the player then adds it as a correction)."""
+    with session.lock:
+        session.require(build)
+        e, cfg = session.engine, session.profile.config()
+        m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
+        gap = next((g for g in m.gaps if f"{g.where}: {g.text}" == req.key), None)
+        if gap is None:
+            raise HTTPException(404, "такой строки в билде нет")
+        group = _counted_group(e, cfg)
+        model = unmodeled.model_for(gap, _actives(e), e.can_parse_mod)
+        line = unmodeled.line_for(model, req.values, e, cfg, group)
+        if not line:
+            return _json({"line": None, "model": model})
+        if not e.can_parse_mod(line):
+            raise HTTPException(400, f"PoB не понимает строку: {line}")
+        own = model["group"] if model.get("skill") else None
+        source = unmodeled.ARMOUR_KEY if model["kind"] == "armour" else req.key
+        return _json({"line": line, "model": model, "source": source}
+                     | unmodeled.try_line(e, line, max(0.0, min(1.0, req.uptime)), cfg, group, own))
 
 
 @app.get("/api/mechanics")
@@ -2773,7 +2814,9 @@ def author_get(build: str | None = None):
 
 class AuthorBlock(BaseModel):
     id: str
-    text: str | None = None
+    text: str | None = None  # the note shown at once
+    tip: str | None = None  # the one shown over the element
+    label: str | None = None  # the author's own label of the note
     items: list[str] | None = Field(None, alias="list")
 
 
@@ -2785,11 +2828,21 @@ def author_set(req: AuthorBlock, build: str | None = None):
         path = _profile_path()
         raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         try:
-            raw["author"] = author.set_block(raw.get("author"), req.id, {"text": req.text, "list": req.items})
+            raw["author"] = author.set_block(raw.get("author"), req.id,
+                                             {"text": req.text, "tip": req.tip, "label": req.label, "list": req.items})
         except author.AuthorError as err:
             raise HTTPException(400, str(err))
         journal.write_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2))
         return {"id": req.id, "block": raw["author"]["blocks"].get(req.id)}
+
+
+@app.get("/api/constructor/layout")
+def constructor_layout(build: str | None = None):
+    """The character laid out for the author's constructor, by section, each element with the id its notes are
+    kept under (poe2lab.constructor). Nothing is calculated."""
+    with session.lock:
+        session.require(build)
+        return _json(session.cached("ctor-layout", lambda: constructor.layout(session.engine)))
 
 
 # ---------- every gem the game gives, for the hover card of any gem name (not only the open build's) ----------

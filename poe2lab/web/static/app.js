@@ -5313,7 +5313,7 @@ function unmodeledCard() {
       h("button", { class: "primary small", title: trMod(g.line),
         onclick: () => saveCorrections((list) => list.push({ mod: g.line, source: g.key, uptime: 1, confirmed: false }), t("corrAdded", trMod(g.line))) }, t("umCount")));
     const unpriced = (g) => h("div", { class: "gap" },
-      h("button", { class: "gap-add", title: t("addToPob"), onclick: (e) => toggleAddPanel(e.currentTarget.parentElement, g) }, "+"),
+      h("button", { class: "gap-add", title: t(g.model ? "umCountHint" : "addToPob"), onclick: (e) => toggleAddPanel(e.currentTarget.parentElement, g) }, "+"),
       h("div", { class: "where" }, gapWhere(g.where)), gapText(g));
     const small = d.small.filter(gapShown), rest = d.unpriced.filter(gapShown);
     card.replaceChildren(...[head, card.querySelector(".sub"),
@@ -5379,11 +5379,49 @@ TABS.profile = async () => {
 // "+" on a mechanic PoB ignores: turn it into a correction of the profile. PoB cannot read the game line itself
 // (that is why it is listed), so offer the line when it parses after all, the closest mods PoB does read with the
 // line's numbers filled in, and a free search.
+// A line PoB cannot count even its own way, counted with the player's numbers (poe2lab.analysis.unmodeled.model_for):
+// what the fight is like is the player's to say - repeats, a debuff's stacks, charges held, how much more damage -
+// how it adds to the numbers is known; the result shows at once, and "count it" keeps it as a correction.
+function modelPanel(g) {
+  const m = g.model;
+  if (m.counted) return h("div", { class: "hint" }, t("umArmourCounted"));
+  const vals = Object.fromEntries(m.asks.map((a) => [a.key, a.default]));
+  let uptime = 100, timer;
+  const skill = m.skill ? trName(m.skill) : null;
+  const result = h("div", { class: "um-result small" });
+  const add = h("button", { class: "primary small", disabled: true }, t("umCount"));
+  const run = () => {
+    clearTimeout(timer);
+    add.disabled = true;
+    result.replaceChildren(h("span", { class: "muted" }, t("umTryWait")));
+    timer = setTimeout(async () => {
+      try {
+        const r = await api(`/api/unmodeled/try?${buildQuery()}`, { method: "POST", body: { key: g.key, values: vals, uptime: uptime / 100 } });
+        if (!r.line) { result.replaceChildren(h("span", { class: "muted" }, t("umTryNothing"))); return; }
+        result.replaceChildren(...[h("span", { class: "muted" }, t("umTryLine"), " "), h("b", { title: r.line }, trMod(r.line)),
+          deltas(r.changes, UM_METRIC, 0.1), r.skillDps !== undefined ? h("span", {}, t("umOwnSkill", skill, pct(r.skillDps))) : null].filter(Boolean));
+        add.disabled = false;
+        add.onclick = () => saveCorrections((list) => list.push({ mod: r.line, source: r.source, uptime: uptime / 100, confirmed: false }),
+          t("corrAdded", trMod(r.line)));
+      } catch (e) { result.replaceChildren(h("span", { class: "muted" }, e.message)); }
+    }, 350);
+  };
+  const num = (value, on, max) => h("input", { type: "number", value, step: "any", min: 0, max, class: "um-num",
+    oninput: (e) => { on(Number(e.target.value)); run(); } });
+  run();
+  return h("div", { class: "stack um-model" }, h("div", { class: "small" }, t("umHow_" + m.kind, skill, !!m.minion)),
+    ...m.asks.map((a) => h("label", { class: "um-ask small" }, t(`umAsk_${m.kind}_${a.key}`), " ", num(a.default, (v) => { vals[a.key] = v; }))),
+    h("label", { class: "um-ask small", title: t("umUptimeHint") }, t("umUptime"), " ", num(100, (v) => { uptime = Math.max(0, Math.min(100, v)); }, 100), "%"),
+    result, h("div", {}, add));
+}
+
 async function toggleAddPanel(box, g) {
   const open = box.querySelector(".add-panel");
   if (open) { open.remove(); return; }
   const panel = h("div", { class: "add-panel" }, loading(t("searching")));
   box.append(panel);
+  // the line counted the way it works, first; picking a PoB line by hand under it
+  const shell = (manual) => (g.model ? [modelPanel(g), h("details", { class: "um-manual" }, h("summary", { class: "small" }, t("umManual")), manual)] : [manual]);
   const add = (line) => {
     panel.replaceChildren(loading(t("counting")));
     saveCorrections((list) => list.push({ mod: line, source: `${g.where}: ${g.text}`, uptime: 1, confirmed: false }), t("corrAdded", trMod(line)));
@@ -5391,14 +5429,14 @@ async function toggleAddPanel(box, g) {
   try {
     const r = await api(`/api/mods/suggest?text=${encodeURIComponent(g.text)}&lang=${LANG}`);
     const pick = (m) => h("div", { class: "suggest-item", title: LANG !== "en" ? m.line : null, onclick: () => add(m.line) }, trMod(m.line));
-    panel.replaceChildren(
+    panel.replaceChildren(...shell(h("div", {},
       r.direct ? h("div", { class: "stack" }, h("div", { class: "sub" }, t("pobReads")),
         h("div", { class: "row" }, h("b", {}, trMod(r.direct)), h("button", { class: "primary small", onclick: () => add(r.direct) }, t("addThis")))) : null,
       r.suggestions.length ? h("div", {}, h("div", { class: "sub" }, r.direct ? t("orSimilar") : t("similarMods")),
         h("div", { class: "pick-list" }, r.suggestions.map(pick))) : null,
       h("div", { class: "sub", style: "margin-top:8px" }, t("orSearch")), modSearch(add),
-      h("div", { class: "hint" }, t("addHint")));
-  } catch (e) { panel.replaceChildren(h("p", { class: "muted" }, e.message)); }
+      h("div", { class: "hint" }, t("addHint")))));
+  } catch (e) { panel.replaceChildren(...shell(h("p", { class: "muted" }, e.message))); }
 }
 
 // ---------- mod picker (like the in-game trade filter): a mod found by its words in the player's language ----------

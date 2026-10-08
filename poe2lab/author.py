@@ -15,6 +15,8 @@ TOKEN = re.compile(r"\[\[(" + "|".join(KINDS) + r"):([^\[\]\n]{1,200})\]\]")
 ITEM = re.compile(r"^(" + "|".join(KINDS) + r"):([^\[\]\n]{1,200})$")
 BLOCK_ID = re.compile(r"^[a-z]{2,6}:[^\n\[\]]{1,160}$")
 MAX_TEXT = 8000
+MAX_TIP = 1000  # a hover tip is short: a line or two over the element
+MAX_LABEL = 60  # the author's own label of a note ("Важно", "Механика", "Откуда урон")
 MAX_LIST = 40
 MAX_BLOCKS = 800
 # what a search shows first when nothing tells the kinds apart: skills before supports before items...
@@ -126,15 +128,20 @@ def clean_block(block: dict) -> dict:
     if not isinstance(block, dict):
         raise AuthorError("блок — не объект")
     out = {}
-    text = block.get("text")
-    if text is not None:
-        if not isinstance(text, str):
-            raise AuthorError("текст блока — не строка")
-        text = text.replace("\r\n", "\n").strip()
-        if len(text) > MAX_TEXT:
-            raise AuthorError(f"текст длиннее {MAX_TEXT} знаков")
-        if text:
-            out["text"] = text
+    # the note shown at once (text, under the author's label) and the one shown over the element (tip)
+    for key, limit, what in (("text", MAX_TEXT, "текст"), ("tip", MAX_TIP, "подсказка"), ("label", MAX_LABEL, "метка")):
+        value = block.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise AuthorError(f"{what} блока — не строка")
+        value = value.replace("\r\n", "\n").strip()
+        if key == "label":
+            value = " ".join(value.split())
+        if len(value) > limit:
+            raise AuthorError(f"{what} длиннее {limit} знаков")
+        if value:
+            out[key] = value
     items = block.get("list")
     if items is not None:
         if not isinstance(items, list) or len(items) > MAX_LIST:

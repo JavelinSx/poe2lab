@@ -96,9 +96,114 @@ def covered_by(corrections) -> set[str]:
     return {c.source for c in corrections} | {_same(c.mod) for c in corrections}
 
 
-def estimates(engine, gaps: list, config: dict, damage_group: int | None, covered: set[str]) -> dict:
+def _player(g) -> bool:
+    """A line about the player (an item's, a buff's, "you"): it counts for every skill; else for its own skill."""
+    who = SUBJECT.match(" ".join(g.text.split()))
+    return (g.source == "item" or bool(who and PLAYER.search(who.group("who")))
+            or bool(FRAMES.match(g.text)) and not g.text.lower().startswith("supported"))
+
+
+# ---- a line PoB cannot read even its own way, counted with the player's numbers ----
+# What is missing is how the fight goes (how often, how many seals, how much of a debuff stacks, how many charges);
+# the way to add it to the numbers is known: a repeat is one more use of the skill, a debuff on the enemy is PoB's
+# "enemies take increased damage", a charge is PoB's minimum charges, broken armour is PoB's own setting (one state of
+# the enemy, counted once whichever line breaks it), anything else is "more damage" by as much as the player says.
+REPEAT = re.compile(r"\brepeats? (\d+) (?:additional )?times?\b(?: (?:per|for each) (.+?))?$", re.I)
+CHARGE = re.compile(r"\bgain (?:an? |(\d+) )?(Endurance|Frenzy|Power) Charges?\b", re.I)
+TAKEN = re.compile(r"\btakes? (?:an? additional )?(\d+(?:\.\d+)?)% increased (?:(Physical|Fire|Cold|Lightning|Chaos|Elemental) )?"
+                   r"Damage\b(?:.*?\bup to (?:a maximum of )?(\d+(?:\.\d+)?)%)?", re.I)
+# breaking the enemy's armour (not a skill set off by it: "trigger an Explosion when they Fully Break Armour")
+ARMOUR = re.compile(r"\bbreak(?:s|ing)?\b.*\barmour\b|\barmour break", re.I)
+TRIGGER = re.compile(r"\btrigger", re.I)
+ARMOUR_BROKEN = "conditionEnemyArmourBroken"  # PoB's "Is enemy Armour Broken?"
+ARMOUR_KEY = "poe2lab: enemy armour broken"  # the correction's source: the one state every breaking line shares
+
+
+def _num(v: float) -> str:
+    """A whole number: PoB reads "more" and "increased" lines with whole numbers only."""
+    return str(int(float(v) + 0.5))
+
+
+def model_for(gap, actives: dict[int, list[dict]], can_parse) -> dict:
+    """How a line PoB ignores is added to the numbers, and what the player is asked: {"kind": repeat | charges |
+    taken | armour | more, "asks": [{"key", "default"}], "skill": the skill it is for (None: the whole build),
+    "minion": its damage is its minions', "group"}. `actives`: each socket group's active skills, the one with the
+    most damage first, as {"name", "minion"}. A skill's own line is for that skill only, when PoB can name it
+    ("Furious Slam deals 35% more Damage"); a minion skill's is the minions' ("Minions deal 35% more Damage")."""
+    text = " ".join(gap.text.split())
+    group = _group_of(gap.where) if gap.source == "skill" else None
+    skill, minion = None, False
+    if not _player(gap) and group is not None:
+        names = actives.get(group) or []
+        own = gap.where.split(" (")[0]
+        pick = next((a for a in names if a["name"] == own), names[0] if names else None)
+        if pick:
+            skill, minion = pick["name"], pick["minion"]
+            if not minion and not can_parse(f"{skill} deals 1% more Damage"):
+                skill = None  # PoB cannot name it: the whole build's damage
+    scope = {"skill": skill, "minion": minion, "group": group}
+    m = REPEAT.search(text)
+    if m and not minion:  # a minion skill cast again is not its minions hitting twice: the player says how much
+        return {"kind": "repeat", "per": m.group(2), "asks": [{"key": "n", "default": float(m.group(1))}]} | scope
+    m = CHARGE.search(text)
+    if m:
+        return {"kind": "charges", "type": m.group(2).capitalize(), "asks": [{"key": "n", "default": float(m.group(1) or 1)}]} | scope
+    m = TAKEN.search(text)
+    if m:
+        return {"kind": "taken", "type": m.group(2) or "", "asks": [{"key": "pct", "default": float(m.group(3) or m.group(1))}]} | scope
+    if ARMOUR.search(text) and not TRIGGER.search(text):
+        return {"kind": "armour", "asks": []} | scope
+    return {"kind": "more", "asks": [{"key": "pct", "default": 0.0}]} | scope
+
+
+def line_for(model: dict, values: dict, engine=None, config: dict | None = None, group: int | None = None) -> str | None:
+    """The PoB line a model makes with the player's numbers (full strength: the uptime scales it, like any
+    correction); broken armour is PoB's setting turned into the damage it adds on the skill the damage is counted on."""
+    who = "Minions deal " if model.get("minion") else f"{model['skill']} deals " if model.get("skill") else ""
+    ask = lambda key: float(values.get(key, model["asks"][0]["default"]))  # noqa: E731
+    if model["kind"] == "repeat":
+        return f"{who}{_num(ask('n') * 100)}% more Damage" if ask("n") > 0 else None
+    if model["kind"] == "charges":
+        return f"+{_num(ask('n'))} to Minimum {model['type']} Charges" if ask("n") > 0 else None
+    if model["kind"] == "taken":
+        kind = f"{model['type']} " if model.get("type") else ""
+        return f"Nearby Enemies take {_num(ask('pct'))}% increased {kind}Damage" if ask("pct") > 0 else None
+    if model["kind"] == "armour":
+        base = engine.what_if(config=config, main_socket_group=group)["CombinedDPS"]
+        broken = engine.what_if(config=(config or {}) | {ARMOUR_BROKEN: True}, main_socket_group=group)["CombinedDPS"]
+        return f"{_num((broken / base - 1) * 100)}% more Damage" if base and broken > base else None
+    pct = float(values.get("pct", 0))
+    return f"{who}{_num(pct)}% more Damage" if pct else None
+
+
+def actives_by_damage(groups: list[dict], rows: list[dict]) -> dict[int, list[dict]]:
+    """Each socket group's active skills, the one with the most damage first (PoB's skill_damage rows), with whether
+    it is a minion skill (its damage is the minions')."""
+    dps = {(r["group"], r["name"]): r["dps"] for r in rows}
+    out = {}
+    for g in groups:
+        acts = [{"name": a["name"], "minion": "Minion" in (a.get("types") or [])} for a in g.get("actives") or []]
+        out[g["index"]] = sorted(acts, key=lambda a: -dps.get((g["index"], a["name"]), 0))
+    return out
+
+
+def try_line(engine, line: str, uptime: float, config: dict, damage_group: int | None, own_group: int | None) -> dict:
+    """What a line would change at its uptime: the build's numbers, and the skill's own damage when it is another."""
+    from ..profile import Correction  # the profile reads this module's neighbours: imported when used
+    scaled = Correction(mod=line, source="", uptime=uptime).line
+    out = {"changes": _shown(metric_changes(engine.what_if(config=config, mods=[scaled], main_socket_group=damage_group),
+                                            engine.what_if(config=config, main_socket_group=damage_group)))}
+    if own_group is not None and own_group != damage_group:
+        out["skillDps"] = round(metric_changes(engine.what_if(config=config, mods=[scaled], main_socket_group=own_group),
+                                               engine.what_if(config=config, main_socket_group=own_group))["dps"], 1)
+    return out
+
+
+def estimates(engine, gaps: list, config: dict, damage_group: int | None, covered: set[str],
+              actives: dict[int, list[dict]] | None = None) -> dict:
     """Each line PoB ignores that likely matters, priced: {"big": [...], "small": [...], "unpriced": [...]}.
-    `covered`: what the corrections count already (covered_by).
+    `covered`: what the corrections count already (covered_by); `actives`: the skills of each socket group, for the
+    unpriced lines' models (model_for).
     A skill's line is counted on its own skill (a support's "deal 35% more Damage" is not the whole build's);
     a line of another skill than the one the damage is counted on moves only defences in the list."""
     base = engine.what_if(config=config, main_socket_group=damage_group)
@@ -116,15 +221,16 @@ def estimates(engine, gaps: list, config: dict, damage_group: int | None, covere
         row = {"source": g.source, "where": g.where, "text": g.text, "text_local": g.text_local, "key": source}
         found = pob_line(g.text, engine.can_parse_mod, tuple(siblings.get(g.where, ())))
         if not found:
+            if actives is not None:
+                row["model"] = model_for(g, actives, engine.can_parse_mod)
+                # broken armour is one state of the enemy: counted once, whichever line it came from
+                row["model"]["counted"] = row["model"]["kind"] == "armour" and ARMOUR_KEY in covered
             unpriced.append(row)
             continue
         if _same(found["line"]) in covered:  # the player counted this line already (written down otherwise)
             continue
         group = _group_of(g.where) if g.source == "skill" else None
-        who = SUBJECT.match(" ".join(g.text.split()))
-        player = (g.source == "item" or bool(who and PLAYER.search(who.group("who")))
-                  or bool(FRAMES.match(g.text)) and not g.text.lower().startswith("supported"))
-        own = not player and group is not None and group != damage_group
+        own = not _player(g) and group is not None and group != damage_group
         at = group if own else damage_group
         if at not in bases:
             bases[at] = engine.what_if(config=config, main_socket_group=at)
