@@ -1303,7 +1303,7 @@ TABS.overview = async (view) => {
   return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")),
     h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
       foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
-    levelingCard());
+    levelingCard(), questMapCard());
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -3566,6 +3566,15 @@ function optionTitle(q, i) {
 const optionText = (o) => o.lines.map((l) => trMod(l)).join(" · ");
 const worthless = (o) => !Object.values(o.changes).some((v) => Math.abs(v) >= 0.3);
 
+// the player's answer kept in the build profile: every number counts the reward from now on
+async function saveQuest(var_, value) {
+  const nd = await api(`/api/quests?mode=${state.mode}&${buildQuery()}`, { method: "POST", body: { var: var_, value } });
+  resetCache();
+  state.cache[`quests:${state.mode}`] = Promise.resolve(nd);
+  toast(t("qSaved"), true);
+  return nd;
+}
+
 function questsCard() {
   const card = h("div", { class: "card stack q-card" }, h("h3", {}, t("qTitle")), h("div", { class: "sub" }, t("qSub")),
     loading(t("qLoading")));
@@ -3574,13 +3583,7 @@ function questsCard() {
     head.querySelector(".fold-sum")?.remove();
     head.append(h("span", { class: "fold-sum" }, d.unchosen.length ? t("qSumOpen", d.unchosen.length) : t("qSumDone")));
     const save = async (var_, value) => {
-      try {
-        const nd = await api(`/api/quests?mode=${state.mode}&${buildQuery()}`, { method: "POST", body: { var: var_, value } });
-        resetCache();  // every number counts the reward now
-        state.cache[`quests:${state.mode}`] = Promise.resolve(nd);
-        draw(nd);
-        toast(t("qSaved"), true);
-      } catch (e) { toast(e.message); }
+      try { draw(await saveQuest(var_, value)); } catch (e) { toast(e.message); }
     };
     const choice = (q) => h("div", { class: "q-quest" },
       h("div", { class: "q-head" }, h("b", {}, questName(q)), h("span", { class: "muted small" }, questWhere(q)),
@@ -3603,6 +3606,79 @@ function questsCard() {
   };
   questsData().then(draw).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
   return foldedCard(card, "quests", null);
+}
+
+// The overview's map of the campaign's permanent stats: act by act, each reward's stat, who or what gives it, where
+// and at which level, and whether the build counts it; the sum of what is taken on top. A fixed reward is marked
+// taken here with a press; a choice opens the profile, where its options are compared.
+const QUEST_BOSSES = new Set(["Beira", "King In The Mists", "Candlemass", "Ignagduk", "Blackjaw", "Lythara"]);
+// a reward's picture by what it gives, in its colour
+const QUEST_ICONS = [[/Spirit/, "spark", "var(--gold)"], [/Fire Resistance/, "fire", "var(--fire)"],
+  [/Cold Resistance/, "cold", "var(--cold)"], [/Lightning Resistance/, "bolt", "var(--lightning)"],
+  [/Chaos Resistance/, "chaos", "var(--chaos)"], [/Elemental Resistances/, "shield", "var(--gold)"],
+  [/Mana/, "drop", "var(--mana)"], [/Life/, "heart", "var(--bad)"], [/Movement Speed/, "run", "var(--good)"],
+  [/Charm|Flask/, "flag", "var(--guide)"], [/Armour|Evasion|Energy Shield|Deflection/, "shield", "var(--text-2)"],
+  [/Strength|Dexterity|Intelligence|Attributes/, "person", "var(--text-2)"]];
+function questIcon(text) {
+  const [, id, color] = QUEST_ICONS.find(([re]) => re.test(text)) || [null, "star", "var(--muted)"];
+  const svg = I(id);
+  svg.style.color = color;
+  return svg;
+}
+// the same stat from several rewards added up ("+10% to Cold Resistance" twice: +20%); a line with more than one
+// number is listed as it is
+function questTotals(lines) {
+  const sums = new Map();
+  for (const line of lines) {
+    const nums = line.match(/\d+(\.\d+)?/g) || [];
+    const key = nums.length === 1 ? line.replace(/\d+(\.\d+)?/, "#") : line;
+    sums.set(key, (sums.get(key) || 0) + (nums.length === 1 ? Number(nums[0]) : 0));
+  }
+  // in the pictures' order: Spirit, the resistances, mana, life, the rest
+  const rank = (line) => (QUEST_ICONS.findIndex(([re]) => re.test(line)) + 1 || QUEST_ICONS.length + 1);
+  return [...sums].map(([key, n]) => (key.includes("#") ? key.replace("#", String(Math.round(n * 10) / 10)) : key))
+    .sort((a, b) => rank(a) - rank(b));
+}
+
+function questMapCard() {
+  const card = h("div", { class: "card stack qm-card" }, h("h3", {}, t("qmTitle")), h("div", { class: "sub" }, t("qmSub")),
+    loading(t("qLoading")));
+  const toggle = async (var_, value) => {
+    try { await saveQuest(var_, value); switchTab(state.tab); } catch (e) { toast(e.message); }
+  };
+  const draw = (d) => {
+    const all = [...d.fixed, ...d.choices].sort((a, b) => a.act - b.act || a.level - b.level);
+    const taken = (q) => (q.options ? !!q.chosen : q.taken);
+    const tile = (q) => {
+      const pick = q.options && (q.options.find((o) => o.value === q.chosen) || q.options.find((o) => o.best));
+      const lines = q.options ? (pick ? pick.lines : []) : q.lines;
+      const stat = q.options && !pick ? t("qmChoose", q.options.length) : lines.map((l) => trMod(l)).join(" · ");
+      const who = QUEST_BOSSES.has(q.info) ? I("skull") : I("compass");
+      return h("button", {
+        class: "qm-reward" + (taken(q) ? " taken" : "") + (q.options ? " choice" : ""),
+        title: q.options ? t("qmChoiceHint") : t(q.taken ? "qmUntake" : "qmTake"),
+        onclick: () => (q.options ? switchTab("profile") : toggle(q.var, !q.taken)) },
+      h("div", { class: "qm-stat" }, questIcon(lines.join(" ") || q.options.map((o) => o.value).join(" ")), h("b", {}, stat)),
+      q.options ? h("div", { class: "qm-pick" }, q.chosen ? "✓ " + t("qmChosen", q.options.length)
+        : pick ? "★ " + t("qmBestOf", q.options.length) : t("qNotChosen")) : null,
+      h("div", { class: "qm-who" }, who, h("span", {}, questName(q))),
+      h("div", { class: "qm-where muted small" }, questArea(q.area), " · ", t("lrLv", q.level)),
+      h("span", { class: "qm-mark" }, taken(q) ? "✓" : ""));
+    };
+    const acts = [...new Set(all.map((q) => QUEST_ACT[q.act] || "maps"))];
+    const totals = questTotals(all.filter(taken).flatMap((q) => (q.options ? q.options.find((o) => o.value === q.chosen).lines : q.lines)));
+    const head = card.querySelector("h3");
+    head.querySelector(".fold-sum")?.remove();
+    head.append(h("span", { class: "fold-sum" }, t("qmSum", all.filter(taken).length, all.length)));
+    card.replaceChildren(...[head, card.querySelector(".sub"),
+      totals.length ? h("div", { class: "qm-totals" }, h("span", { class: "lr-sec-k" }, t("qmTotal")),
+        totals.map((l) => h("span", { class: "qm-total" }, questIcon(l), trMod(l)))) : null,
+      h("div", { class: "qm-acts" }, acts.map((a) => h("div", { class: "qm-act" },
+        h("div", { class: "qm-act-head" }, h("span", { class: "lr-mark" }, lrStageMark(a)), h("b", {}, lrStageName(a))),
+        all.filter((q) => (QUEST_ACT[q.act] || "maps") === a).map(tile))))].filter(Boolean));
+  };
+  questsData().then(draw).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
+  return card;
 }
 
 // the best reward not marked yet, for "what to do next": the one worth most for the goal
