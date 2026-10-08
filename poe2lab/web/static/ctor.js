@@ -4,7 +4,7 @@
 // shown over it, and a note shown at once under the author's own label. Nothing is calculated here: the program's
 // advice is on "check with the program", the analysis tab of the section. Runs after app.js (its helpers are shared).
 // the guide's stage the page shows: the build itself (Макс) or its Мин (the same build at its start or on a budget)
-const CT = { section: "character", stage: "max", data: null };
+const CT = { section: "character", stage: "max", data: null, hints: {}, hintsOpen: null, taken: new Set() };
 const CT_SECTIONS = ["character", "skills", "gear", "tree", "jewels", "flasks", "quests", "leveling"];
 // the analysis tab that checks a section
 const CT_CHECK = { character: "overview", skills: "skills", gear: "gear", flasks: "gear", tree: "tree", jewels: "tree",
@@ -24,6 +24,7 @@ async function openConstructor(section) {
   authorToggle(true, false);  // the drawer: game things to put into a note
   const view = $("#view");
   view.replaceChildren(loading(t("ctLoading")));
+  if (CT.build !== state.build.name) { CT.build = state.build.name; CT.hints = {}; CT.hintsOpen = null; CT.taken = new Set(); }
   try {
     CT.data = await ctLayout(CT.stage);
   } catch (e) {
@@ -194,6 +195,82 @@ const CT_DRAW = {
   leveling: () => [h("div", { class: "hint" }, t("ctLevelingHint")), levelingCard()],
 };
 
+// ---- the program's advice, on a button: each hint taken into an element's note becomes the author's own words ----
+// Worked out by PoB on the build as it is open (the Макс; with the player's character in it, the character), from
+// the analysis tabs' own answers.
+// damage, effective life and recovery: what a note needs (the hit by hit numbers stay in the analysis tabs)
+const ctDelta = (changes) => UM_METRIC.filter(([k]) => Math.abs(changes[k] || 0) >= 0.3).map(([k, l]) => `${t(l)} ${pct(changes[k])}`).join(", ");
+async function ctHints(section, d) {
+  const out = [];
+  const add = (target, where, text) => { if (text) out.push({ target, where, text }); };
+  if (section === "character") {
+    const r = await report();
+    for (const g of r.gates || []) add("sec:character", t("ctSec_character"), `${LANG === "en" ? g.title_en || g.title : g.title}: ${LANG === "en" ? g.detail_en || g.detail : g.detail}`);
+    for (const m of (r.ranking || []).slice(0, 3)) add("sec:character", t("ctSec_character"), t("ctHintMod", trMod(m.mod)));
+  } else if (section === "skills") {
+    for (const x of (await DATA.skills("supports")).skills) {
+      const g = d.skills.find((y) => y.index === x.group);
+      if (g && x.better.length) add(g.id, g.actives.map((a) => trName(a)).join(" + "), t("ctHintSupport", trName(x.weakest), x.better.slice(0, 2).map((b) => trName(b.name)).join(", ")));
+    }
+  } else if (section === "gear" || section === "flasks") {
+    for (const sl of (await DATA.gear()).slots) {
+      const row = d[section].find((r) => r.slot === sl.slot);
+      if (!row) continue;
+      const top = [...sl.affixes].sort((a, b) => b.score - a.score)[0];
+      if (top && top.score > 0) add(row.id, slotName(sl.slot), t("ctHintHolds", trMod(top.lines[0])));
+      for (const a of sl.actions || []) add(row.id, slotName(sl.slot), a);
+    }
+  } else if (section === "tree") {
+    const tr = await DATA.tree();
+    for (const n of (tr.growth || []).slice(0, 5)) add("sec:tree", t("ctSec_tree"), `${t("ctHintTake", trName(n.name), n.points)} ${ctDelta(n.changes)}`);
+    for (const n of (tr.respec || []).slice(0, 3)) {
+      const id = `node:${n.id}`;
+      add(d.tree.notables.some((x) => x.id === id) ? id : "sec:tree", trName(n.name), t("ctHintRespec", trName(n.name), n.points));
+    }
+  } else if (section === "jewels") {
+    for (const sk of (await DATA.jewels()).sockets || []) {
+      const row = d.jewels.find((j) => j.node === sk.node);
+      if (row && sk.without) add(row.id, itemTitle(row.item), `${t("ctHintWithout")} ${ctDelta(sk.without) || t("noEffect")}`);
+    }
+  } else if (section === "quests") {
+    for (const q of (await questsData()).choices) {
+      const best = q.options.find((o) => o.best);
+      if (best) add(`qst:${q.var}`, questName(q), `${t("ctHintQuest", optionTitle(q, q.options.indexOf(best)) || optionText(best))} ${ctDelta(best.changes)}`);
+    }
+  } else if (section === "leveling") {
+    const sw = ((await DATA.leveling()).roadmap || {}).switch;
+    if (sw && sw.level) add("sec:leveling", t("ctSec_leveling"), t("lrSwitchAt", sw.level, lrStageName(sw.stage)));
+  }
+  return out;
+}
+// a hint into the element's note (the text shown at once) or its tip, after what the author has written
+function ctTake(id, field, text) {
+  const b = auBlock(id);
+  auSave(id, { [field]: b[field] ? `${b[field]}\n${text}` : text });
+  CT.taken.add(`${id}|${field}|${text}`);
+  toast(t("ctTaken"), true);
+  ctDraw();
+}
+function ctHintsPanel(s) {
+  if (CT.stage !== "max") return h("div", { class: "hint" }, t("ctHintsOnlyMax"));
+  const box = h("div", { class: "card stack ct-hints" }, h("div", { class: "ct-title" }, "🔍 ", t("ctHints")), h("div", { class: "hint" }, t("ctHintsSub")));
+  const rows = CT.hints[s];
+  if (!rows) {
+    box.append(loading(t("ctHintsLoading")));
+    ctHints(s, CT.data).then((r) => { CT.hints[s] = r; ctDraw(); })
+      .catch((e) => { CT.hints[s] = []; box.append(h("p", { class: "muted" }, e.message)); });
+    return box;
+  }
+  if (!rows.length) box.append(h("p", { class: "muted small" }, t("ctHintsNone")));
+  for (const r of rows) {
+    const done = (field) => CT.taken.has(`${r.target}|${field}|${r.text}`);
+    box.append(h("div", { class: "ct-hint" }, h("div", { class: "ct-hint-t" }, h("span", { class: "muted small" }, r.where), h("div", {}, r.text)),
+      h("button", { class: "ghost small", disabled: done("text"), onclick: () => ctTake(r.target, "text", r.text) }, done("text") ? "✓" : t("ctToNote")),
+      h("button", { class: "ghost small", disabled: done("tip"), onclick: () => ctTake(r.target, "tip", r.text) }, done("tip") ? "✓" : t("ctToTip"))));
+  }
+  return box;
+}
+
 function ctDraw() {
   if (state.page !== "ctor" || !CT.data) return;
   auKinds(CT_KINDS[CT.section] || null);
@@ -207,7 +284,10 @@ function ctDraw() {
     onclick: () => { CT.section = x; hideTip(); ctDraw(); } }, t("ctSec_" + x))));
   // the section's own notes, at its top
   const notes = h("div", { class: "stack" }, ctNote("sec:" + s, null),
-    h("div", {}, h("button", { class: "ghost small", onclick: () => ctEdit("sec:" + s, t("ctSec_" + s)) },
-      sec.text || sec.tip ? t("ctSecEdit") : t("ctSecAdd"))));
+    h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => ctEdit("sec:" + s, t("ctSec_" + s)) },
+      sec.text || sec.tip ? t("ctSecEdit") : t("ctSecAdd")),
+    h("button", { class: "ghost small" + (CT.hintsOpen === s ? " is-on" : ""), title: t("ctHintsHint"),
+      onclick: () => { CT.hintsOpen = CT.hintsOpen === s ? null : s; ctDraw(); } }, "🔍 ", t("ctHints"))),
+    CT.hintsOpen === s ? ctHintsPanel(s) : null);
   $("#view").replaceChildren(h("div", { class: "stack ct-page" }, head, tabs, notes, ...[CT_DRAW[s](CT.data)].flat().filter(Boolean)));
 }
