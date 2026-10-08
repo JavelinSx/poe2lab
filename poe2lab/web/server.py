@@ -27,7 +27,7 @@ from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.tree import take_package
-from ..analysis import jewels as jewel_effects, leveling, quests as quest_rewards
+from ..analysis import jewels as jewel_effects, leveling, quests as quest_rewards, unmodeled
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -372,13 +372,6 @@ def mods_search(q: str, lang: str = "ru", limit: int = 25):
 
 
 # Game wordings of skill effects that become a PoB mod line once the skill-side framing is dropped.
-_REWRITES = [
-    (re.compile(r"^(?:Buff grants |Grants )?(\d+(?:\.\d+)?)% of damage Gained as (\w+) damage$", re.I),
-     r"Gain \1% of Damage as Extra \2 Damage"),
-    (re.compile(r"^Buff grants (\d+(?:\.\d+)?) (\w+) regenerated per second$", re.I), r"Regenerate \1 \2 per second"),
-]
-_FRAMES = re.compile(r"^(?:Buff grants |Grants |Supported Skills (?:have |deal |grant )?|Skill (?:has |deals )?|"
-                     r"You and Allies in your Presence (?:have |gain )?)", re.I)
 _STOP = {"with", "your", "have", "from", "that", "this", "skills", "supported", "skill", "while", "when", "for",
          "each", "grants", "buff", "gain", "gained", "seconds", "second", "enemies", "enemy", "increased", "more",
          "less", "reduced", "used", "using"}
@@ -390,14 +383,7 @@ def _suggest(text: str, lang: str, limit: int = 8) -> dict:
     else the closest parseable mods by shared words, with the line's numbers filled in where they fit."""
     engine = session.engine
     text = " ".join(text.split())
-    tries = [text]
-    for pattern, repl in _REWRITES:
-        if pattern.match(text):
-            tries.append(pattern.sub(repl, text))
-    stripped = _FRAMES.sub("", text)
-    if stripped != text and stripped:
-        tries.append(stripped[0].upper() + stripped[1:])
-    direct = next((t for t in tries if engine.can_parse_mod(t)), None)
+    direct = next((t for t in unmodeled.candidates(text) if engine.can_parse_mod(t)), None)
     words = {w for w in re.findall(r"[a-z]{4,}", text.lower()) if w not in _STOP}
     numbers = _NUM.findall(text)
     scored = []
@@ -1272,6 +1258,28 @@ def plan_view(build: str | None = None):
     with session.lock:
         session.require(build)
         return _json(_plan_view())
+
+
+@app.get("/api/unmodeled")
+def unmodeled_view(build: str | None = None):
+    """What PoB does not count that moves damage or effective life a lot (each line priced by PoB as it reads it),
+    and the corrections the player made, each with what it changes."""
+    with session.lock:
+        session.require(build)
+
+        def compute():
+            e, cfg = session.engine, session.profile.config()
+            m = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru")))
+            group = _damage_group(e, cfg)
+            corrections = session.bp.corrections if session.bp else []
+            effects = unmodeled.corrections_effect(e, CORRECTION_BLOCK, [c.line for c in corrections], cfg, group)
+            rows = [{"index": i, "mod": c.mod, "line": c.line, "source": c.source, "uptime": c.uptime,
+                     "confirmed": c.confirmed, "changes": ch} for i, (c, ch) in enumerate(zip(corrections, effects))]
+            # a line the player already corrected is not offered again
+            out = unmodeled.estimates(e, m.gaps, cfg, group, unmodeled.covered_by(corrections))
+            return {"corrections": rows, **out, "big_pct": unmodeled.BIG}
+
+        return _json(session.cached("unmodeled", compute))
 
 
 @app.get("/api/mechanics")

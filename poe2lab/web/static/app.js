@@ -149,7 +149,7 @@ const chip = (cls, text) => h("span", { class: "chip " + cls }, text);
 
 // ---------- state ----------
 const state = { build: null, mode: "balanced", tab: "overview", cache: {}, chat: [] };
-const resetCache = () => { state.cache = {}; };
+const resetCache = () => { state.cache = {}; schedulePreload(); };
 // the cache belongs to the build open when the request started: a late answer for a previous build cannot land in
 // the current build's cache; the same request in flight is shared instead of repeated
 async function cached(key, fn) {
@@ -604,7 +604,9 @@ async function openBuild(name, group, skill) {
     resetCache();
     renderHeader();
     loadBuildList();
-    switchTab(state.tab);
+    const build = state.build;
+    await preload(true);  // every tab worked out first (or the player opens it at once)
+    if (state.build === build) switchTab(state.tab);
   } catch (e) {
     $("#view").replaceChildren(h("div", { class: "empty" }, h("h2", {}, t("openFailed")), h("p", { class: "muted" }, e.message)));
   }
@@ -903,6 +905,7 @@ $("#mode").addEventListener("click", (e) => {
   state.mode = m;
   document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
   switchTab(state.tab);
+  schedulePreload();
 });
 
 $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) switchTab(b.dataset.tab); });
@@ -1130,6 +1133,130 @@ window.addEventListener("unhandledrejection", (ev) => {
 });
 
 const report = () => cached(`report:${state.mode}`, () => api(`/api/report?mode=${state.mode}&${buildQuery()}`));
+// The tabs' data, a fetcher each: a tab and the preloader ask through these, so both land in one cache entry
+const DATA = {
+  gear: () => cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`)),
+  tree: () => {
+    const points = state.treePoints || 6;
+    return cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`));
+  },
+  jewels: () => cached("jewels", () => api(`/api/jewels?${buildQuery()}`)),
+  packages: () => cached(`packages:${state.mode}`, () => api(`/api/tree/packages?mode=${state.mode}&${buildQuery()}`)),
+  leveling: () => cached("leveling", () => api(`/api/leveling?${buildQuery()}`)),
+  skills: (view) => cached(`skills:${view}`, () => api(`/api/skills?view=${view}&${buildQuery()}`)),
+  // levelling follows the build's target (the guide the player plays by) unless the player asks for the build
+  skillsLeveling: () => {
+    const of = (state.build.profileRaw || {}).target && state.levelOf !== "build" ? "target" : "";
+    return cached(`skills:leveling${of ? ":target" : ""}`, () => api(`/api/skills?view=leveling${of ? "&of=target" : ""}&${buildQuery()}`));
+  },
+  uniques: () => {
+    const scope = state.uniqueScope || "level";
+    return cached(`skills:uniques:${scope}`, () => api(`/api/skills?view=uniques&scope=${scope}&${buildQuery()}`));
+  },
+  unmodeled: () => cached("unmodeled", () => api(`/api/unmodeled?${buildQuery()}`)),
+};
+
+// ---------- every tab worked out when a build opens: switching tabs is then instant until something changes ----------
+// Each step is one request a tab makes (through DATA, the same cache entry); the server answers them one by one
+// anyway, the open tab's first. How long each took the last time is remembered per build: the bar moves by time
+// and says how long it is going to take.
+function preloadSteps() {
+  const steps = [
+    ["overview", () => report()], ["overview", () => questsData()], ["overview", () => DATA.leveling()],
+    ["skills", () => DATA.skills("build")], ["skills", () => DATA.skills("explain")], ["skills", () => DATA.skills("supports")],
+    ["skills", () => DATA.skills("roles")], ["skills", () => DATA.skillsLeveling()],
+    ["gear", () => DATA.gear()], ["gear", () => DATA.uniques()],
+    ["tree", () => DATA.tree()], ["tree", () => treeGraph()], ["tree", () => ascData()], ["tree", () => DATA.jewels()],
+    ["tree", () => DATA.packages()], ["overview", () => DATA.unmodeled()], ["profile", () => questsData()]];
+  // the guide's side of a build with the player's character
+  if (state.build.main) steps.push(["overview", () => guideVersus()], ["gear", () => guideGear()]);
+  // the open tab first
+  return [...steps.filter(([tab]) => tab === state.tab), ...steps.filter(([tab]) => tab !== state.tab)];
+}
+const PRELOAD_TABS = ["overview", "skills", "gear", "tree", "profile"];
+const PRELOAD_ICON = { overview: "compass", skills: "gem", gear: "helm", tree: "tree", profile: "id" };
+const preloadKey = () => `poe2lab.preload.${state.build.name}.${state.mode}`;
+
+function schedulePreload() {
+  clearTimeout(schedulePreload.timer);
+  schedulePreload.timer = setTimeout(() => { if (state.build) preload(false); }, 400);
+}
+
+// Runs the steps; with `blocking`, a card in the page shows the progress until everything is done or the player
+// opens the build at once (the promise returned settles then); the strip under the tabs shows it in any case.
+function preload(blocking) {
+  clearTimeout(schedulePreload.timer);
+  const b = state.build, token = Symbol();
+  preload.token = token;
+  const steps = preloadSteps();
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem(preloadKey()) || "null"); } catch (_) { /* storage blocked */ }
+  const known = last && last.steps ? last.steps : {};
+  // each step's share of the bar: its time the last time (a request worked out already is quick)
+  const weight = steps.map(([tab], i) => Math.max(150, known[`${tab}:${i}`] || 1500));
+  const sum = weight.reduce((a, x) => a + x, 0);
+  const estimate = last ? Math.round(last.total / 1000) : null;
+  let release;
+  const gate = new Promise((r) => { release = r; });
+
+  const strip = $("#preload-strip");
+  const fill = (cls) => h("div", { class: "pl-bar " + cls }, h("i"));
+  const stripBar = fill("thin");
+  const stripText = h("span", { class: "muted small" });
+  strip.replaceChildren(I("hourglass"), stripBar, stripText);
+  strip.classList.toggle("hidden", blocking);
+  const chips = Object.fromEntries(PRELOAD_TABS.map((tab) => [tab, h("span", { class: "pl-tab wait" }, I(PRELOAD_ICON[tab]), t("tab_" + tab))]));
+  const cardBar = fill("big");
+  const timeText = h("span", {});
+  const card = blocking ? h("div", { class: "card stack pl-card" }, h("h3", {}, t("plTitle", b.name)), h("div", { class: "sub" }, t("plSub")),
+    cardBar, h("div", { class: "row pl-time" }, timeText, h("span", { class: "muted small" }, estimate ? t("plLast", estimate) : t("plFirst"))),
+    h("div", { class: "pl-tabs" }, PRELOAD_TABS.map((tab) => chips[tab])),
+    h("div", { class: "row" }, h("button", { class: "ghost", onclick: () => release() }, t("plOpenNow")), h("span", { class: "muted small" }, t("plOpenNowHint")))) : null;
+  if (card) $("#view").replaceChildren(card);
+
+  const t0 = performance.now();
+  // the bar runs toward the end of the step it is in, over the time that step took the last time
+  const move = (done, i) => {
+    for (const bar of [cardBar, stripBar]) {
+      const bit = bar.firstChild;
+      bit.style.transition = "none";
+      bit.style.width = `${(done / sum) * 100}%`;
+      void bit.offsetWidth;
+      bit.style.transition = `width ${weight[i]}ms linear`;
+      bit.style.width = `${((done + weight[i] * 0.95) / sum) * 100}%`;
+    }
+  };
+  const clock = setInterval(() => {
+    const sec = Math.round((performance.now() - t0) / 1000);
+    timeText.textContent = t("plTime", sec);
+  }, 500);
+  const finish = () => { clearInterval(clock); release(); };
+
+  (async () => {
+    const took = {};
+    let done = 0;
+    for (let i = 0; i < steps.length; i++) {
+      if (preload.token !== token || state.build !== b) { finish(); return; }  // another build, or a newer run
+      const [tab, run] = steps[i];
+      chips[tab].className = "pl-tab work";
+      stripText.textContent = t("plStrip", t("tab_" + tab), i + 1, steps.length);
+      strip.classList.toggle("hidden", !!card && card.isConnected);  // the card says it while it is there
+      move(done, i);
+      const s0 = performance.now();
+      let failed = false;
+      try { await run(); } catch (_) { failed = true; }  // the tab shows the error itself (and asks again)
+      took[`${tab}:${i}`] = Math.round(performance.now() - s0);
+      done += weight[i];
+      if (failed) chips[tab].classList.add("fail");
+      if (!steps.slice(i + 1).some(([x]) => x === tab)) chips[tab].className = "pl-tab " + (chips[tab].classList.contains("fail") ? "fail" : "done");
+    }
+    if (preload.token !== token) { finish(); return; }
+    try { localStorage.setItem(preloadKey(), JSON.stringify({ total: performance.now() - t0, steps: took })); } catch (_) { /* storage blocked */ }
+    strip.classList.add("hidden");
+    finish();
+  })();
+  return gate;
+}
 
 // ---------- a build with the player's character: its tabs as the build (the guide) has them, against the character ----------
 function sideSwitch(tab) {
@@ -1303,7 +1430,7 @@ TABS.overview = async (view) => {
   return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")),
     h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
       foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
-    levelingCard(), questMapCard());
+    unmodeledCard(), levelingCard(), questMapCard());
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -1361,11 +1488,8 @@ function nextCard(r) {
   list.append(pending);
 
   (async () => {
-    const points = state.treePoints || 6;
     const [tree, gear, skills, quest] = await Promise.allSettled([
-      cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`)),
-      cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`)),
-      cached("skills:build", () => api(`/api/skills?view=build&${buildQuery()}`)), questStep()]);
+      DATA.tree(), DATA.gear(), DATA.skills("build"), questStep()]);
     const steps = [];  // [score, row]
     if (quest.status === "fulfilled" && quest.value) {
       const [q, o] = quest.value;
@@ -1469,7 +1593,7 @@ function renderDamage(r) {
 TABS.gear = async (view) => {
   view.replaceChildren(loading(t("calcGear")));
   hideTip();
-  const g = await cached(`gear:${state.mode}`, () => api(`/api/gear?mode=${state.mode}&${buildQuery()}`));
+  const g = await DATA.gear();
   const items = gearMap(state.build.items);
   if (!state.gear || state.gear.build !== state.build.name) state.gear = { build: state.build.name, slot: null, set: 1 };
   const gs = state.gear;
@@ -1552,9 +1676,8 @@ function uniquesCard() {
     if (loaded && again !== true) return;
     loaded = true;
     inner.replaceChildren(loading(t("unLoading")));
-    const scope = state.uniqueScope || "level";
     try {
-      const r = await cached(`skills:uniques:${scope}`, () => api(`/api/skills?view=uniques&scope=${scope}&${buildQuery()}`));
+      const r = await DATA.uniques();
       inner.replaceChildren(...renderUniqueLinks(r, () => load(true)));
     } catch (e) { inner.replaceChildren(h("p", { class: "muted" }, e.message)); }
   };
@@ -2708,10 +2831,10 @@ TABS.tree = async (view) => {
   view.replaceChildren(loading(t("treeLoading")));
   const points = state.treePoints || 6;
   const [r, graph, asc, jw] = await Promise.all([
-    cached(`tree:${state.mode}:${points}`, () => api(`/api/tree?mode=${state.mode}&points=${points}&${buildQuery()}`)),
+    DATA.tree(),
     treeGraph(),
     ascData().catch((e) => ({ error: e.message })),
-    cached("jewels", () => api(`/api/jewels?${buildQuery()}`)).catch((e) => ({ error: e.message }))]);
+    DATA.jewels().catch((e) => ({ error: e.message }))]);
   const pointsSel = h("select", { onchange: (e) => { state.treePoints = Number(e.target.value); switchTab("tree"); } },
     [3, 4, 5, 6, 8, 10].map((n) => h("option", { value: n, selected: n === points }, t("upToPoints", n))));
   // a node's name; the pointer over it shows its lines, the road to it and how much of the value is its own
@@ -2739,7 +2862,7 @@ TABS.tree = async (view) => {
   const packsHead = h("h3", {}, t("pkTitle"));
   const packsBody = h("div", {}, loading(t("pkLoading")));
   const packsCard = foldedCard(h("div", { class: "card" }, packsHead, packsBody), "packages", null);
-  cached(`packages:${state.mode}`, () => api(`/api/tree/packages?mode=${state.mode}&${buildQuery()}`)).then((p) => {
+  DATA.packages().then((p) => {
     packs = p;
     const best = p.packages[0];
     if (best) packsHead.append(h("span", { class: "fold-sum" }, t("pkSum", p.packages.length, packageName(best), pct(best.changes.dps || 0))));
@@ -3411,7 +3534,7 @@ const lrStageName = (key) => t("lrStage_" + key);
 
 function levelingCard() {
   const card = h("div", { class: "card lr-card hidden" }, h("h3", {}, t("lrTitle")), loading(t("lrLoading")));
-  cached("leveling", () => api(`/api/leveling?${buildQuery()}`))
+  DATA.leveling()
     .then((d) => { if (d.ways.level >= LR_MIN_GUIDE) { card.classList.remove("hidden"); drawLeveling(card, d); } else card.remove(); })
     .catch(() => card.remove());
   return card;
@@ -3588,7 +3711,7 @@ function drawLeveling(card, d) {
 // the levelling tab's line about the plan: the switch level, or where to make the plan
 function levelingNote() {
   const box = h("div", { class: "action lr-note hidden" });
-  cached("leveling", () => api(`/api/leveling?${buildQuery()}`)).then((d) => {
+  DATA.leveling().then((d) => {
     if (d.ways.level < LR_MIN_GUIDE) return;
     const sw = d.roadmap && d.roadmap.switch;
     box.replaceChildren(h("span", {}, sw && sw.level ? "🚩 " + t("lrSwitchAt", sw.level, lrStageName(sw.stage)) : t("lrNoPlan")), " ",
@@ -3788,7 +3911,7 @@ TABS.skills = async (view) => {
   view.replaceChildren(body);
   let r;
   try {
-    r = await cached("skills:build", () => api(`/api/skills?view=build&${buildQuery()}`));
+    r = await DATA.skills("build");
   } catch (e) {
     body.replaceChildren(h("div", { class: "card" }, h("p", { class: "muted" }, e.message)));
     return;
@@ -3801,7 +3924,7 @@ TABS.skills = async (view) => {
   body.replaceChildren(...renderSkillsBuild(r), h("div", { class: "section-title" }, "🔍 ", t("exTitle")), explained,
     h("div", { class: "section-title" }, t("skDamageTitle")), damage, levelingGemsCard());
   betterSupports(body);
-  cached("skills:explain", () => api(`/api/skills?view=explain&${buildQuery()}`))
+  DATA.skills("explain")
     .then((d) => explained.replaceChildren(...explainCards(d, d.guide)))
     .catch((e) => explained.replaceChildren(errorCard(e)));
 };
@@ -3961,7 +4084,7 @@ function metaCard(x) {
 // Supports worth more than each skill's weakest one, among those the character can have now (loaded after the
 // page is shown: PoB tries every support on every skill): a line in each skill's card.
 function betterSupports(root) {
-  cached("skills:supports", () => api(`/api/skills?view=supports&${buildQuery()}`)).then((d) => {
+  DATA.skills("supports").then((d) => {
     for (const x of d.skills) {
       const card = root.querySelector(`.sk-group[data-group="${x.group}"]`);
       if (!card) continue;
@@ -3988,10 +4111,8 @@ function levelingGemsCard() {
     if (loaded) return;
     loaded = true;
     inner.replaceChildren(loading(t("skLoadingLevel")));
-    // levelling follows the build's target (the guide the player plays by) unless the player asks for the build
-    const of = (state.build.profileRaw || {}).target && state.levelOf !== "build" ? "target" : "";
     try {
-      const r = await cached(`skills:leveling${of ? ":target" : ""}`, () => api(`/api/skills?view=leveling${of ? "&of=target" : ""}&${buildQuery()}`));
+      const r = await DATA.skillsLeveling();
       inner.replaceChildren(levelingNote(), ...renderSkillsLeveling(r));
     } catch (e) {
       inner.replaceChildren(h("p", { class: "muted" }, e.message),
@@ -4996,7 +5117,7 @@ function renderSkillsBuild(r) {
       it.unseen.length ? h("div", { class: "hint" }, t("skUnseen"), " ", it.unseen.map((l, i) => [i ? "; " : "", h("span", { title: l }, trMod(l))])) : null,
       mechChips(it), termChips(it.terms))))), "uniques", t("skUniquesSum", r.items.length)) : null;
   const grid = h("div", { class: "grid cards masonry" }, cards);
-  cached("skills:roles", () => api(`/api/skills?view=roles&${buildQuery()}`)).then((rr) => fillRoles(grid, rr)).catch(() => {});
+  DATA.skills("roles").then((rr) => fillRoles(grid, rr)).catch(() => {});
   return [links, items, grid].filter(Boolean);
 }
 
@@ -5137,32 +5258,73 @@ function renderSkillsLeveling(r) {
 // the levelling stage in force at a level: the last one that has started
 const stageAt = (plan, level) => plan.stages.filter((s) => s.level <= level).pop() || plan.stages[0];
 
-async function gapsCard() {
-  const m = await cached("mechanics", () => api(`/api/mechanics?${buildQuery()}`));
-  // "Name, Base (Slot)" / "Skill (группа N)": names through trItem, so a rare's random English name is dropped in
-  // Russian (the game builds it from words with several Russian variants — it cannot be recovered exactly)
-  const where = (w) => {
-    const m = w.match(/^(.*) \(([^()]+)\)$/);
-    if (!m) return trFree(w);
-    const tail = m[2].replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`);
-    return h("span", { title: w, class: "named" }, icon(m[1]), `${trItem(m[1])} (${SLOT_RU[m[2]] !== undefined ? slotName(m[2]) : trFree(tail)})`);
-  };
-  // in Russian mode show only what has an official translation; the English original stays in the tooltip
-  const line = (text) => h("div", { title: text }, trMod(text));
-  // the game's own text in the player's language (from the installed game) beats any translation of ours
-  const gapText = (g) => (LANG !== "en" && g.text_local ? h("div", { title: g.text }, g.text_local) : line(g.text));
-  const gap = (g) => h("div", { class: "gap" },
-    h("button", { class: "gap-add", title: t("addToPob"), onclick: (e) => toggleAddPanel(e.currentTarget.parentElement, g) }, "+"),
-    h("div", { class: "where" }, where(g.where)), gapText(g),
-    LANG === "en" && g.what !== g.text ? h("div", { class: "stat" }, g.what) : null);
-  // raw internal stat ids ("stat_name = 20") mean nothing to a player; the English view keeps them
-  const shown = m.gaps.filter((g) => LANG === "en" || g.text_local || !/^[A-Za-z0-9_%+]+ = /.test(g.text));
-  const impact = shown.filter((g) => g.likely_impact);
-  const rest = shown.filter((g) => !g.likely_impact);
-  // the skills' and uniques' own lines are in the Skills tab; here what PoB leaves out of its numbers
-  return foldedCard(h("div", { class: "card" }, h("h3", {}, t("gapsTitle")), h("div", { class: "sub" }, t("gapsSub")),
-    impact.map(gap), rest.length ? h("details", {}, h("summary", {}, t("other", rest.length)), rest.map(gap)) : null),
-  "gaps", t("gapsSum", impact.length, shown.length));
+// ---------- what PoB does not count that moves the numbers a lot, and the corrections for it (the overview) ----------
+// Each line PoB ignores is read the way PoB can (poe2lab.analysis.unmodeled) and priced on the skill it belongs to;
+// "count it" adds the line to the build's profile as a correction - as if it always works, the share of the fight it
+// does is the player's to set - and every number counts it from then on.
+const UM_METRIC = [["dps", "m_dps"], ["ehp", "m_ehp"], ["recovery", "m_recovery"]];
+// "Name, Base (Slot)" / "Skill (группа N)": names through trItem, so a rare's random English name is dropped in
+// Russian (the game builds it from words with several Russian variants — it cannot be recovered exactly)
+function gapWhere(w) {
+  const m = w.match(/^(.*) \(([^()]+)\)$/);
+  if (!m) return trFree(w);
+  const tail = m[2].replace(/группа (\d+)/, (_, n) => `${t("group")} ${n}`);
+  return h("span", { title: w, class: "named" }, icon(m[1]), `${trItem(m[1])} (${SLOT_RU[m[2]] !== undefined ? slotName(m[2]) : trFree(tail)})`);
+}
+// the game's own text in the player's language (from the installed game) beats any translation of ours; in Russian
+// only what has an official translation, the English original in the tooltip
+const gapText = (g) => (LANG !== "en" && g.text_local ? h("div", { title: g.text }, g.text_local) : h("div", { title: g.text }, trMod(g.text)));
+// raw internal stat ids ("stat_name = 20") mean nothing to a player; the English view keeps them
+const gapShown = (g) => LANG === "en" || g.text_local || !/^[A-Za-z0-9_%+]+ = /.test(g.text);
+
+// the profile's corrections changed and saved: the build is opened again with them, every number counts them
+async function saveCorrections(change, msg) {
+  const raw = JSON.parse(JSON.stringify(state.build.profileRaw));
+  raw.corrections = raw.corrections || [];
+  raw.notes = raw.notes || [];
+  change(raw.corrections);
+  raw.main_skill = { group: state.build.info.mainSocketGroup, skill: state.build.info.mainActiveSkill || 1, name: state.build.mainSkill };
+  try {
+    state.build = await api("/api/profile", { method: "PUT", body: raw });
+    resetCache();
+    renderHeader();
+    loadBuildList();
+    if (msg) toast(msg, true);
+    switchTab(state.tab);
+  } catch (e) { toast(e.message); }
+}
+
+function unmodeledCard() {
+  const card = h("div", { class: "card stack um-card" }, h("h3", {}, t("umTitle")), h("div", { class: "sub" }, t("umSub")), loading(t("umLoading")));
+  DATA.unmodeled().then((d) => {
+    const head = card.querySelector("h3");
+    head.append(h("span", { class: "fold-sum" }, t("umSum", d.big.length, d.corrections.length)));
+    const corr = (c) => h("div", { class: "um-row on" },
+      h("div", { class: "um-main" }, h("b", { title: c.mod }, trMod(c.mod)), h("div", { class: "where small" }, gapWhere(c.source.split(": ")[0]))),
+      h("label", { class: "um-up small", title: t("umUptimeHint") }, t("umUptime"), " ",
+        h("input", { type: "number", min: 0, max: 100, step: 5, value: Math.round(c.uptime * 100),
+          onchange: (e) => saveCorrections((list) => { list[c.index].uptime = Math.max(0, Math.min(1, Number(e.target.value) / 100)); }) }), "%"),
+      deltas(c.changes, UM_METRIC, 0.3),
+      h("button", { class: "x", title: t("remove"), onclick: () => saveCorrections((list) => list.splice(c.index, 1), t("umRemoved")) }, "×"));
+    const est = (g) => h("div", { class: "um-row" },
+      h("div", { class: "um-main" }, gapText(g), h("div", { class: "where small" }, gapWhere(g.where)),
+        g.stages ? h("div", { class: "muted small" }, t("umStages", g.stages)) : null),
+      h("div", { class: "um-est" }, h("span", { class: "muted small" }, t("umIfAlways")), deltas(g.changes, UM_METRIC, 0.3)),
+      h("button", { class: "primary small", title: trMod(g.line),
+        onclick: () => saveCorrections((list) => list.push({ mod: g.line, source: g.key, uptime: 1, confirmed: false }), t("corrAdded", trMod(g.line))) }, t("umCount")));
+    const unpriced = (g) => h("div", { class: "gap" },
+      h("button", { class: "gap-add", title: t("addToPob"), onclick: (e) => toggleAddPanel(e.currentTarget.parentElement, g) }, "+"),
+      h("div", { class: "where" }, gapWhere(g.where)), gapText(g));
+    const small = d.small.filter(gapShown), rest = d.unpriced.filter(gapShown);
+    card.replaceChildren(...[head, card.querySelector(".sub"),
+      d.corrections.length ? h("div", { class: "section-title" }, t("umCorrections")) : null, ...d.corrections.map(corr),
+      d.big.length ? h("div", { class: "section-title" }, t("umBig", d.big_pct)) : null, ...d.big.map(est),
+      d.big.length ? null : h("p", { class: "muted small" }, t("umNone", d.big_pct)),
+      small.length ? h("details", {}, h("summary", { class: "small" }, t("umSmall", small.length)), ...small.map(est)) : null,
+      rest.length ? h("details", {}, h("summary", { class: "small" }, t("umUnpriced", rest.length)), h("div", { class: "hint" }, t("umUnpricedHint")),
+        ...rest.map(unpriced)) : null].filter(Boolean));
+  }).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
+  return card;
 }
 
 // ---------- profile ----------
@@ -5180,13 +5342,6 @@ TABS.profile = async () => {
   const rageMax = h("input", { type: "checkbox", checked: raw.rage === null || raw.rage === undefined });
   const rageVal = h("input", { type: "number", value: raw.rage ?? 0, min: 0, style: "width:90px" });
   const mana = h("input", { type: "checkbox", checked: !!raw.mana_sustained });
-  const corrBox = h("div", {});
-  const drawCorr = () => corrBox.replaceChildren(...raw.corrections.map((c, i) => h("div", { class: "corr" },
-    modEditor(c, drawCorr),
-    h("input", { type: "number", value: c.uptime ?? 1, step: 0.05, min: 0, max: 1, oninput: (e) => { c.uptime = Number(e.target.value); } }),
-    h("label", { class: "small" }, h("input", { type: "checkbox", checked: !!c.confirmed, onchange: (e) => { c.confirmed = e.target.checked; } }), t("confirmed")),
-    h("button", { class: "x", title: t("remove"), onclick: () => { raw.corrections.splice(i, 1); drawCorr(); } }, "×"))));
-  drawCorr();
   const notes = h("textarea", { rows: 6 }, raw.notes.join("\n"));
   const save = h("button", { class: "primary", onclick: async () => {
     raw.rage = !ask.rage || rageMax.checked ? null : Number(rageVal.value);
@@ -5213,17 +5368,12 @@ TABS.profile = async () => {
       ask.rage ? h("div", { class: "row" }, h("label", {}, rageMax, t("rageMax")), h("span", { class: "muted" }, t("otherwise")), rageVal) : null,
       ask.mana ? h("label", {}, mana, t("manaOk")) : null,
       ask.rage || ask.mana ? null : h("div", { class: "muted small" }, t("noQuestions")),
-      h("div", { class: "section-title", style: "margin-top:10px" }, t("correctionsTitle")),
-      h("div", { class: "corr small muted" }, h("span", {}, t("corrMod")), h("span", {}, t("corrUptime")), h("span", {}), h("span", {})),
-      corrBox,
-      h("button", { class: "ghost small", onclick: () => { raw.corrections.push({ mod: "", source: "manual", uptime: 1, confirmed: false }); drawCorr(); } }, t("addCorrection")),
+      h("div", { class: "hint" }, t("corrMoved")),
       h("div", { class: "section-title" }, t("targetTitle")), h("div", { class: "sub" }, t("targetSub")), targetSel,
       h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
     foldedCard(h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))), "counted", t("linesN", state.build.profile.length)));
-  let gaps;
-  try { gaps = await gapsCard(); } catch (e) { gaps = h("div", { class: "card" }, h("p", { class: "muted" }, e.message)); }
-  return h("div", { class: "stack" }, facts, questsCard(), gaps);
+  return h("div", { class: "stack" }, facts, questsCard());
 };
 
 // "+" on a mechanic PoB ignores: turn it into a correction of the profile. PoB cannot read the game line itself
@@ -5234,21 +5384,9 @@ async function toggleAddPanel(box, g) {
   if (open) { open.remove(); return; }
   const panel = h("div", { class: "add-panel" }, loading(t("searching")));
   box.append(panel);
-  const add = async (line) => {
-    const raw = JSON.parse(JSON.stringify(state.build.profileRaw));
-    raw.corrections = raw.corrections || [];
-    raw.notes = raw.notes || [];
-    raw.corrections.push({ mod: line, source: `${g.where}: ${g.text}`, uptime: 1, confirmed: false });
-    raw.main_skill = { group: state.build.info.mainSocketGroup, skill: state.build.info.mainActiveSkill || 1, name: state.build.mainSkill };
+  const add = (line) => {
     panel.replaceChildren(loading(t("counting")));
-    try {
-      state.build = await api("/api/profile", { method: "PUT", body: raw });
-      resetCache();
-      renderHeader();
-      loadBuildList();
-      toast(t("corrAdded", trMod(line)), true);
-      switchTab("profile");
-    } catch (e) { toast(e.message); panel.remove(); }
+    saveCorrections((list) => list.push({ mod: line, source: `${g.where}: ${g.text}`, uptime: 1, confirmed: false }), t("corrAdded", trMod(line)));
   };
   try {
     const r = await api(`/api/mods/suggest?text=${encodeURIComponent(g.text)}&lang=${LANG}`);
@@ -5263,43 +5401,7 @@ async function toggleAddPanel(box, g) {
   } catch (e) { panel.replaceChildren(h("p", { class: "muted" }, e.message)); }
 }
 
-// ---------- mod picker (like the in-game trade filter) ----------
-// A chosen mod is shown in the player's language with an input per number; the PoB line is rebuilt from it,
-// so the stored text is always one PoB understands.
-function modEditor(c, redraw) {
-  if (!c.mod) return modSearch((line) => { c.mod = line; redraw(); });
-  const tpl = GAME.stats[statKey(c.mod)];
-  const shown = tpl || c.mod.replace(TOKEN_RE, "#");
-  const tokens = [...c.mod.matchAll(TOKEN_RE)];
-  if ((shown.match(/#/g) || []).length !== tokens.length) {
-    return h("div", {}, h("input", { type: "text", value: c.mod, style: "width:100%", oninput: (e) => { c.mod = e.target.value; } }));
-  }
-  const parts = shown.split("#");
-  const row = h("div", { class: "mod-edit" });
-  parts.forEach((text, k) => {
-    row.append(text);
-    if (k < tokens.length) {
-      const tok = tokens[k][0];
-      row.append(h("input", {
-        type: "number", class: "mod-num", value: tok.replace(/^\+/, ""), step: "any",
-        oninput: (e) => { c.mod = replaceToken(c.mod, k, e.target.value, tok.startsWith("+")); },
-      }));
-    }
-  });
-  return h("div", {}, row,
-    // the PoB line itself stays in the tooltip: in Russian mode nothing English is shown on the page
-    h("div", { class: "hint", title: c.mod }, h("button", { class: "link", onclick: () => { c.mod = ""; redraw(); } }, t("changeMod"))));
-}
-
-function replaceToken(line, k, value, plus) {
-  let i = 0;
-  return line.replace(TOKEN_RE, (m) => {
-    if (i++ !== k) return m;
-    const v = String(value).trim() || "0";
-    return plus && !v.startsWith("-") ? `+${v.replace(/^\+/, "")}` : v;
-  });
-}
-
+// ---------- mod picker (like the in-game trade filter): a mod found by its words in the player's language ----------
 function modSearch(onPick) {
   const input = h("input", { type: "text", placeholder: t("modSearchPh"), style: "width:100%", autocomplete: "off" });
   const list = h("div", { class: "suggest-list hidden" });
