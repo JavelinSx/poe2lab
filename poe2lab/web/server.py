@@ -681,7 +681,17 @@ def _summary():
             "kind": "pob" if session.path.suffix.lower() == ".xml" else "code",
             # the player's own character (what all this is about) and the build it follows, when there is one
             "main": library.describe_file(session.main) if session.main else None,
-            "guide": library.describe_file(session.path) if session.main else None}
+            "guide": library.describe_file(session.path) if session.main else None,
+            # the build's own description (PoB's Notes tab): how its author links the skills, when they wrote it
+            "pobNotes": _pob_notes()}
+
+
+def _pob_notes() -> str:
+    """The build's own notes, empty when they cannot be read (a summary never fails for them)."""
+    try:
+        return (_guide_engine() if session.main else session.engine).build_notes()
+    except (PobError, KeyError, TypeError):
+        return ""
 
 
 @app.post("/api/load")
@@ -2378,11 +2388,12 @@ def _loot(mode: str, choice: MarketChoice | None = None) -> dict:
 
 def _loot_leveling(rules) -> tuple[list[str], dict]:
     """The campaign's extras: the weapon of the way the player levels with (the profile's levelling answers), the
-    bases and uniques the build's author put into the levelling plan's gear (the constructor's lv:<stage>:gear)."""
+    bases and uniques the build's author put into the levelling plan's gear and weapons (the constructor's
+    lv:<stage>:gear and lv:<stage>:weapon)."""
     raw = _profile_raw()
     way = ((raw.get("leveling") or {}).get("way") or "").split(":")[0]
     plan = [tok for bid, b in ((raw.get("author") or {}).get("blocks") or {}).items()
-            if bid.startswith("lv:") and bid.endswith(":gear") for tok in b.get("list", [])]
+            if bid.startswith("lv:") and bid.endswith((":gear", ":weapon")) for tok in b.get("list", [])]
     by_name = {u["name"]: u["base"] for u in session.cached("unique-catalog", session.engine.unique_catalog)}
     bases = [tok.split(":", 1)[1] for tok in plan if tok.startswith("base:")]
     unique_bases = [by_name[n] for n in (tok.split(":", 1)[1] for tok in plan if tok.startswith("unique:")) if n in by_name]

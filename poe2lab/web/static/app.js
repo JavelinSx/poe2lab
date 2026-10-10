@@ -23,7 +23,14 @@ const fmt = (n, d = 0) => (n === null || n === undefined || Number.isNaN(n)) ? "
   : Number(n).toLocaleString(locale(), { maximumFractionDigits: d, minimumFractionDigits: d });
 const pct = (v) => (v > 0 ? "+" : "") + fmt(v, 1) + "%";
 
+// The requests the player is waiting for (anything but the preloader's): the preloader lets them go first
+let IN_PRELOAD = false, FOREGROUND = 0;
 async function api(path, opts = {}) {
+  const mine = !IN_PRELOAD;
+  if (mine) FOREGROUND++;
+  try { return await request(path, opts); } finally { if (mine) FOREGROUND--; }
+}
+async function request(path, opts) {
   const res = await fetch(path, {
     ...opts,
     headers: { "Content-Type": "application/json", "X-Poe2lab": "1" },
@@ -1034,12 +1041,14 @@ async function switchTab(tab) {
   writeHash();
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   if (!state.build) return;
-  renderCtorBar();
-  await authorLoad();
-  auButton();
-  const view = $("#view");
+  // the newest switch wins, counted from its start: one that waits longer (for the author's notes) is not newer
   const token = Symbol();
   switchTab.token = token;
+  renderCtorBar();
+  await authorLoad();
+  if (switchTab.token !== token) return;
+  auButton();
+  const view = $("#view");
   try {
     // a build with the player's character: the tab on the character (Мейн) or the build it follows (Билд)
     const sided = state.build.main && SIDE_VIEWS[tab];
@@ -1172,7 +1181,7 @@ function preloadSteps() {
     ["skills", () => DATA.skills("roles")], ["skills", () => DATA.skillsLeveling()],
     ["gear", () => DATA.gear()], ["gear", () => DATA.uniques()],
     ["tree", () => DATA.tree()], ["tree", () => treeGraph()], ["tree", () => ascData()], ["tree", () => DATA.jewels()],
-    ["tree", () => DATA.packages()], ["overview", () => DATA.unmodeled()], ["overview", () => DATA.conditions()],
+    ["tree", () => DATA.packages()], ["profile", () => DATA.unmodeled()], ["profile", () => DATA.conditions()],
     ["profile", () => questsData()]];
   // the guide's side of a build with the player's character
   if (state.build.main) steps.push(["overview", () => guideVersus()], ["gear", () => guideGear()]);
@@ -1242,8 +1251,9 @@ function preload(blocking) {
     const took = {};
     let done = 0;
     for (let i = 0; i < steps.length; i++) {
-      // the constructor calculates nothing until asked: the tabs' work waits while it is open (its own requests first)
-      while (state.page === "ctor" && preload.token === token) await new Promise((r) => setTimeout(r, 400));
+      // the constructor calculates nothing until asked: the tabs' work waits while it is open; and what the player
+      // opened goes before the next step (the server answers one request at a time)
+      while ((state.page === "ctor" || FOREGROUND > 0) && preload.token === token) await new Promise((r) => setTimeout(r, 300));
       if (preload.token !== token || state.build !== b) { finish(); return; }  // another build, or a newer run
       const [tab, run] = steps[i];
       chips[tab].className = "pl-tab work";
@@ -1252,7 +1262,11 @@ function preload(blocking) {
       move(done, i);
       const s0 = performance.now();
       let failed = false;
-      try { await run(); } catch (_) { failed = true; }  // the tab shows the error itself (and asks again)
+      // the step's requests are the preloader's (they start at once, in the call): they do not hold the next step
+      IN_PRELOAD = true;
+      let pending;
+      try { pending = run(); } finally { IN_PRELOAD = false; }
+      try { await pending; } catch (_) { failed = true; }  // the tab shows the error itself (and asks again)
       took[`${tab}:${i}`] = Math.round(performance.now() - s0);
       done += weight[i];
       if (failed) chips[tab].classList.add("fail");
@@ -1436,9 +1450,10 @@ TABS.overview = async (view) => {
     h("button", { class: "ghost small", onclick: () => reportError({ message: t("ovFailed", r.failed.join(", ")) }) }, "📨 ", t("errReport"))) : null;
   // what to do next beside the numbers; the way to the build under them, across the page
   return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")), auSecNote("character"),
+    auSecNote("leveling"), levelingCard(),
     h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
       foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
-    unmodeledCard(), conditionsCard(), auSecNote("leveling"), levelingCard(), auSecNote("quests"), questMapCard());
+    auSecNote("quests"), questMapCard());
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -3545,7 +3560,7 @@ const lrStageName = (key) => t("lrStage_" + key);
 function levelingCard() {
   const card = h("div", { class: "card lr-card hidden" }, h("h3", {}, t("lrTitle")), loading(t("lrLoading")));
   DATA.leveling()
-    .then((d) => { if (d.ways.level >= LR_MIN_GUIDE) { card.classList.remove("hidden"); drawLeveling(card, d); } else card.remove(); })
+    .then((d) => { if (d.ways.level >= LR_MIN_GUIDE || authorLevels()) { card.classList.remove("hidden"); drawLeveling(card, d); } else card.remove(); })
     .catch(() => card.remove());
   return card;
 }
@@ -3624,10 +3639,51 @@ function lrPart(p, trade) {
     p.decisive ? h("span", { class: "lr-wait" }, t("lrWaitFor")) : null);
 }
 
+// The campaign's stages by level (poe2lab.analysis.leveling.stages) for a plan with no roadmap of the program's
+const LR_STAGES = [["act1", 1, 15], ["act2", 16, 32], ["act3", 33, 45], ["act4", 46, 53], ["interlude", 54, 64], ["maps", 65, null]];
+const LV_AUTHOR_PARTS = ["links", "weapon", "tree", "gear", "note", "skills", "gems"];
+const lvHas = (stage) => LV_AUTHOR_PARTS.some((part) => { const b = auBlock(`lv:${stage}:${part}`); return b.text || (b.links || b.list || []).length; });
+// the author wrote the levelling (the constructor's step 1 or 2)
+const authorLevels = () => LR_STAGES.some(([k]) => lvHas(k)) || !!auStart() || !!auBlock("lv:intro").text;
+
+// the author's plan: each stage the author described - the links, the weapon, the passives in order, the gear, the
+// stage's mechanics - and the build's start; the program's plan one press away
+function drawAuthorLeveling(card, d) {
+  const head = card.querySelector("h3");
+  head.querySelector(".fold-sum")?.remove();
+  head.append(h("span", { class: "fold-sum" }, t("lrByAuthor")));
+  const chips = (toks) => toks.map((tok) => h("span", { class: "lr-skill" }, auTokChip(tok)));
+  const stage = ([key, from, to]) => {
+    const id = (part) => auBlock(`lv:${key}:${part}`);
+    const links = id("links").links || [], weapon = id("weapon").list || [], tree = id("tree").list || [], gear = id("gear").list || [];
+    const sec = (k, items) => (items.length ? h("div", { class: "lr-sec" }, h("div", { class: "lr-sec-k" }, t("lrSec_" + k)), h("div", { class: "lr-sec-v" }, ...items)) : null);
+    return h("div", { class: "lr-stage", "data-stage": key },
+      h("div", { class: "lr-stage-head" }, h("span", { class: "lr-mark" }, lrStageMark(key)),
+        h("div", { class: "lr-stage-name" }, h("b", {}, lrStageName(key)), h("span", { class: "muted small" }, to ? t("lrRange", from, to) : t("lrRangeOpen", from)))),
+      sec("links", links.map((link) => h("span", { class: "lr-skill lr-link" }, link.map((tok, i) => [i ? h("span", { class: "muted" }, " + ") : null, auTokChip(tok)])))),
+      sec("weapon", chips(weapon)),
+      // the author's lists of an earlier constructor: the stage's skills and gems
+      links.length ? null : sec("skills", chips(id("skills").list || [])),
+      links.length ? null : sec("gems", chips(id("gems").list || [])),
+      sec("tree", tree.map((tok, i) => h("span", { class: "lr-skill" }, h("span", { class: "lv-n" }, i + 1), auTokChip(tok)))),
+      sec("gear", chips(gear)),
+      id("note").text ? h("div", { class: "au-text small" }, ...auRich(id("note").text)) : null);
+  };
+  const shown = LR_STAGES.filter(([k]) => lvHas(k));
+  const other = h("button", { class: "ghost small", onclick: () => { state.lvView = "program"; drawLeveling(card, d); } }, t("lrProgramPlan"));
+  card.replaceChildren(...[head, auNote("lv:intro", null),
+    h("div", { class: "lr-switch" }, h("span", { class: "lr-flag" }, "🚩"), h("div", {},
+      d.roadmap && d.roadmap.switch && d.roadmap.switch.level ? h("div", { class: "muted small" }, t("stProgramLevel", d.roadmap.switch.level)) : null, auStart())),
+    shown.length ? h("div", { class: "lr-stages lr-author", style: `--n:${shown.length}` }, shown.map(stage)) : null,
+    h("div", { class: "row" }, other, h("span", { class: "muted small" }, t("lrProgramHint")))].filter(Boolean));
+}
+
 function drawLeveling(card, d) {
   const head = card.querySelector("h3");
+  if (authorLevels() && state.lvView !== "program") { drawAuthorLeveling(card, d); return; }
   const edit = (label, cls) => h("button", { class: cls, onclick: () => levelingWizard(d, (nd) => { state.cache.leveling = nd; drawLeveling(card, nd); }) }, label);
   card.classList.toggle("lr-hero", !d.answers || !d.roadmap);
+  const back = authorLevels() ? h("button", { class: "ghost small", onclick: () => { state.lvView = "author"; drawLeveling(card, d); } }, "← ", t("lrAuthorPlan")) : null;
   if (!d.answers || !d.roadmap) {
     card.replaceChildren(head, h("div", { class: "lr-hero-body" },
       h("div", { class: "lr-hero-art", "aria-hidden": "true" }, "🗺"),
@@ -3636,7 +3692,7 @@ function drawLeveling(card, d) {
         h("p", { class: "small" }, t("lrIntro")),
         h("div", { class: "lr-hero-steps" }, [["⚔", "lrStep1"], ["🚩", "lrStep2"], ["🗓", "lrStep3"]].map(([ico, key], i) =>
           h("span", { class: "lr-hero-step" }, h("b", {}, `${i + 1}`), ico, " ", t(key)))),
-        edit(t("lrMake"), "primary lr-hero-btn"))));
+        edit(t("lrMake"), "primary lr-hero-btn"), back)));
     return;
   }
   const r = d.roadmap, sw = r.switch, a = r.answers;
@@ -3702,7 +3758,7 @@ function drawLeveling(card, d) {
     title: lrStageName(s.key) }, h("span", { class: "lr-tick-dot" }, s.switch ? "🚩" : lrStageMark(s.key)),
     h("span", { class: "lr-tick-l" }, s.to ? t("lrRange", s.from, s.to) : t("lrRangeOpen", s.from)))));
   const tips = [t(a.pace === "safe" ? "lrTipSafe" : "lrTipFast"), t(a.trade ? "lrTipTrade" : "lrTipSsf")];
-  card.replaceChildren(...[head, banner, auNote("lv:intro", t("auLvIntroPh")), why, before,
+  card.replaceChildren(...[head, back, banner, auNote("lv:intro", t("auLvIntroPh")), why, before,
     // the track and the stages in one grid, a column each: every mark stands over its stage
     h("div", { class: "lr-timeline", style: `--n:${r.stages.length}` }, track, h("div", { class: "lr-stages" }, r.stages.map(stage))),
     h("ul", { class: "small lr-tips" }, tips.map((x) => h("li", {}, x))),
@@ -4980,6 +5036,33 @@ function mechChips(gem) {
   return out.length ? h("div", { class: "row small", style: "gap:4px" }, out) : null;
 }
 
+// How the build's skills work together - only as its author describes it: the build's own notes (PoB's Notes tab)
+// and the author's note from the constructor. The program does not make this up.
+const POB_COLORS = { 1: "E05030", 2: "70FF70", 3: "7070FF", 4: "FFFF77", 5: "B565DC", 6: "70FFFF" };
+function pobColored(text) {
+  const out = [];
+  const re = /\^x([0-9A-Fa-f]{6})|\^(\d)/g;
+  let color = null, last = 0, m;
+  const push = (str) => str.split("\n").forEach((line, i) => {
+    if (i) out.push(h("br"));
+    if (line) out.push(color ? h("span", { style: `color:#${color}` }, line) : document.createTextNode(line));
+  });
+  while ((m = re.exec(text))) {
+    push(text.slice(last, m.index));
+    color = m[1] || POB_COLORS[m[2]] || null;
+    last = re.lastIndex;
+  }
+  push(text.slice(last));
+  return out;
+}
+function skillLinksCard() {
+  const own = auBlock("sk:links").text, notes = (state.build.pobNotes || "").trim();
+  if (!own && !notes) return null;
+  return foldedCard(h("div", { class: "card stack" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSubAuthor")),
+    own ? h("div", { class: "au-note" }, h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")), h("div", { class: "au-text" }, ...auRich(own))) : null,
+    notes ? h("div", { class: "pob-notes small" }, h("div", { class: "lr-sec-k" }, t("skPobNotes")), h("div", {}, ...pobColored(notes))) : null), "links", null);
+}
+
 function renderSkillsBuild(r) {
   for (const [k, m] of Object.entries(r.mechanics || {})) MECH_NAMES[k] = LANG === "en" ? MECH_EN[k] || m.name : m.name;
   TERMS = r.terms || {};
@@ -4993,23 +5076,6 @@ function renderSkillsBuild(r) {
     if (it) card.append(mechChips(it) || "");
     return card;
   };
-  const ref = (x) => (x.item ? hoverTip(h("span", { class: "named pk-node" }, `${trItem(x.gem.split(",")[0])} (${slotName(x.skill)})`), () => itemTip(x.gem))
-    : h("span", { class: "named" }, gemName(x.gem), x.support ? h("span", { class: "muted" }, " → ", gemName(x.skill)) : null));
-  // the game's own explanation of a mechanic when the game data is unpacked, ours otherwise
-  const explain = (l) => {
-    const official = (l.terms || []).filter((id) => TERMS[id]);
-    if (!official.length || LANG === "en" && !TERMS[official[0]].text) return h("div", { class: "hint" }, LANG === "en" ? "" : l.explain);
-    return h("div", { class: "hint" }, official.map((id, i) => h("div", {}, i ? h("b", {}, `${termName(id)}: `) : null,
-      termText(LANG !== "en" && TERMS[id].textLocal ? TERMS[id].textLocal : TERMS[id].text))));
-  };
-  const links = foldedCard(h("div", { class: "card" }, h("h3", {}, t("skLinks")), h("div", { class: "sub" }, t("skLinksSub")),
-    r.links.length ? r.links.map((l) => h("div", { class: "sk-link" + (l.missing ? " missing" : "") },
-      h("div", {}, h("b", {}, MECH_NAMES[l.key] || l.name), l.missing ? h("span", { class: "chip must", style: "margin-left:8px" }, t("skMissing")) : null),
-      explain(l),
-      l.creates.length ? h("div", { class: "small" }, h("span", { class: "muted" }, t("skCreatedBy")), " ", l.creates.map((x, i) => [i ? ", " : "", ref(x)])) : null,
-      h("div", { class: "small" }, h("span", { class: "muted" }, t("skUsedBy")), " ", l.uses.map((x, i) => [i ? ", " : "", ref(x)]))))
-      : h("p", { class: "muted small" }, t("skNoLinks"))),
-  "links", r.links.length ? t("skLinksSum", r.links.length, r.links.filter((l) => l.missing).length) : null);
   // a gem's row: what the build gets from it; its description and lines are on hover over its name
   const gemRow = (gem, g) => {
     if (!gem.support) {
@@ -5138,7 +5204,7 @@ function renderSkillsBuild(r) {
       mechChips(it), termChips(it.terms))))), "uniques", t("skUniquesSum", r.items.length)) : null;
   const grid = h("div", { class: "grid cards masonry" }, cards);
   DATA.skills("roles").then((rr) => fillRoles(grid, rr)).catch(() => {});
-  return [links, items, grid].filter(Boolean);
+  return [skillLinksCard(), items, grid].filter(Boolean);
 }
 
 // uniques of the whole game that go with the build's skills (mechanics, skill kinds, damage types, shared terms)
@@ -5381,13 +5447,43 @@ async function saveCorrections(change, msg) {
   } catch (e) { toast(e.message); }
 }
 
+function ownConditionForm() {
+  const name = h("input", { type: "text", placeholder: t("ocNamePh"), maxlength: 80, class: "oc-name" });
+  const preview = h("div", { class: "small" });
+  const nums = h("div", { class: "row oc-nums" });
+  const share = h("input", { type: "number", min: 0, max: 100, step: 5, value: 100, class: "um-num" });
+  let line = null;
+  const draw = () => {
+    preview.replaceChildren(line ? h("b", { title: line }, trMod(line)) : h("span", { class: "muted" }, t("ocPickHint")));
+    const found = line ? [...line.matchAll(/\d+(?:\.\d+)?/g)] : [];
+    nums.replaceChildren(...found.map((m, i) => h("label", { class: "small" }, `#${i + 1} `, h("input", { type: "number", value: m[0], step: "any", class: "um-num",
+      oninput: (e) => {
+        let k = 0;
+        line = line.replace(/\d+(?:\.\d+)?/g, (x) => (k++ === i ? String(Math.max(0, Number(e.target.value) || 0)) : x));
+        preview.replaceChildren(h("b", { title: line }, trMod(line)));
+      } }))));
+  };
+  draw();
+  const add = h("button", { class: "primary small", onclick: () => {
+    if (!line) { toast(t("ocPickHint")); return; }
+    saveCorrections((list) => list.push({ mod: line, source: `${t("ocSource")}: ${name.value.trim() || t("ocUnnamed")}`,
+      uptime: Math.max(0, Math.min(100, Number(share.value) || 0)) / 100, confirmed: true }), t("corrAdded", trMod(line)));
+  } }, t("ocAdd"));
+  return h("details", { class: "oc-form" }, h("summary", {}, "＋ ", t("ocTitle")),
+    h("div", { class: "stack" }, h("div", { class: "hint" }, t("ocSub")), name,
+      modSearch((l) => { line = l; draw(); }), preview, nums,
+      h("label", { class: "um-ask small" }, t("umUptime"), " ", share, "%"), h("div", {}, add)));
+}
+
 function unmodeledCard() {
   const card = h("div", { class: "card stack um-card" }, h("h3", {}, t("umTitle")), h("div", { class: "sub" }, t("umSub")), loading(t("umLoading")));
   DATA.unmodeled().then((d) => {
     const head = card.querySelector("h3");
     head.append(h("span", { class: "fold-sum" }, t("umSum", d.big.length, d.corrections.length)));
     const corr = (c) => h("div", { class: "um-row on" },
-      h("div", { class: "um-main" }, h("b", { title: c.mod }, trMod(c.mod)), h("div", { class: "where small" }, gapWhere(c.source.split(": ")[0]))),
+      h("div", { class: "um-main" }, h("b", { title: c.mod }, trMod(c.mod)),
+        // a line of the build ("Item (Slot): text") by its place; the player's own condition by its name
+        h("div", { class: "where small" }, /\)$/.test(c.source.split(": ")[0]) ? gapWhere(c.source.split(": ")[0]) : c.source)),
       h("label", { class: "um-up small", title: t("umUptimeHint") }, t("umUptime"), " ",
         h("input", { type: "number", min: 0, max: 100, step: 5, value: Math.round(c.uptime * 100),
           onchange: (e) => saveCorrections((list) => { list[c.index].uptime = Math.max(0, Math.min(1, Number(e.target.value) / 100)); }) }), "%"),
@@ -5409,7 +5505,7 @@ function unmodeledCard() {
       d.big.length ? null : h("p", { class: "muted small" }, t("umNone", d.big_pct)),
       small.length ? h("details", {}, h("summary", { class: "small" }, t("umSmall", small.length)), ...small.map(est)) : null,
       rest.length ? h("details", {}, h("summary", { class: "small" }, t("umUnpriced", rest.length)), h("div", { class: "hint" }, t("umUnpricedHint")),
-        ...rest.map(unpriced)) : null].filter(Boolean));
+        ...rest.map(unpriced)) : null, ownConditionForm()].filter(Boolean));
   }).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
   return card;
 }
@@ -5455,12 +5551,11 @@ TABS.profile = async () => {
       ask.rage ? h("div", { class: "row" }, h("label", {}, rageMax, t("rageMax")), h("span", { class: "muted" }, t("otherwise")), rageVal) : null,
       ask.mana ? h("label", {}, mana, t("manaOk")) : null,
       ask.rage || ask.mana ? null : h("div", { class: "muted small" }, t("noQuestions")),
-      h("div", { class: "hint" }, t("corrMoved")),
       h("div", { class: "section-title" }, t("targetTitle")), h("div", { class: "sub" }, t("targetSub")), targetSel,
       h("div", { class: "section-title" }, t("notes")), notes, h("div", {}, save)),
     foldedCard(h("div", { class: "card" }, h("h3", {}, t("howCounted")),
       state.build.profile.map((l) => h("div", { class: "profile-line" }, trFree(l)))), "counted", t("linesN", state.build.profile.length)));
-  return h("div", { class: "stack" }, facts, questsCard());
+  return h("div", { class: "stack" }, facts, conditionsCard(), unmodeledCard(), questsCard());
 };
 
 // "+" on a mechanic PoB ignores: turn it into a correction of the profile. PoB cannot read the game line itself

@@ -191,7 +191,8 @@ const CT_DRAW = {
       h("div", { class: "section-title" }, t("ctAbout")), h("div", { class: "hint" }, t("ctAboutHint")),
       auEditor(auBlock("ov:about").text || "", (v) => auSave("ov:about", { text: v }), t("auAboutPh")));
   },
-  skills: (d) => d.skills.map((g) => {
+  skills: (d) => [h("div", { class: "card stack" }, h("b", {}, "🔗 ", t("skLinks")), h("div", { class: "hint" }, t("ctLinksHint")),
+    auEditor(auBlock("sk:links").text || "", (v) => auSave("sk:links", { text: v }), t("ctLinksPh"))), ...d.skills.map((g) => {
     const name = g.actives.map((x) => trName(x)).join(" + ");
     const gems = g.gems.map((x) => h("span", { class: "ct-gem" + (x.support ? " sup" : "") + (x.enabled ? "" : " off") },
       ctEl(x.id, [icon(x.name), h("span", {}, trName(x.name))], { title: trName(x.name), card: () => gemTipCard(x.name, null, false) }),
@@ -199,7 +200,7 @@ const CT_DRAW = {
     return h("div", { class: "card stack ct-group" + (g.enabled ? "" : " off") },
       ctEl(g.id, [h("span", { class: "ct-title" }, name), g.main ? h("span", { class: "chip ok" }, t("ctMain")) : null], { cls: "ct-head", title: name }),
       ctNote(g.id), h("div", { class: "ct-gems" }, gems), ...g.gems.map((x) => ctNote(x.id, trName(x.name))));
-  }),
+  })],
   gear: (d) => h("div", { class: "ct-grid" }, d.gear.map(ctItem)),
   flasks: (d) => (d.flasks.length ? h("div", { class: "ct-grid" }, d.flasks.map(ctItem)) : h("p", { class: "muted" }, t("ctNone"))),
   tree: (d) => {

@@ -467,6 +467,10 @@ if skill then
 end
 return _poe2lab_json(out)""")
 
+    def build_notes(self) -> str:
+        """The build's own notes (PoB's Notes tab) as its author wrote them, with PoB's colour codes (^xRRGGBB, ^7)."""
+        return self._json('return _poe2lab_json({ t = build.notesTab and build.notesTab.controls.edit.buf or "" })')["t"]
+
     def condition_sources(self) -> list[dict]:
         """Every modifier of the character and its main skill that waits for a condition PoB has a Configuration box
         for: the box (its var and label), whether the condition is the enemy's, the modifier's stat and type, and
