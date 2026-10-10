@@ -617,3 +617,14 @@ def roadmap(engine, rage: int | None, mana_sustained: bool, answers: dict, chara
     return {"class": all_ways["class"], "ascendancy": all_ways["ascendancy"], "guideLevel": all_ways["level"],
             "mainSkill": all_ways["mainSkill"], "way": way, "answers": answers | {"way": way["id"]}, "mode": mode,
             "switch": sw, "stages": out, "characterLevel": character_level}
+
+
+def try_level(engine, level: int, rage: int | None, mana_sustained: bool, spirit: float = 0, trade: bool = True) -> dict:
+    """The build as a character of `level` would have it (snapshot): whether it works there - the Spirit its core
+    reserves (`spirit`), mana - its damage as a share of the finished build's, the attributes it lacks. For the level
+    the author says the build starts at."""
+    ctx = {"rage": rage, "mana": mana_sustained, "trade": trade, "quests": engine.quest_rewards(),
+           "groups": engine.skill_groups(), "catalog": engine.gem_catalog(), "graph": engine.tree_graph(),
+           "asc": ascendancy_order(engine, MapProfile(rage=rage, mana_sustained=mana_sustained).config(), "damage"),
+           "levels": engine.item_levels(), "equipped": engine.equipped_bases(), "bases": engine.item_bases(), "spirit": spirit}
+    return snapshot(engine, level, ctx)

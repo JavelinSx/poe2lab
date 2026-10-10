@@ -17,6 +17,8 @@ BLOCK_ID = re.compile(r"^[a-z]{2,6}:[^\n\[\]]{1,160}$")
 MAX_TEXT = 8000
 MAX_TIP = 1000  # a hover tip is short: a line or two over the element
 MAX_LABEL = 60  # the author's own label of a note ("Важно", "Механика", "Откуда урон")
+MAX_LINKS = 8  # a levelling stage's skill links
+MAX_LINK_GEMS = 7  # an active gem and its supports
 MAX_LIST = 40
 MAX_BLOCKS = 800
 # what a search shows first when nothing tells the kinds apart: skills before supports before items...
@@ -150,6 +152,28 @@ def clean_block(block: dict) -> dict:
         if bad:
             raise AuthorError(f"не элемент игры: {bad[0]!r}")
         out["list"] = list(dict.fromkeys(items))  # each once, in the author's order
+    # a level the author sets (the build's start: from which level its mechanics work)
+    level = block.get("level")
+    if level is not None:
+        if not isinstance(level, int) or isinstance(level, bool) or not 1 <= level <= 100:
+            raise AuthorError("уровень — от 1 до 100")
+        out["level"] = level
+    # a levelling stage's skill links: each an active gem and its supports, in the author's order
+    links = block.get("links")
+    if links is not None:
+        if not isinstance(links, list) or len(links) > MAX_LINKS:
+            raise AuthorError(f"связок — не больше {MAX_LINKS}")
+        clean = []
+        for link in links:
+            if not isinstance(link, list) or len(link) > MAX_LINK_GEMS:
+                raise AuthorError(f"в связке — не больше {MAX_LINK_GEMS} камней")
+            bad = [x for x in link if not isinstance(x, str) or not ITEM.match(x) or x.split(":")[0] not in ("gem", "support")]
+            if bad:
+                raise AuthorError(f"в связке не камень: {bad[0]!r}")
+            if link:
+                clean.append(list(dict.fromkeys(link)))
+        if clean:
+            out["links"] = clean
     return out
 
 

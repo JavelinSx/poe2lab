@@ -1240,6 +1240,8 @@ function preload(blocking) {
     const took = {};
     let done = 0;
     for (let i = 0; i < steps.length; i++) {
+      // the constructor calculates nothing until asked: the tabs' work waits while it is open (its own requests first)
+      while (state.page === "ctor" && preload.token === token) await new Promise((r) => setTimeout(r, 400));
       if (preload.token !== token || state.build !== b) { finish(); return; }  // another build, or a newer run
       const [tab, run] = steps[i];
       chips[tab].className = "pl-tab work";
@@ -3645,7 +3647,8 @@ function drawLeveling(card, d) {
         sw.early.problems.length ? " " + t("lrEarlyProblems", sw.early.level, lrProblems(sw.early.problems)) : "") : null,
       sw.snapshot && sw.snapshot.ok ? h("div", { class: "small muted", title: t("lrSnapshotHint") }, "🧪 ", t("lrChecked", sw.snapshot.level),
         sw.snapshot.attributes.length ? " " + t("lrAttrHint", lrAttributes(sw.snapshot.attributes)) : "") : null,
-      r.characterLevel ? h("div", { class: "small muted" }, r.characterLevel >= (sw.level || 999) ? t("lrReady", r.characterLevel) : t("lrLeft", r.characterLevel, sw.level - r.characterLevel)) : null));
+      r.characterLevel ? h("div", { class: "small muted" }, r.characterLevel >= (sw.level || 999) ? t("lrReady", r.characterLevel) : t("lrLeft", r.characterLevel, sw.level - r.characterLevel)) : null,
+      auStart()));
   const core = sw.parts.filter((p) => p.core);
   const extra = sw.parts.filter((p) => !p.core && p.kind === "unique" && p.defence);
   const blind = sw.parts.filter((p) => p.kind === "unique" && !p.core && !p.defence && Math.abs(p.dps) < 1 && Math.abs(p.ehp) < 1);
@@ -3675,8 +3678,13 @@ function drawLeveling(card, d) {
       s.here || s.switch ? h("div", { class: "lr-badges" }, s.here ? h("span", { class: "chip ok" }, t("lrHere")) : null,
         s.switch ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null) : null,
       sec("switch", to.map((p) => h("span", { class: "lr-skill" }, gemName(p.firstName || p.name))), "lr-sec-to"),
-      sec("skills", auList(lv("skills"), s.skills.map((x) => "gem:" + x.name), s.skills.map(lrSkill), ["gem"])),
-      sec("gems", auList(lv("gems"), s.gems.map((g) => "gem:" + g.name), s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name))), ["gem", "support"])),
+      // the author's links and weapon of the stage (the constructor's levelling); the program's skills where there are none
+      sec("links", (auBlock(lv("links")).links || []).map((link) => h("span", { class: "lr-skill lr-link" },
+        link.map((tok, i) => [i ? h("span", { class: "muted" }, " + ") : null, auTokChip(tok)])))),
+      sec("weapon", (auBlock(lv("weapon")).list || []).map((tok) => h("span", { class: "lr-skill" }, auTokChip(tok)))),
+      ...((auBlock(lv("links")).links || []).length && !AU.edit ? [] : [
+        sec("skills", auList(lv("skills"), s.skills.map((x) => "gem:" + x.name), s.skills.map(lrSkill), ["gem"])),
+        sec("gems", auList(lv("gems"), s.gems.map((g) => "gem:" + g.name), s.gems.map((g) => h("span", { class: "lr-skill" }, gemName(g.name))), ["gem", "support"]))]),
       sec("gear", auList(lv("gear"), [], [], ["unique", "base", "rune"])),
       sec("tree", auList(lv("tree"), s.tree.map((n) => `passive:${n.id}|${n.name}`), [], ["passive"])),
       s.supportTier.length ? h("div", { class: "lr-line muted" }, h("span", { class: "lr-line-ico" }, "🔹"), h("span", { class: "lr-line-t" }, t("lrSupportTier", s.supportTier.join(", ")))) : null,
@@ -6289,7 +6297,7 @@ function auDrawer() {
   const kinds = h("div", { class: "au-kinds" });
   const list = h("div", { class: "au-list-r" });
   const show = (rows) => list.replaceChildren(...(rows.length ? rows.map((r) => auRow(r, () => auPut(`${r.kind}:${r.id}`), false, input.value))
-    : [h("div", { class: "muted small au-none" }, input.value.trim() ? t("auNothing") : t("auTypeHint"))]));
+    : input.value.trim() ? [h("div", { class: "muted small au-none" }, t("auNothing"))] : auQuick()));
   const search = auSearcher(show);
   const drawKinds = () => kinds.replaceChildren(...[null, ...AU_KINDS].map((k) => h("button", {
     class: "au-kind" + ((k === null ? !AU.kinds : AU.kinds && AU.kinds.includes(k)) ? " on" : ""),
@@ -6307,6 +6315,24 @@ function auDrawer() {
   show([]);
   return d;
 }
+// Before anything is typed, the drawer has at hand what this build has (the page that opened it says what: AU.quick)
+// and the pieces picked last; each dragged or clicked like a search result.
+const AU_RECENT_KEY = "poe2lab.au.recent";
+try { AU.recent = JSON.parse(localStorage.getItem(AU_RECENT_KEY) || "[]"); } catch (_) { AU.recent = []; }
+function auRecent(tok) {
+  AU.recent = [tok, ...(AU.recent || []).filter((x) => x !== tok)].slice(0, 16);
+  try { localStorage.setItem(AU_RECENT_KEY, JSON.stringify(AU.recent)); } catch (_) { /* storage blocked */ }
+}
+function auQuick() {
+  const fits = (tok) => !AU.kinds || AU.kinds.includes(auSplit(tok)[0]);
+  const piece = (tok) => h("span", { class: "au-qtok", draggable: "true", title: t("auRowHint"),
+    ondragstart: (e) => { hideTip(); e.dataTransfer.setData(AU_MIME, tok); e.dataTransfer.setData("text/plain", `[[${tok}]]`); e.dataTransfer.effectAllowed = "copy"; },
+    onmousedown: (e) => e.preventDefault(), onclick: () => auPut(tok) }, auTokChip(tok));
+  const groups = [...(AU.quick ? AU.quick() : []), { title: t("auRecent"), toks: AU.recent || [] }]
+    .map((g) => ({ ...g, toks: g.toks.filter(fits) })).filter((g) => g.toks.length);
+  if (!groups.length) return [h("div", { class: "muted small au-none" }, t("auTypeHint"))];
+  return groups.map((g) => h("div", { class: "au-quick" }, h("div", { class: "lr-sec-k" }, g.title), h("div", { class: "au-quick-v" }, g.toks.map(piece))));
+}
 // what the drawer looks for: a list's "+" narrows it to what the list holds, a text brings back the tab's
 function auKinds(kinds) {
   const same = JSON.stringify(kinds) === JSON.stringify(AU.kinds);
@@ -6318,6 +6344,7 @@ function auPut(tok) {
   const tg = AU.target;
   if (!tg || !document.body.contains(tg.el)) { toast(t("auPickTarget")); return; }
   tg.add(tok);
+  auRecent(tok);
 }
 // the constructor on or off: the blocks open for editing, the drawer with the tab's kinds of things first
 function authorToggle(on = !AU.edit, redraw = true) {
@@ -6358,6 +6385,15 @@ function auElNotes(pairs) {
     return b.text ? h("div", { class: "au-note" }, h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")),
       h("div", { class: "au-text" }, b.label ? h("b", { class: "au-label" }, b.label) : null, h("span", { class: "muted" }, `${name}: `), ...auRich(b.text))) : null;
   }).filter(Boolean);
+}
+// the author's start of the build (the constructor's step 2): the level, what the player must have, what starts working
+function auStart() {
+  const b = auBlock("start:build"), note = auBlock("start:note").text;
+  if (!b.level && !(b.list || []).length && !note) return null;
+  return h("div", { class: "au-note" }, h("span", { class: "au-badge", title: t("auByAuthor") }, I("pencil", "ic-s")),
+    h("div", { class: "au-text" }, b.level ? h("b", { class: "au-label" }, t("stAuthorLevel", b.level)) : null,
+      (b.list || []).length ? h("span", {}, t("stAuthorNeed"), " ", (b.list || []).map((tok) => auTokChip(tok))) : null,
+      note ? h("div", {}, ...auRich(note)) : null));
 }
 function auSecNote(sec) {
   const b = auBlock("sec:" + sec);

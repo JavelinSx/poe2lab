@@ -1278,3 +1278,37 @@ button.ghost.small.is-on { border-color: var(--gold); color: var(--gold); }
 .au-hover { display: flex; gap: 6px; align-items: flex-start; padding: 6px 8px; border-left: 3px solid var(--gold);
   background: var(--gold-bg); border-radius: 6px; font-size: 13px; }
 .au-label { margin-right: 6px; color: var(--gold); }
+/* the levelling editor: a stage's places (links, weapon, passives, gear) and what is dropped on them */
+.lv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.lv-part { gap: 8px; }
+.lv-part-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.lv-head { gap: 10px; flex-wrap: wrap; align-items: center; }
+.lv-link { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border: 1px dashed var(--line-2);
+  border-radius: 8px; min-height: 38px; cursor: pointer; }
+.lv-link.new { border-style: dotted; }
+.ct-zone.drop, .ct-zone.au-target { border-color: var(--gold); background: var(--gold-bg); }
+.lv-gem { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 2px; border-radius: 8px; background: var(--panel-2); }
+.lv-gem.act { box-shadow: inset 0 0 0 1px var(--gold-line); }
+.lv-socket { color: var(--muted); font-size: 12.5px; }
+.lv-av { font-size: 11px; color: var(--muted); }
+.lv-av.late { color: var(--bad); font-weight: 600; }
+.lv-n { font-size: 11px; color: var(--muted); min-width: 14px; text-align: right; }
+.lv-plan { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lv-res { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+.lv-res-k { font-weight: 700; }
+.lv-dot { color: var(--gold); }
+.lv-check-row { font-size: 13px; }
+.au-quick { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.au-quick-v { display: flex; flex-wrap: wrap; gap: 4px; }
+.au-qtok { cursor: grab; }
+.lr-link { display: inline-flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+/* the constructor's three steps */
+.ct-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.ct-steps button { display: inline-flex; gap: 8px; align-items: center; padding: 8px 16px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text-2); cursor: pointer; font-weight: 600; }
+.ct-steps button.is-on { border-color: var(--gold); color: var(--gold); background: var(--gold-bg); }
+.ct-step-n { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; }
+.ct-steps button.is-on .ct-step-n { border-color: var(--gold); }
+.st-part { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.st-part.decisive { font-weight: 600; }

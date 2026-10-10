@@ -1841,6 +1841,25 @@ build.buildFlag = true
 wipeGlobalCache()
 build.calcsTab:BuildOutput()""")
 
+    def gem_level_at(self, gem_ids: list[str], character_level: int) -> dict[str, int]:
+        """The highest level of each gem (data.gems id) a character of `character_level` can use: the last of its
+        levels whose requirement the character meets (1 at least)."""
+        ids = ", ".join(lua_string(i) for i in gem_ids)
+        return self._json(f"""
+local out = {{}}
+for _, id in ipairs({{ {ids} }}) do
+  local d = data.gems[id]
+  local ge = d and d.grantedEffect
+  if ge then
+    local top = 1
+    for l, lv in pairs(ge.levels or {{}}) do
+      if (lv.levelRequirement or 0) <= {int(character_level)} and l > top then top = l end
+    end
+    out[id] = top
+  end
+end
+return _poe2lab_json(out)""")
+
     def set_gem(self, group: int, index: int | None, gem_id: str, level: int | None = None, quality: int = 0) -> int:
         """Socket a gem (a data.gems id) into socket group `group`: in place of the gem at `index`, or after the
         group's gems when index is None. Group 0 is a new socket group - a new skill. Level None: the highest the

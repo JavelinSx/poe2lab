@@ -2818,6 +2818,8 @@ class AuthorBlock(BaseModel):
     tip: str | None = None  # the one shown over the element
     label: str | None = None  # the author's own label of the note
     items: list[str] | None = Field(None, alias="list")
+    links: list[list[str]] | None = None  # a levelling stage's skill links
+    level: int | None = None  # a level the author sets (the build's start)
 
 
 @app.put("/api/author/block")
@@ -2829,7 +2831,8 @@ def author_set(req: AuthorBlock, build: str | None = None):
         raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         try:
             raw["author"] = author.set_block(raw.get("author"), req.id,
-                                             {"text": req.text, "tip": req.tip, "label": req.label, "list": req.items})
+                                             {"text": req.text, "tip": req.tip, "label": req.label, "list": req.items,
+                                              "links": req.links, "level": req.level})
         except author.AuthorError as err:
             raise HTTPException(400, str(err))
         journal.write_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2))
@@ -2859,6 +2862,76 @@ def constructor_layout(stage: str = "max", build: str | None = None):
 
         key = ("ctor-layout", stage, minimum.stat().st_mtime if stage == "min" and minimum.exists() else 0)
         return _json(session.cached(key, compute) | {"stages": {"max": True, "min": minimum.exists()}})
+
+
+def _guide_engine():
+    """The build as its file has it (the guide): the open engine, or the recorded build when the player's character
+    is in it."""
+    return session.engine if session.main is None else _reference(RECORDED)[1]
+
+
+@app.get("/api/constructor/leveling")
+def constructor_leveling(build: str | None = None):
+    """What the levelling editor shows before anything is calculated: the stages (levels, penalty, passive points,
+    the campaign's resistances by then) and from which level each gem can be had."""
+    with session.lock:
+        session.require(build)
+        return _json(session.cached("ctor-leveling", lambda: constructor.leveling_info(_guide_engine())))
+
+
+def _guide_switch():
+    """When the build starts working and why (poe2lab.analysis.leveling.switch), for the guide."""
+    engine = _guide_engine()
+    bp = session.bp
+    cfg = MapProfile(rage=bp.rage, mana_sustained=bp.mana_sustained).config()
+    return session.cached(("ctor-switch",), lambda: leveling.switch(engine, cfg, True, None, None, bp.rage, bp.mana_sustained))
+
+
+@app.get("/api/constructor/start")
+def constructor_start(build: str | None = None):
+    """The build's start as the program sees it: the level its mechanics work from, the pieces that hold it there
+    (each with the level it can be had from and what the build loses without it) and the build tried at that level."""
+    with session.lock:
+        session.require(build)
+        return _json(_errors(_guide_switch))
+
+
+class StartCheck(BaseModel):
+    level: int
+
+
+@app.post("/api/constructor/start-check")
+def constructor_start_check(req: StartCheck, build: str | None = None):
+    """The build tried as a character of the level the author says it starts at: does it work there."""
+    if not 1 <= req.level <= 100:
+        raise HTTPException(400, "уровень от 1 до 100")
+    with session.lock:
+        session.require(build)
+        sw = _errors(_guide_switch)
+        spirit = next((p.get("need", 0) for p in sw["parts"] if p["kind"] == "spirit"), 0)
+        bp = session.bp
+        return _json(_errors(lambda: leveling.try_level(_guide_engine(), req.level, bp.rage, bp.mana_sustained, spirit)))
+
+
+class StageCheck(BaseModel):
+    level: int
+    links: list[list[str]] = []  # each an active gem's token and its supports' ("gem:Maul", "support:Rage I")
+    weapon: list[str] = []  # a base or a unique, and runes
+    tree: list[str] = []  # passives in the order taken ("passive:<id>|<name>")
+
+
+@app.post("/api/constructor/stage-check")
+def constructor_stage_check(req: StageCheck, build: str | None = None):
+    """A levelling stage worked out in PoB: a character of the build's ascendancy at the stage's level with the
+    author's links, weapon and passives (poe2lab.constructor.check_stage)."""
+    if not 1 <= req.level <= 100:
+        raise HTTPException(400, "уровень от 1 до 100")
+    with session.lock:
+        session.require(build)
+        try:
+            return _json(constructor.check_stage(_guide_engine(), req.level, req.links, req.weapon, req.tree))
+        except (PobError, ValueError) as err:
+            raise HTTPException(400, f"не удалось собрать этап: {err}")
 
 
 class StageCode(BaseModel):
