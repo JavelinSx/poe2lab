@@ -27,7 +27,8 @@ from ..analysis.tree import ascendancy as tree_ascendancy
 from ..analysis.tree import mechanic_packages
 from ..analysis.tree import optimize as optimize_tree
 from ..analysis.tree import take_package
-from ..analysis import jewels as jewel_effects, leveling, quests as quest_rewards, unmodeled
+from ..analysis import conds, jewels as jewel_effects, leveling, quests as quest_rewards, unmodeled
+from ..analysis.conditions import audit as audit_conditions
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -1321,6 +1322,56 @@ def unmodeled_try(req: UnmodeledTry, build: str | None = None):
         source = unmodeled.ARMOUR_KEY if model["kind"] == "armour" else req.key
         return _json({"line": line, "model": model, "source": source}
                      | unmodeled.try_line(e, line, max(0.0, min(1.0, req.uptime)), cfg, group, own))
+
+
+def _conditions():
+    """The build's conditions (poe2lab.analysis.conds), the session's lock held by the caller."""
+    def compute():
+        e, cfg = session.engine, session.profile.config()
+        # the report worked the conditions out already when it is there
+        done = next((v for k, v in session.cache.items() if isinstance(k, tuple) and k[0] == "report"), None)
+        impacts = done["conditions"] if done else [asdict(c) for c in audit_conditions(e, cfg)]
+        gaps = session.cached("mechanics", lambda: collect_mechanics(e, _game_texts("ru"))).gaps
+        boss = str(cfg.get("enemyIsBoss") or "None") != "None"
+        answers = (_profile_raw().get("conditions") or {}) if _profile_path().exists() else {}
+        return conds.view(impacts, e.condition_sources(), e.what_if(config=cfg), answers, gaps, boss)
+
+    return _json(session.cached("conditions", compute))
+
+
+@app.get("/api/conditions")
+def conditions_view(build: str | None = None):
+    """The build's conditions: each with what it moves, where it comes from, the share of the fight it holds and the
+    damage with every condition at its share."""
+    with session.lock:
+        session.require(build)
+        return _conditions()
+
+
+class ConditionAnswer(BaseModel):
+    var: str
+    share: float | None = None  # 0..1, None: the program's estimate again
+
+
+@app.post("/api/conditions")
+def conditions_answer(req: ConditionAnswer, build: str | None = None):
+    """The player's share of the fight a condition holds, kept in the build profile: every line that waits for it
+    takes it."""
+    if req.share is not None and not 0 <= req.share <= 1:
+        raise HTTPException(400, "доля — от 0 до 1")
+    with session.lock:
+        session.require(build)
+        path = _profile_path()
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        answers = dict(raw.get("conditions") or {})
+        if req.share is None:
+            answers.pop(req.var, None)
+        else:
+            answers[req.var] = round(req.share, 3)
+        raw["conditions"] = answers
+        journal.write_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2))
+        session.cache.pop("conditions", None)
+        return _conditions()
 
 
 @app.get("/api/mechanics")
@@ -2729,7 +2780,7 @@ def save_profile(raw: dict):
         path = _profile_path()
         before = path.read_text(encoding="utf-8") if path.exists() else None
         if before:  # the levelling and quest answers are saved by their own pages
-            raw = {k: v for k, v in json.loads(before).items() if k in ("leveling", "quests", "author")} | raw
+            raw = {k: v for k, v in json.loads(before).items() if k in ("leveling", "quests", "author", "conditions")} | raw
         path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             session.load(str(session.path))

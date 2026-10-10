@@ -467,6 +467,79 @@ if skill then
 end
 return _poe2lab_json(out)""")
 
+    def condition_sources(self) -> list[dict]:
+        """Every modifier of the character and its main skill that waits for a condition PoB has a Configuration box
+        for: the box (its var and label), whether the condition is the enemy's, the modifier's stat and type, and
+        where it comes from (an item, a passive, a gem, a jewel) - what each condition of the build moves."""
+        return self._json("""
+local env = build.calcsTab.mainEnv
+local skill = env and env.player.mainSkill
+local boxes = {}
+for _, opt in ipairs(require("Modules.ConfigOptions")) do
+  if opt.type == "check" and opt.var then
+    local box = { var = opt.var, label = StripEscapes(opt.label or opt.var) }
+    for _, key in ipairs({ "ifCond", "ifEnemyCond" }) do
+      local c = opt[key]
+      for _, v in ipairs(type(c) == "table" and c or { c }) do
+        local k = (key == "ifEnemyCond" and "enemy:" or "") .. v
+        if not boxes[k] then boxes[k] = box end
+      end
+    end
+    local enemy, own = opt.var:match("^conditionEnemy(.+)$"), opt.var:match("^condition(.+)$")
+    if enemy and not boxes["enemy:" .. enemy] then boxes["enemy:" .. enemy] = box
+    elseif own and not enemy and not boxes[own] then boxes[own] = box end
+  end
+end
+local function sourceOf(src)
+  local kind, rest = src:match("^([^:]+):?(.*)$")
+  local o = { kind = kind or src, name = rest ~= "" and rest or (kind or src) }
+  if kind == "Tree" then
+    local id = tonumber(rest:match("^(%d+)"))
+    local node = id and build.spec.nodes[id]
+    if node then
+      o.name, o.nodeType, o.node = node.dn or node.name, node.type, id
+      local socket = build.itemsTab.sockets[id]
+      local jewel = socket and build.itemsTab.items[socket.selItemId]
+      if jewel then o.name, o.jewel = jewel.name, true end
+    end
+  elseif kind == "Item" then
+    o.name = rest:match("^%d+:(.+)$") or rest
+  elseif kind == "Skill" then
+    local ge = data.skills[rest]
+    o.name = ge and ge.name or rest
+  end
+  return o
+end
+local out, seen = _poe2lab_array({}), {}
+local function take(mod)
+  for _, tag in ipairs(mod) do
+    if type(tag) == "table" and (tag.type == "Condition" or tag.type == "ActorCondition") and not tag.neg then
+      local enemy = tag.type == "ActorCondition" and tag.actor == "enemy"
+      for _, v in ipairs(tag.varList or { tag.var }) do
+        local box = boxes[(enemy and "enemy:" or "") .. v]
+        if box and mod.source and not mod.source:match("^Config") then
+          local src = sourceOf(mod.source)
+          local key = box.var .. "|" .. src.name .. "|" .. (mod.name or "")
+          if not seen[key] then
+            seen[key] = true
+            out[#out + 1] = { var = box.var, label = box.label, enemy = enemy, stat = mod.name or "", type = mod.type or "",
+                              value = type(mod.value) == "number" and mod.value or false, source = src }
+          end
+        end
+      end
+    end
+  end
+end
+local function walk(store)
+  while store do
+    if store.mods then for _, list in pairs(store.mods) do for _, m in ipairs(list) do take(m) end end end
+    for _, m in ipairs(store) do take(m) end
+    store = store.parent
+  end
+end
+if skill then walk(skill.skillModList) elseif env then walk(env.player.modDB) end
+return _poe2lab_json(out)""")
+
     def stat_names(self, parts: tuple[str, ...]) -> list[str]:
         """The names of the modifiers the main skill sees (its own and the character's) that contain one of `parts`:
         PoB's links between stats, "DamageGainAsCold", "EvasionGainAsDeflection" - for stat_sources."""

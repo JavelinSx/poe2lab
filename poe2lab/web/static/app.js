@@ -1158,6 +1158,7 @@ const DATA = {
     return cached(`skills:uniques:${scope}`, () => api(`/api/skills?view=uniques&scope=${scope}&${buildQuery()}`));
   },
   unmodeled: () => cached("unmodeled", () => api(`/api/unmodeled?${buildQuery()}`)),
+  conditions: () => cached("conditions", () => api(`/api/conditions?${buildQuery()}`)),
 };
 
 // ---------- every tab worked out when a build opens: switching tabs is then instant until something changes ----------
@@ -1171,7 +1172,8 @@ function preloadSteps() {
     ["skills", () => DATA.skills("roles")], ["skills", () => DATA.skillsLeveling()],
     ["gear", () => DATA.gear()], ["gear", () => DATA.uniques()],
     ["tree", () => DATA.tree()], ["tree", () => treeGraph()], ["tree", () => ascData()], ["tree", () => DATA.jewels()],
-    ["tree", () => DATA.packages()], ["overview", () => DATA.unmodeled()], ["profile", () => questsData()]];
+    ["tree", () => DATA.packages()], ["overview", () => DATA.unmodeled()], ["overview", () => DATA.conditions()],
+    ["profile", () => questsData()]];
   // the guide's side of a build with the player's character
   if (state.build.main) steps.push(["overview", () => guideVersus()], ["gear", () => guideGear()]);
   // the open tab first
@@ -1436,7 +1438,7 @@ TABS.overview = async (view) => {
   return h("div", { class: "stack" }, failed, auCard("ov:about", t("auAbout"), t("auAboutPh")), auSecNote("character"),
     h("div", { class: "ov" }, nextCard(r), h("div", { class: "ov-stats" }, ...kpi,
       foldedCard(hitCard, "hits", worst ? t("hitsSum", t("dmgFull_" + worst[0]), worstShare >= 100 ? t("oneShot") : `${fmt(worstShare)}%`) : null))),
-    unmodeledCard(), auSecNote("leveling"), levelingCard(), auSecNote("quests"), questMapCard());
+    unmodeledCard(), conditionsCard(), auSecNote("leveling"), levelingCard(), auSecNote("quests"), questMapCard());
 };
 
 // The first things to do, in order: what is broken in game, the biggest weakness, the most rewarding next mod; each
@@ -5295,6 +5297,73 @@ const gapText = (g) => (LANG !== "en" && g.text_local ? h("div", { title: g.text
 // raw internal stat ids ("stat_name = 20") mean nothing to a player; the English view keeps them
 const gapShown = (g) => LANG === "en" || g.text_local || !/^[A-Za-z0-9_%+]+ = /.test(g.text);
 
+// ---------- the build's conditions (poe2lab.analysis.conds): "while / if / against" - one answer each ----------
+// What each condition moves (PoB flipping its yes/no), where it comes from (the items, passives and gems that wait
+// for it), what share of the fight it holds - the program's estimate where it can tell (an ailment from its chance,
+// the hits and its duration; "recently" from the hits and crits; killing on maps), else PoB's yes/no, the player's
+// answer over both - and the damage with every condition at its share instead of all or nothing.
+const condName = (c) => (t("cnd_" + c.var) !== "cnd_" + c.var ? t("cnd_" + c.var) : c.label);
+function condHow(c) {
+  const s = c.suggested;
+  if (!s) return t("cnAsk");
+  const v = s.values || {};
+  if (s.how === "ailment") return t("cnHow_ailment", Math.round(v.chance * 100), fmt(v.hits, 1), fmt(v.duration, 1));
+  if (s.how === "recentHits") return t("cnHow_recentHits", fmt(v.hits, 1));
+  if (s.how === "recentCrits") return t("cnHow_recentCrits", Math.round(v.crit * 100), fmt(v.hits, 1));
+  return t("cnHow_" + s.how);
+}
+function condSource(x) {
+  const pic = x.kind === "Item" ? itemIcon(x.name, null, "unique") : x.kind === "Tree" ? icon(x.name, "ico passive") : icon(x.name);
+  const name = x.kind === "Item" ? trItem(x.name.split(",")[0]) : trName(x.name);
+  return h("span", { class: "cn-src", title: x.kind === "Item" ? t("cnFromItem") : x.kind === "Tree" ? t("cnFromTree") : t("cnFromGem") }, pic, name);
+}
+function conditionsCard() {
+  const card = h("div", { class: "card stack cn-card" }, h("h3", {}, t("cnTitle")), h("div", { class: "sub" }, t("cnSub")), loading(t("cnLoading")));
+  const draw = (d) => {
+    const head = card.querySelector("h3");
+    head.querySelector(".fold-sum")?.remove();
+    const diff = d.dps.pob ? (d.dps.expected / d.dps.pob - 1) * 100 : 0;
+    head.append(h("span", { class: "fold-sum" }, t("cnSum", fmt(d.dps.expected), pct(diff))));
+    const save = async (v, share) => {
+      try {
+        const nd = await api(`/api/conditions?${buildQuery()}`, { method: "POST", body: { var: v, share } });
+        state.cache.conditions = Promise.resolve(nd);
+        draw(nd);
+      } catch (e) { toast(e.message); }
+    };
+    const row = (c) => {
+      const mine = c.answer !== null && c.answer !== undefined;
+      // against PoB's own number: a condition it counts as off adds its gain for its share, one it counts as on loses
+      // its gain for the rest of the fight
+      const vsPob = c.on ? (1 - c.share) * c.dps : c.share * c.dps;
+      const defence = [["phys", "m_phys"], ["ele", "cnEle"], ["chaos", "m_chaos"]].filter(([k]) => Math.abs(c[k]) >= 0.5)
+        .map(([k, l]) => `${t(l)} ${pct(c[k])}`);
+      return h("div", { class: "um-row" + (mine ? " on" : "") },
+        h("div", { class: "um-main" }, h("b", { title: c.label }, condName(c)),
+          c.sources.length ? h("div", { class: "cn-srcs" }, c.sources.slice(0, 6).map(condSource)) : null,
+          c.lines.length ? h("div", { class: "muted small", title: c.lines.map((l) => l.text).join("\n") }, t("cnLines", c.lines.length)) : null),
+        h("div", { class: "cn-pob small" }, h("span", { class: "muted" }, t("cnPob")), " ", c.on ? t("cnPobOn") : t("cnPobOff"),
+          c.dps ? h("div", { class: "muted" }, t(c.on ? "cnIfNever" : "cnIfAlways", pct(c.dps))) : null,
+          defence.length ? h("div", { class: "muted" }, defence.join(", ")) : null),
+        h("div", { class: "cn-share" }, h("label", { class: "um-up small", title: condHow(c) }, t("umUptime"), " ",
+          h("input", { type: "number", min: 0, max: 100, step: 5, value: Math.round(c.share * 100), class: "um-num",
+            onchange: (e) => save(c.var, Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100) }), "%"),
+          h("div", { class: "muted small" }, mine ? t("cnYours") : condHow(c)),
+          mine ? h("button", { class: "link small", onclick: () => save(c.var, null) }, "↺ ", t("cnReset")) : null),
+        Math.abs(vsPob) >= 0.3 ? h("span", { class: "delta " + (vsPob > 0 ? "pos" : "neg"), title: t("cnVsPobHint") }, `DPS ${pct(vsPob)}`) : null);
+    };
+    const rows = d.conditions;
+    const big = rows.filter((c) => Math.abs(c.dps) >= 3 || Math.abs(c.phys) >= 3 || Math.abs(c.ele) >= 3);
+    const rest = rows.filter((c) => !big.includes(c));
+    card.replaceChildren(...[head, card.querySelector(".sub"),
+      h("div", { class: "cn-total" }, t("cnTotal", fmt(d.dps.pob), fmt(d.dps.expected), pct(diff))),
+      ...big.map(row),
+      rest.length ? h("details", {}, h("summary", { class: "small" }, t("cnRest", rest.length)), ...rest.map(row)) : null].filter(Boolean));
+  };
+  DATA.conditions().then(draw).catch((e) => card.append(h("p", { class: "muted" }, e.message)));
+  return foldedCard(card, "conditions", null);
+}
+
 // the profile's corrections changed and saved: the build is opened again with them, every number counts them
 async function saveCorrections(change, msg) {
   const raw = JSON.parse(JSON.stringify(state.build.profileRaw));
@@ -5426,10 +5495,22 @@ function modelPanel(g) {
   };
   const num = (value, on, max) => h("input", { type: "number", value, step: "any", min: 0, max, class: "um-num",
     oninput: (e) => { on(Number(e.target.value)); run(); } });
+  const share = num(100, (v) => { uptime = Math.max(0, Math.min(100, v)); }, 100);
+  const from = h("div", { class: "hint" });
+  if (g.condition && g.condition.var) {
+    DATA.conditions().then((d) => {
+      const c = d.conditions.find((x) => x.var === g.condition.var);
+      if (!c) return;
+      uptime = Math.round(c.share * 100);
+      share.value = uptime;
+      from.textContent = t("umFromCondition", condName(c), uptime);
+      run();
+    }).catch(() => {});
+  }
   run();
   return h("div", { class: "stack um-model" }, h("div", { class: "small" }, t("umHow_" + m.kind, skill, !!m.minion)),
     ...m.asks.map((a) => h("label", { class: "um-ask small" }, t(`umAsk_${m.kind}_${a.key}`), " ", num(a.default, (v) => { vals[a.key] = v; }))),
-    h("label", { class: "um-ask small", title: t("umUptimeHint") }, t("umUptime"), " ", num(100, (v) => { uptime = Math.max(0, Math.min(100, v)); }, 100), "%"),
+    h("label", { class: "um-ask small", title: t("umUptimeHint") }, t("umUptime"), " ", share, "%"), from,
     result, h("div", {}, add));
 }
 

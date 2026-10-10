@@ -8,6 +8,7 @@ overview can list what matters, with what counting it would change; the rest is 
 A correction is such a line added to the build (poe2lab.profile): each one is priced by taking it out."""
 import re
 
+from .conds import condition_of
 from .gradients import metric_changes
 
 # a rewrite PoB reads: the game's phrasing -> PoB's
@@ -218,7 +219,8 @@ def estimates(engine, gaps: list, config: dict, damage_group: int | None, covere
         source = f"{g.where}: {g.text}"
         if source in covered:
             continue
-        row = {"source": g.source, "where": g.where, "text": g.text, "text_local": g.text_local, "key": source}
+        row = {"source": g.source, "where": g.where, "text": g.text, "text_local": g.text_local, "key": source,
+               "condition": condition_of(g.text)}
         found = pob_line(g.text, engine.can_parse_mod, tuple(siblings.get(g.where, ())))
         if not found:
             if actives is not None:
