@@ -1,4 +1,5 @@
 """Local web interface: one loaded build, heavy analyses cached, everything served as JSON to a static page."""
+import hashlib
 import json
 import re
 import threading
@@ -46,7 +47,8 @@ from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
 from .. import (author, buildplanner, constructor, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft,
-               itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality)
+               itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality,
+               resultcache)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -59,6 +61,27 @@ STATIC = Path(__file__).resolve().parent / "static"
 SLOTS_ORDER = ["Weapon 1", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt"]
 
 
+class _Results(dict):
+    """The open build's results in memory. Emptied, or a result dropped, when what they come from changes: the state
+    they are kept on disk by is worked out anew then."""
+
+    def __init__(self, owner, *args):
+        super().__init__(*args)
+        self.owner = owner
+
+    def clear(self):
+        super().clear()
+        self.owner._state = None
+
+    def pop(self, *args):
+        self.owner._state = None
+        return super().pop(*args)
+
+    def __delitem__(self, key):
+        super().__delitem__(key)
+        self.owner._state = None
+
+
 class Session:
     """The build currently open in the UI. The PoB engine is single-threaded, so every use takes the lock."""
 
@@ -67,7 +90,7 @@ class Session:
         self.path: Path | None = None
         self.engine = None
         self.bp: BuildProfile | None = None
-        self.cache: dict = {}
+        self._cache: _Results = _Results(self)
         self.assistant: Assistant | None = None
         self.toolbox: Toolbox | None = None
         self._prices: PriceBook | None | bool = False
@@ -77,6 +100,9 @@ class Session:
         self.level: int | None = None  # character level: sets the enemy (see MapProfile.for_level)
         self.picked_filter: Path | None = None  # the player's filter chosen in the file dialog
         self.mtime = 0.0  # the build file's time when it was read: a newer file means PoB saved it again
+        self._frames: list[bool] = []  # the results being worked out, innermost last: whether each used prices
+        self.priced: set = set()  # the results that used poe.ninja's prices (kept on disk for a while only)
+        self._state: str | None = None  # what the open build's results come from (_state_of), while they hold
 
     def require(self, build: str | None = None):
         if self.engine is None:
@@ -104,6 +130,16 @@ class Session:
         self.plan = None
         self.cache.clear()
         self.assistant = self.toolbox = None
+        self._state_of()  # the build as it opened, before an analysis moves anything in the engine
+
+    @property
+    def cache(self) -> dict:
+        return self._cache
+
+    @cache.setter
+    def cache(self, value: dict):
+        self._cache = _Results(self, value)
+        self._state = None
 
     def file_changed(self) -> bool:
         try:
@@ -112,9 +148,67 @@ class Session:
             return False
 
     def cached(self, key, fn):
-        if key not in self.cache:
-            self.cache[key] = fn()
-        return self.cache[key]
+        """A result worked out once while the build stays as it is; the analyses' results also on disk
+        (poe2lab.resultcache), found again after a restart by the state they come from."""
+        head = key[0] if isinstance(key, tuple) else key
+        if key in self.cache:
+            if key in self.priced and self._frames:
+                self._frames[-1] = True  # what is made of it used the prices too
+            return self.cache[key]
+        if head in PRICE_SOURCES and self._frames:
+            self._frames[-1] = True
+        state = self._state_of() if head in PERSISTED and self.engine is not None else None
+        kept = resultcache.get(state, key) if state else resultcache.MISS
+        if kept is not resultcache.MISS:
+            value, priced = kept
+        else:
+            self._frames.append(False)
+            try:
+                value = fn()
+            finally:
+                priced = self._frames.pop()
+            if state:
+                resultcache.put(state, key, value, priced)
+        if priced:
+            self.priced.add(key)
+            if self._frames:
+                self._frames[-1] = True
+        self.cache[key] = value
+        return value
+
+    def _state_of(self) -> str | None:
+        """What every result of the open build comes from (poe2lab.resultcache). The build as the engine has it, the
+        enemy, the tree plan, the league, the game's texts, the code: worked out when the build opens and again once
+        the results in memory are dropped - the results hold as long as those do (an analysis may leave the engine
+        with another skill of a group picked or an item it tried in the list, which moves no number). The files the
+        build, its character, its target and the profile were read from, and the journal's weights: as they are
+        now, every time. None: the state cannot be had - nothing is kept then."""
+        if self._state is None:
+            try:
+                texts = gamedata.names_path("ru")
+                parts = [resultcache.code_version(), self.engine.state_text(), repr(self.profile), repr(self.level),
+                         json.dumps(self.plan, sort_keys=True, default=str), ninja.chosen_league() or "",
+                         str(texts.stat().st_mtime_ns) if texts.is_file() else ""]
+                self._state = hashlib.sha256("\0".join(parts).encode("utf-8", "replace")).hexdigest()
+            except Exception as err:  # noqa: BLE001 - without it the results are only not kept
+                log.warning("result cache: no state of the build (%s)", err)
+                self._state = ""
+        if not self._state:
+            return None
+        # the journal's weights, once applied, set the chances of crafts
+        files = [self.path, self.main, library.min_path(self.path.stem),
+                 PROJECT_BUILDS / f"{self.path.stem}.profile.json", crafting.WEIGHTS_FILE]
+        if self.bp and self.bp.target and self.bp.target != RECORDED:
+            try:
+                other = resolve_build(self.bp.target)
+                files += [other, PROJECT_BUILDS / f"{other.stem}.profile.json"]
+            except Exception:  # noqa: BLE001 - a target gone from the list: nothing of it to count
+                pass
+        h = hashlib.sha256(self._state.encode())
+        for path in files:
+            h.update(f"|{path}|".encode() + (hashlib.sha256(path.read_bytes()).digest() if path and path.is_file()
+                                             else b"-"))
+        return h.hexdigest()
 
     def db(self) -> ModDB:
         return self.cached("db", lambda: ModDB.from_engine(self.engine))
@@ -124,6 +218,8 @@ class Session:
         return self.cached("jewel-db", lambda: ModDB.from_engine(self.engine, sets=("Jewel", "Desecrated")))
 
     def prices(self) -> PriceBook | None:
+        if self._frames:
+            self._frames[-1] = True
         if self._prices is False:
             try:
                 # the league the player chose in the interface; else the build profile's; else poe.ninja's current
@@ -133,6 +229,12 @@ class Session:
         return self._prices
 
 
+# the analyses' results kept on disk between runs (Session.cached); and what brings poe.ninja's prices into one
+PERSISTED = {"report", "gear", "skills", "explain", "explain-guide", "skill-roles", "skill-numbers", "triggers",
+             "mechanics", "tree", "tree-packages", "jewels", "quests", "leveling-ways", "unmodeled", "conditions",
+             "versus", "slot-choice", "slot-advice", "guide-damage-group", "leveling", "questions", "ctor-leveling",
+             "ctor-switch"}
+PRICE_SOURCES = {"unique-prices", "market", "ladder-worn"}
 RECORDED = "@build"  # the reference name of the open build as its file records it (the guide, the gear before edits)
 session = Session()
 app = FastAPI(title="poe2lab")
@@ -1480,6 +1582,18 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
         return _json(data)
 
 
+def _build_stamp(name: str) -> str:
+    """Another build's files as they are now: a result against it holds while they do (the open build's own are in
+    Session._state_of)."""
+    if name == RECORDED:
+        return ""
+    path = resolve_build(name)
+    h = hashlib.sha256()
+    for f in (path, PROJECT_BUILDS / f"{path.stem}.profile.json"):
+        h.update(f.read_bytes() if f.is_file() else b"-")
+    return h.hexdigest()[:16]
+
+
 def _reference(name: str):
     """The reference build, kept loaded in its own engine while it is in use: `@build` - the open build as its
     file records it (the guide the player's character follows, the gear before the plan's edits) - or another
@@ -2565,7 +2679,7 @@ def versus_view(ref: str, build: str | None = None):
     with session.lock:
         session.require(build)
         _, engine, bp = _reference(ref)
-        return _json(session.cached(("versus", ref), lambda: versus(
+        return _json(session.cached(("versus", ref, _build_stamp(ref)), lambda: versus(
             # the reference against the same enemy as the player's character: compared at the player's stage
             session.engine, session.profile, engine,
             replace(session.profile, rage=bp.rage, mana_sustained=bp.mana_sustained))))

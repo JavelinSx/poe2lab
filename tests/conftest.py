@@ -13,3 +13,5 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 os.environ["POE2LAB_BUILDS"] = str(FIXTURES)
 # poe2lab's log goes to a folder of the test run, not the player's
 os.environ["POE2LAB_LOG_DIR"] = tempfile.mkdtemp(prefix="poe2lab-logs-")
+# results are not kept on disk between test runs (poe2lab.resultcache): a test changes what a result comes from
+os.environ["POE2LAB_RESULTS"] = ""

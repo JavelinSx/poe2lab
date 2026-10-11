@@ -990,6 +990,16 @@ return _poe2lab_json(out)""")
         """The build as it is now in the engine (tree plans included), as a PoB code."""
         return encode_pob_code(self._lua('return build:SaveDB("poe2lab")'))
 
+    def state_text(self) -> str:
+        """Everything the numbers come from: the build as PoB saves it and the Configuration tab's values set at run
+        time (set_config_input), which the save leaves out - a result is the same while this is."""
+        return self._lua("""
+local input, keys, parts = build.configTab.input, {}, {}
+for k in pairs(input) do keys[#keys + 1] = tostring(k) end
+table.sort(keys)
+for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. tostring(input[k]) end
+return build:SaveDB("poe2lab") .. "\\n" .. table.concat(parts, ";")""")
+
     def tree_points(self) -> int:
         """Main-tree points in use: allocated nodes without class/ascendancy starts, ascendancy and weapon-set nodes."""
         return int(self._lua("""
