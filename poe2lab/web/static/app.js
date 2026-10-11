@@ -224,14 +224,91 @@ async function loadLeagues() {
   };
 }
 
+// ---------- the start page: two ways - take a build apart, or make one and explain it ----------
+// each tile: an icon, a title, one short line and what is behind it folded under "more" (i18n ws<kind>_<key>)
+const WS_TABS = [["overview", "compass"], ["skills", "gem"], ["gear", "helm"], ["tree", "tree"], ["loot", "funnel"],
+  ["profile", "id"], ["assistant", "chat"]];
+const WS_VIEW_MORE = [["mine", "person"], ["notes", "pencil"]];
+const WS_MAKE_FROM = [["scratch", "spark", "#new-build"], ["ladder", "crown", "#new-build"], ["game", "download", "#add-build"]];
+const WS_MAKE_STEPS = [["lv", "run"], ["start", "flag"], ["build", "layers"]];
+const WS_EXPLAIN = [["tip", "info"], ["note", "pencil"], ["hints", "spark"], ["links", "link"], ["orphans", "swap"], ["undo", "refresh"]];
+const WS_PLAYER = [["plan", "compass"], ["notes", "eye"], ["about", "book"], ["save", "upload"]];
+
+function startMode() {
+  try { return localStorage.getItem("poe2lab.startMode") === "make" ? "make" : "view"; } catch (_) { return "view"; }
+}
+
+function wsTile(kind, key, ic, extra = null) {
+  const more = t(`wsM_${kind}_${key}`);
+  return h("div", { class: "ws-tile" }, h("span", { class: "ws-ic" }, I(ic)),
+    h("div", {}, h("b", {}, kind === "tab" ? t("tab_" + key) : t(`wsT_${kind}_${key}`)), h("span", {}, t(`wsS_${kind}_${key}`)),
+      Array.isArray(more) ? h("details", { class: "ws-more" }, h("summary", {}, t("wsMore")), h("ul", {}, more.map((x) => h("li", {}, x)))) : null,
+      extra));
+}
+
 function renderEmpty() {
-  $("#view").replaceChildren(h("div", { class: "welcome" },
-    h("h2", {}, t("welcomeTitle")), h("p", { class: "muted" }, t("welcomeSub")),
-    h("ol", { class: "welcome-steps" }, [1, 2, 3].map((n) => h("li", {}, t("welcomeStep" + n)))),
-    h("div", { class: "card" }, h("h3", {}, t("welcomeWhere")),
-      h("dl", { class: "welcome-tabs" }, TAB_ORDER.flatMap((tab) => [h("dt", {}, t("tab_" + tab)), h("dd", {}, t("tabHint_" + tab))]))),
-    h("p", { class: "muted small" }, t("welcomeGlossary"), " ",
-      h("button", { class: "link small", onclick: () => $("#glossary-open").click() }, t("glOpen")))));
+  const mode = startMode();
+  const code = h("input", { type: "text", class: "ws-input", placeholder: t("wsPastePh"), spellcheck: "false",
+    onkeydown: (e) => { if (e.key === "Enter") add(); } });
+  const go = h("button", { class: "primary ws-go", onclick: () => add() }, I("plus"), h("span", {}, t("wsPasteGo")));
+  // a PoB code or a pobb.in link straight from here; a maxroll link has stages to pick: the full dialog then
+  async function add() {
+    const text = code.value.trim();
+    if (!text) { code.focus(); return; }
+    if (/maxroll\.gg\//i.test(text)) { renderAddBuild(text); return; }
+    go.disabled = true;
+    try {
+      const r = await api("/api/builds", { method: "POST", body: { name: "", code: text, variant: null } });
+      toast(t("added", r.name), true);
+      await openBuild(r.name);
+      if (r.report) plannerReport(r.report);
+    } catch (e) { toast(e.message); go.disabled = false; }
+  }
+  const pick = (m) => {
+    try { localStorage.setItem("poe2lab.startMode", m); } catch (_) { /* storage blocked */ }
+    renderEmpty();
+  };
+  const modes = h("div", { class: "ws-modes" }, [["view", "search"], ["make", "hammer"]].map(([m, ic]) =>
+    h("button", { class: "ws-mode" + (m === mode ? " on" : ""), "aria-pressed": String(m === mode), onclick: () => pick(m) },
+      h("span", { class: "ws-mode-ic" }, I(ic)), h("span", {}, h("b", {}, t("wsMode_" + m)), h("span", {}, t("wsModeSub_" + m))))));
+  const sec = (title, sub) => h("div", { class: "ws-sec" }, h("div", { class: "ws-sec-l" }, title), sub ? h("div", { class: "hint" }, sub) : null);
+  const step = (n, title, sub, extra) => h("div", { class: "ws-st" }, h("span", { class: "ws-n" }, String(n)),
+    h("div", {}, h("b", {}, title), h("span", {}, sub), extra || null));
+  const button = (sel, label) => h("button", { class: "ghost small ws-btn", onclick: () => $(sel).click() }, label);
+
+  const view = () => [
+    h("div", { class: "ws-steps" },
+      step(1, t("wsV1"), t("wsV1s")), step(2, t("wsV2"), t("wsV2s")),
+      step(3, t("wsV3"), t("wsV3s"), h("div", { class: "row ws-badges" }, [["damage", "sword"], ["balanced", "scales"], ["defence", "shield"]]
+        .map(([m, ic]) => h("span", { class: "ws-badge" + (m === "balanced" ? " gold" : "") }, I(ic), t("mode_" + m))))),
+      step(4, t("wsV4"), t("wsV4s"))),
+    sec(t("welcomeWhere"), t("wsWhereSub")),
+    h("div", { class: "ws-tiles" }, WS_TABS.map(([tab, ic]) => wsTile("tab", tab, ic))),
+    sec(t("wsAlso")),
+    h("div", { class: "ws-tiles" }, WS_VIEW_MORE.map(([k, ic]) => wsTile("view", k, ic)),
+      wsTile("view", "glossary", "book", button("#glossary-open", t("glOpen"))))];
+
+  const make = () => [
+    sec(t("wsFrom"), t("wsFromSub")),
+    h("div", { class: "ws-tiles three" }, WS_MAKE_FROM.map(([k, ic, sel]) =>
+      wsTile("from", k, ic, button(sel, t(sel === "#add-build" ? "wsPasteGo" : "nbButton"))))),
+    sec(t("wsCtor"), t("wsCtorSub")),
+    h("div", { class: "ws-path" }, WS_MAKE_STEPS.flatMap(([k, ic], i) => [i ? h("span", { class: "ws-arrow", "aria-hidden": "true" }, I("chev-r")) : null,
+      h("div", { class: "ws-pstep" }, h("div", { class: "ws-phead" }, h("span", { class: "ws-n" }, String(i + 1)), I(ic, "ws-pic"),
+        h("b", {}, t(`wsT_step_${k}`))), h("span", {}, t(`wsS_step_${k}`)),
+        h("ul", {}, t(`wsM_step_${k}`).map((x) => h("li", {}, x))))]).filter(Boolean)),
+    sec(t("wsExplain")),
+    h("div", { class: "ws-tiles" }, WS_EXPLAIN.map(([k, ic]) => wsTile("ex", k, ic))),
+    sec(t("wsPlayer"), t("wsPlayerSub")),
+    h("div", { class: "ws-tiles" }, WS_PLAYER.map(([k, ic]) => wsTile("pl", k, ic)))];
+
+  $("#view").replaceChildren(h("div", { class: "ws" },
+    h("div", { class: "ws-hero" }, h("span", { class: "ws-crest" }, I("gem")),
+      h("div", {}, h("h1", {}, t("wsTitle")), h("p", {}, t("wsSub")))),
+    h("section", { class: "card ornate ws-paste" }, h("label", { class: "ws-wrap" }, I("scroll"), code), go,
+      h("div", { class: "hint ws-paste-hint" }, t("wsPasteHint"))),
+    modes,
+    ...(mode === "make" ? make() : view())));
 }
 
 // ---------- sidebar ----------
@@ -295,7 +372,7 @@ async function removeBuild(b) {
   } catch (e) { toast(e.message); }
 }
 
-function renderAddBuild() {
+function renderAddBuild(prefill) {
   const name = h("input", { type: "text", placeholder: t("addName") });
   const code = h("textarea", { rows: 8, placeholder: t("addCode"), spellcheck: "false" });
   // a maxroll.gg guide or planner link: its stages ("Early", "Endgame"...) to pick one
@@ -357,8 +434,13 @@ function renderAddBuild() {
     h("div", { class: "row small" }, h("button", { class: "ghost small", onclick: () => file.click() }, t("addFile")),
       h("span", { class: "muted" }, t("addFileHint")), file),
     fromGame,
-    h("div", { class: "row" }, go, state.build
-      ? h("button", { class: "ghost", onclick: () => { renderHeader(); switchTab(state.tab); } }, t("cancel")) : null)));
+    h("div", { class: "row" }, go, h("button", { class: "ghost",
+      onclick: () => { if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty(); } }, t("cancel")))));
+  // a link pasted on the start page (a maxroll guide: its stages to pick here)
+  if (typeof prefill === "string" && prefill) {
+    code.value = prefill;
+    code.dispatchEvent(new Event("input"));
+  }
   code.focus();
 }
 
