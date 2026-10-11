@@ -3446,8 +3446,48 @@ TABS.loot = async (view) => {
   const preview = h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lootPreview")),
     h("div", { class: "row", style: "margin:8px 0" }, copy), h("pre", { class: "filter-preview" }, r.block)));
   return h("div", { class: "stack" }, stageSeg, h("div", { class: "sub" }, t("lootIntro_" + stage)), what,
-    leveling ? null : marketCard(r.market, mk), leveling ? null : demandCard(r.demand, mk), build, preview);
+    leveling ? null : marketCard(r.market, mk), leveling ? null : demandCard(r.demand, mk), onlineFiltersCard(r, mk), build, preview);
 };
+
+// the game's copies of the player's online filters: each with its rules and poe2lab's block in it (which build,
+// which part of the game); the block put in, renewed or taken out right in the copy, so the filter chosen in the
+// game stays the same
+function onlineFiltersCard(r, mk) {
+  if (!(r.onlineFilters || []).length) return null;
+  const stageName = (s) => t("lootStageShort_" + (s === "leveling" ? "leveling" : s === "maps" ? "maps" : "all"));
+  const tiles = h("div", { class: "lo-tiles" });
+  const change = async (f, action) => {
+    const ok = await confirmInPage(action === "add" ? t("lootOnAskAdd", r.build, stageName(mk.stage), f.name, f.block && `${f.block.build || "?"} · ${stageName(f.block.stage)}`) : t("lootOnAskRemove", f.name),
+      t(action === "add" ? "lootOnYesAdd" : "lootOnYesRemove"));
+    if (!ok) return;
+    tiles.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    try {
+      const res = await api("/api/lootfilter/online", { method: "POST", body: { path: f.path, action, mode: state.mode, ...mk } });
+      r.onlineFilters = res.onlineFilters;
+      toast(t(action === "add" ? "lootOnDone" : "lootOnRemoved", f.name), true);
+    } catch (e) { toast(e.message); }
+    draw();
+  };
+  const tile = (f) => {
+    const b = f.block;
+    const mine = b && b.build === r.build;
+    const status = !b ? h("span", { class: "chip warn" }, t("lootOnNone"))
+      : mine ? h("span", { class: "chip lo-has" }, I("check"), " ", t("lootOnHas", stageName(b.stage)))
+        : h("span", { class: "chip priority" }, t("lootOnOther", b.build || "?"));
+    const same = mine && b.stage === mk.stage;
+    const put = h("button", { class: same ? "ghost small" : "primary small", onclick: () => change(f, "add") },
+      I(same ? "refresh" : b ? "swap" : "plus"), h("span", {}, t(same ? "lootOnUpdate" : b ? "lootOnReplace" : "lootOnAdd", stageName(mk.stage))));
+    const drop = b ? h("button", { class: "ghost small", onclick: () => change(f, "remove") }, I("x"), h("span", {}, t("lootOnRemove"))) : null;
+    return h("div", { class: "lo-tile" + (mine ? " on" : ""), title: f.path },
+      h("div", { class: "lo-head" }, I("funnel", "lo-ico"), h("div", {}, h("div", { class: "lo-name" }, f.name),
+        h("div", { class: "muted small" }, t("lootOnMeta", f.updated || "?", f.rules)))),
+      status, h("div", { class: "row" }, put, drop));
+  };
+  const draw = () => tiles.replaceChildren(...r.onlineFilters.map(tile));
+  draw();
+  return h("div", { class: "card stack" }, h("h3", {}, t("lootOnTitle")), h("div", { class: "sub" }, t("lootOnSub")), tiles,
+    h("div", { class: "hint" }, t("lootOnHint", r.dir)));
+}
 
 // the campaign's extras: the weapon of the way the player levels with, what the build's author planned for the gear
 function lootLevelingExtras(x) {

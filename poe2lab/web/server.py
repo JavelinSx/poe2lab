@@ -2357,7 +2357,7 @@ def loot_filter(mode: str = "balanced", build: str | None = None, market: bool =
                           demand_ilvl=demand_ilvl, demand_min=demand_min, stage=stage)
     with session.lock:
         session.require(build)
-        return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()),
+        return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()), "build": session.path.stem,
                                             "localFilters": lootfilter.local_filters(),
                                             "onlineFilters": lootfilter.online_filters()})
 
@@ -2529,6 +2529,35 @@ def loot_filter_save(req: LootFilterSave):
         folder.mkdir(parents=True, exist_ok=True)
         target.write_text(lootfilter.merge(block, base) if base else block, encoding="utf-8")
         return {"path": str(target), "name": name}
+
+
+class OnlineFilterChange(MarketChoice):
+    path: str
+    action: str = "add"  # "add": the open build's block put in (an older one replaced), "remove": taken out
+    mode: str = "balanced"
+
+
+@app.post("/api/lootfilter/online")
+def loot_filter_online(req: OnlineFilterChange):
+    """Change the game's copy of an online filter in place, so the filter the player chose in the game keeps
+    working with the build's rules in it; the previous file goes to poe2lab-backups. When the filter is updated on
+    its site, the game downloads it anew and the block is gone - the list shows that."""
+    if req.path not in {f["path"] for f in lootfilter.online_filters()}:
+        raise HTTPException(400, "это не онлайн-фильтр из папки игры")
+    if req.action not in ("add", "remove"):
+        raise HTTPException(400, f"неизвестное действие {req.action!r}")
+    block = None
+    if req.action == "add":
+        if req.mode not in MODES:
+            raise HTTPException(400, f"неизвестная цель {req.mode!r}")
+        with session.lock:
+            session.require()
+            block = _loot(req.mode, req)["block"]
+    try:
+        backup = lootfilter.rewrite_online(Path(req.path), block)
+    except (OSError, UnicodeDecodeError, ValueError) as err:
+        raise HTTPException(400, f"не удалось изменить фильтр: {err}")
+    return {"backup": str(backup), "onlineFilters": lootfilter.online_filters()}
 
 
 @app.get("/api/versus")

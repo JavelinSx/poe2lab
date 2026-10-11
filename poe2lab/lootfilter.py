@@ -21,7 +21,10 @@ Two filters, one for each part of the game (the player switches at maps):
   ladder: rare boots on 90% of characters, a rare sceptre on a fifth), the best base of each defence kind (every
   jewellery base), white, at an item level every tier rolls at."""
 import ctypes
+import hashlib
+import os
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -325,12 +328,15 @@ def leveling_blocks(way_weapon: str | None, own_classes: set, plan_bases: list[s
     return blocks, {"weapons": classes, "bases": bases, "uniques": uniques}
 
 
+STAGE_TITLES = {"leveling": " — прокачка до 65", "maps": " — карты 65+", "all": ""}
+
+
 def render(rules: list[SlotRule], build: str, market: list[str] | None = None, stage: str = "all",
            extra: list[str] | None = None) -> str:
     """The filter block: most specific first (a filter stops at the first matching block). `stage`: "leveling" -
     the campaign's rules and `extra` (leveling_blocks); "maps" - the build's items at their tiers, its uniques, the
     market and `extra` (demand_blocks) after it; "all" - both parts in one filter."""
-    title = {"leveling": " — прокачка до 65", "maps": " — карты 65+", "all": ""}[stage]
+    title = STAGE_TITLES[stage]
     blocks = [BEGIN, f"# Билд: {build}{title}. Собрано poe2lab: вещи под этот билд поверх твоего фильтра.", ""]
     for kind, need, style in (("голда", 3, "gold"), ("хорошая вещь", 2, "good")) if stage != "leveling" else ():
         for r in rules:
@@ -387,12 +393,14 @@ def render(rules: list[SlotRule], build: str, market: list[str] | None = None, s
 
 def merge(block: str, player_filter: str) -> str:
     """The block on top of the player's filter; an older poe2lab block in it is replaced, not stacked."""
-    player_filter = re.sub(rf"{re.escape(BEGIN)}.*?{re.escape(END)}\n?", "", player_filter, flags=re.S)
-    return block + "\n" + player_filter.lstrip("﻿")
+    return block + "\n" + strip(player_filter).lstrip("﻿")
 
 
 def filters_dir() -> Path:
-    """Where PoE2 reads local filters: Documents\\My Games\\Path of Exile 2 (Documents may be moved by OneDrive)."""
+    """Where PoE2 reads local filters: Documents\\My Games\\Path of Exile 2 (Documents may be moved by OneDrive);
+    POE2LAB_FILTERS points elsewhere (a copy of the folder, to try the filters out)."""
+    if os.environ.get("POE2LAB_FILTERS"):
+        return Path(os.environ["POE2LAB_FILTERS"])
     docs = Path.home() / "Documents"
     try:
         buf = ctypes.create_unicode_buffer(260)
@@ -454,9 +462,80 @@ def online_filters() -> list[dict]:
         name = re.search(r"^#name:(.+)$", head, re.M)
         updated = re.search(r"^#lastUpdate:(\S+)", head, re.M)
         if name:
-            out.append({"path": str(path), "name": name.group(1).strip(),
-                        "updated": updated.group(1)[:10] if updated else None})
+            out.append({"path": str(path), "id": path.name, "name": name.group(1).strip(),
+                        "updated": updated.group(1)[:10] if updated else None} | describe(path))
     return out
+
+
+BUILD_LINE = re.compile(r"^# Билд: (.+?)( — .+?)?\. Собрано poe2lab", re.M)
+RULE = re.compile(r"^(?:Show|Hide|Minimal)\b", re.M)
+
+
+def describe(path: Path) -> dict:
+    """What a filter file holds: its rules (blocks), and poe2lab's block in it - for which build and part of the
+    game - when there is one."""
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return {"rules": 0, "block": None}
+    block = None
+    m = re.search(rf"{re.escape(BEGIN)}(.*?){re.escape(END)}", text, re.S)
+    if m:
+        who = BUILD_LINE.search(m.group(1))
+        stage = next((k for k, v in STAGE_TITLES.items() if v == (who.group(2) or "")), None) if who else None
+        block = {"build": who.group(1) if who else None, "stage": stage,
+                 "rules": len(RULE.findall(m.group(1)))}
+    return {"rules": len(RULE.findall(text)) - (block["rules"] if block else 0), "block": block}
+
+
+def strip(text: str) -> str:
+    """The filter without poe2lab's block (and the blank line merge put after it)."""
+    return re.sub(rf"{re.escape(BEGIN)}.*?{re.escape(END)}(?:\r?\n){{0,2}}", "", text, flags=re.S)
+
+
+# the game's header of an online filter's copy: "#Online Item Filter", then "#key:value" lines (#name, #hash...)
+HEADER_LINE = re.compile(r"(?:#Online Item Filter|#[A-Za-z]+:)[^\n]*\n")
+BOM = b"\xef\xbb\xbf"
+BACKUPS_KEPT = 5
+
+
+def split_header(text: str) -> tuple[str, str]:
+    pos = 0
+    while m := HEADER_LINE.match(text, pos):
+        pos = m.end()
+    return text[:pos], text[pos:]
+
+
+def backups_dir() -> Path:
+    return filters_dir() / "poe2lab-backups"
+
+
+def rewrite_online(path: Path, block: str | None) -> Path:
+    """The game's copy of an online filter changed in place: poe2lab's block put in under the game's header (or
+    replaced), or taken out when `block` is None. The header's #hash is the MD5 of the text under it - counted anew,
+    so the copy stays whole; the line ends and byte order mark it had are kept, the previous file goes to
+    poe2lab-backups first (the last BACKUPS_KEPT of each filter). Returns the backup's path."""
+    if not is_online_copy(path) or not path.is_file():
+        raise ValueError(f"не онлайн-фильтр игры: {path}")
+    raw = path.read_bytes()
+    bom = raw.startswith(BOM)
+    header, body = split_header(raw[len(BOM) if bom else 0:].decode("utf-8"))
+    body = strip(body)
+    if block:
+        nl = "\r\n" if "\r\n" in body else "\n"
+        body = block.replace("\n", nl) + nl + body
+    data = body.encode("utf-8")
+    header = re.sub(r"^#hash:\w*", f"#hash:{hashlib.md5(data).hexdigest()}", header, count=1, flags=re.M)
+    folder = backups_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp, n = time.strftime("%Y%m%d-%H%M%S"), 0
+    while (backup := folder / f"{path.name} {stamp}{f'-{n}' if n else ''}.bak").exists():
+        n += 1
+    backup.write_bytes(raw)
+    for old in sorted(folder.glob(f"{path.name} *.bak"), key=lambda f: f.stat().st_mtime_ns)[:-BACKUPS_KEPT]:
+        old.unlink()
+    path.write_bytes((BOM if bom else b"") + header.encode("utf-8") + data)
+    return backup
 
 
 def is_online_copy(path: Path) -> bool:

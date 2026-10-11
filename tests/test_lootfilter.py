@@ -173,7 +173,8 @@ def test_online_filters_from_the_games_copy(tmp_path, monkeypatch):
                     encoding="utf-8")
     (online / "junk").write_text("not a filter", encoding="utf-8")
     monkeypatch.setattr(lf, "filters_dir", lambda: tmp_path)
-    assert lf.online_filters()[0] | {"path": None} == {"path": None, "name": "endgamus", "updated": "2026-09-22"}
+    assert lf.online_filters()[0] | {"path": None} == {"path": None, "id": "MNqaRoC0", "name": "endgamus",
+                                                      "updated": "2026-09-22", "rules": 1, "block": None}
     assert lf.looks_like_filter(copy) and not lf.looks_like_filter(online / "junk")
     client = TestClient(server.app)
     h = {"X-Poe2lab": "1"}
@@ -185,6 +186,48 @@ def test_online_filters_from_the_games_copy(tmp_path, monkeypatch):
     assert client.post("/api/lootfilter/pick", headers=h).status_code == 400
     monkeypatch.setattr(lf, "pick_filter", lambda: copy)
     assert client.post("/api/lootfilter/pick", headers=h).json()["name"] == "endgamus"
+
+
+
+def test_the_block_put_right_into_an_online_filter(tmp_path, monkeypatch):
+    """The game's copy is changed in place: the block under the game's header with its #hash (the MD5 of the text
+    under the header) counted anew, line ends and byte order mark kept, the file as it was in poe2lab-backups;
+    taking the block out gives the copy back byte for byte. Nothing outside OnlineFilters is changed."""
+    import hashlib
+    from fastapi.testclient import TestClient
+    from poe2lab.web import server
+    online = tmp_path / "OnlineFilters"
+    online.mkdir()
+    body = "#====\r\n# NeverSink's filter\r\nShow\r\n\tClass == \"Rings\"\r\nHide\r\n"
+    head = (f"#Online Item Filter\n#name:endgamus\n#errors:\n#hash:{hashlib.md5(body.encode()).hexdigest()}\n"
+            "#lastUpdate:2026-09-22T22:53:49Z\n")
+    copy = online / "MNqaRoC0"
+    original = lf.BOM + (head + body).encode()
+    copy.write_bytes(original)
+    monkeypatch.setattr(lf, "filters_dir", lambda: tmp_path)
+    client = TestClient(server.app)
+    h = {"X-Poe2lab": "1"}
+    client.post("/api/load", json={"name": "titan"}, headers=h)
+    r = client.post("/api/lootfilter/online", json={"path": str(copy), "stage": "maps"}, headers=h).json()
+    [f] = r["onlineFilters"]
+    assert f["block"]["build"] == "titan" and f["block"]["stage"] == "maps" and f["rules"] == 2
+    raw = copy.read_bytes()
+    text = raw[3:].decode()
+    assert raw.startswith(lf.BOM) and text.startswith(head.split("#hash:")[0])  # the game's header stays on top
+    top, under = lf.split_header(text)
+    assert f"#hash:{hashlib.md5(under.encode()).hexdigest()}" in top and under.endswith(body)
+    assert "\n" not in under.replace("\r\n", "")  # the copy's line ends
+    assert Path(r["backup"]).read_bytes() == original
+    again = client.post("/api/lootfilter/online", json={"path": str(copy), "stage": "maps"}, headers=h).json()
+    assert copy.read_bytes().count(lf.BEGIN.encode()) == 1 and again["onlineFilters"][0]["rules"] == 2
+    client.post("/api/lootfilter/online", json={"path": str(copy), "action": "remove"}, headers=h)
+    assert copy.read_bytes() == original
+    for _ in range(lf.BACKUPS_KEPT + 2):
+        client.post("/api/lootfilter/online", json={"path": str(copy), "action": "remove"}, headers=h)
+    assert len(list(lf.backups_dir().glob("MNqaRoC0 *.bak"))) == lf.BACKUPS_KEPT
+    (tmp_path / "mine.filter").write_text("Show\n", encoding="utf-8")
+    bad = client.post("/api/lootfilter/online", json={"path": str(tmp_path / "mine.filter")}, headers=h)
+    assert bad.status_code == 400 and (tmp_path / "mine.filter").read_text(encoding="utf-8") == "Show\n"
 
 
 def test_market_block_by_price():

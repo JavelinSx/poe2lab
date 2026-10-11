@@ -1390,3 +1390,16 @@ button.primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 2
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* the game's online filters: one tile each, poe2lab's block in it or not */
+.lo-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.lo-tile { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 12px; border-radius: var(--radius);
+  background: var(--panel-2); border: 1px solid var(--line); transition: border-color .2s, box-shadow .2s; }
+.lo-tile.on { border-color: var(--gold-line); box-shadow: 0 0 0 1px var(--gold-soft) inset; }
+.lo-head { display: flex; gap: 10px; align-items: center; }
+.lo-ico { width: 22px; height: 22px; color: var(--gold); flex: none; }
+.lo-name { font-weight: 600; }
+.chip.lo-has { background: var(--good-bg); color: var(--good); }
+.chip.lo-has .ic { width: 12px; height: 12px; vertical-align: -2px; }
+.lo-tile .row { gap: 6px; flex-wrap: wrap; }
+.lo-tile button .ic { width: 14px; height: 14px; }
