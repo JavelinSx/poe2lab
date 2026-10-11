@@ -38,6 +38,8 @@ number is computed by PoB itself.
   copies of your online filters (NeverSink, FilterBlade), with a backup.
 - **Fast reopening** — every tab is worked out once when a build opens; the results are kept on disk, so after a
   restart a build that has not changed opens in seconds.
+- **Atlas tree guide** — the Atlas passive tree read from your game: what to take first and the route to it, when
+  each part opens, how to earn atlas points fast.
 - Crafting journal, a glossary for new players; **English and Russian** interface.
 
 **Quick start (Windows):** *Code → Download ZIP*, unpack to a short path (e.g. `C:\poe2lab`), double-click
@@ -86,6 +88,8 @@ headless): что сломано, какие статы и моды стоят �
   (NeverSink, FilterBlade), с резервной копией.
 - **Быстрое повторное открытие** — все вкладки считаются один раз при открытии билда, результаты хранятся на диске:
   после перезапуска билд, который не менялся, открывается за секунды.
+- **Древо атласа для новичка** — дерево из файлов твоей игры: что брать первым и маршрут к этому, когда открывается
+  каждая часть, как быстро получить очки атласа.
 - Журнал крафта, словарь новичка; интерфейс на русском и английском, тексты — из русского клиента игры.
 
 **Как пользоваться, что устанавливается и зачем, описание всех вкладок — в [GUIDE.md](GUIDE.md).**

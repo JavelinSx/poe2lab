@@ -198,6 +198,7 @@ $("#lang").addEventListener("click", async (e) => {
   loadLeagues();
   loadBuildList();
   if (state.page === "ctor") openConstructor();  // the constructor stays open in the other language
+  else if (state.page === "atlas") renderAtlas();
   else if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
@@ -286,7 +287,8 @@ function renderEmpty() {
     h("div", { class: "ws-tiles" }, WS_TABS.map(([tab, ic]) => wsTile("tab", tab, ic))),
     sec(t("wsAlso")),
     h("div", { class: "ws-tiles" }, WS_VIEW_MORE.map(([k, ic]) => wsTile("view", k, ic)),
-      wsTile("view", "glossary", "book", button("#glossary-open", t("glOpen"))))];
+      wsTile("view", "glossary", "book", button("#glossary-open", t("glOpen"))),
+      wsTile("view", "atlas", "map", button("#atlas-open", t("atOpenBtn"))))];
 
   const make = () => [
     sec(t("wsFrom"), t("wsFromSub")),

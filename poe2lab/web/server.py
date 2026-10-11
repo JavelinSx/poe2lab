@@ -46,7 +46,7 @@ from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
-from .. import (author, buildplanner, constructor, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft,
+from .. import (atlas, author, buildplanner, constructor, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft,
                itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality,
                resultcache)
 from ..i18n import _get as _trade_data
@@ -3375,6 +3375,19 @@ def mcp_disconnect():
 def chat_reset():
     session.assistant = session.toolbox = None
     return {"ok": True}
+
+
+@app.get("/api/atlas")
+def atlas_view():
+    """The Atlas passive tree from the installed game, and what a beginner takes first (poe2lab.atlas)."""
+    with _game_lock:  # the same extractor the texts' unpack uses
+        try:
+            game = gamedata.game_dir()
+            if game is None:
+                raise gamedata.GameDataError("Path of Exile 2 не найдена — дерево атласа берётся из файлов игры")
+            return atlas.guide(game)
+        except (gamedata.GameDataError, OSError) as err:
+            raise HTTPException(400, str(err))
 
 
 @app.get("/api/glossary")
