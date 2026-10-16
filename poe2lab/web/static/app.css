@@ -1549,3 +1549,20 @@ button.primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 2
 .chip.mt-risky { background: var(--bad-bg); color: var(--bad); }
 .chip.mt-safety { background: var(--good-bg); color: var(--good); }
 @media (max-width: 1100px) { .mt-cols { grid-template-columns: 1fr; } }
+/* the endgame section: tablets and maps */
+.eg-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .eg-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.eg-types .ws-tile.on { border-color: var(--gold); background: var(--gold-bg); }
+.eg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; align-items: start; }
+.eg-reward { color: var(--good); }
+.eg-mod.eg-deadly { border-color: rgba(226, 106, 95, .5); }
+.chip.eg-d-deadly { background: var(--bad-bg); color: var(--bad); }
+.chip.eg-d-hard { background: var(--warn-bg); color: var(--warn); }
+.chip.eg-d-mild { background: var(--good-bg); color: var(--good); }
+.eg-search { display: flex; flex-direction: column; gap: 10px; }
+.eg-search-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.eg-search-row label { display: flex; flex-direction: column; gap: 3px; }
+.eg-search-row select, .eg-min { height: 32px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 7px; padding: 0 8px; }
+.eg-min { width: 90px; }
+.eg-safe { flex-direction: row !important; align-items: center; gap: 6px !important; }
+.eg-regex { flex: 1; min-width: 280px; padding: 8px 10px; font-size: 13px; word-break: break-all; color: var(--gold-hi); }

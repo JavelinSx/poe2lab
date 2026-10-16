@@ -204,6 +204,9 @@ def read_table(path: Path, columns: list[str]) -> list[dict]:
         row = {}
         for c in columns:
             o, typ, is_list = offsets[c]
+            if typ == "Interval" and not is_list:  # a [min, max] pair of ints
+                row[c] = list(struct.unpack_from("<ii", raw, base + o))
+                continue
             if typ not in _SCALAR and typ not in ("String", "Key"):
                 raise GameDataError(f"{table}.{c}: читаю только строки, числа и ключи")
             if o + (16 if is_list else TYPE_SIZE[typ]) > size:  # fewer columns than the spec: schema drift

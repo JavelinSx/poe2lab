@@ -46,7 +46,8 @@ from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
-from .. import (atlas, author, buildplanner, constructor, crafting, feedback, gamedata, gemcraft, glossary, icons, itemcraft,
+from .. import (atlas, author, buildplanner, constructor, crafting, endgame, feedback, gamedata, gemcraft, glossary,
+               icons, itemcraft,
                itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality,
                resultcache)
 from ..i18n import _get as _trade_data
@@ -3386,6 +3387,19 @@ def atlas_view():
             if game is None:
                 raise gamedata.GameDataError("Path of Exile 2 не найдена — дерево атласа берётся из файлов игры")
             return atlas.guide(game)
+        except (gamedata.GameDataError, OSError) as err:
+            raise HTTPException(400, str(err))
+
+
+@app.get("/api/endgame/mods")
+def endgame_mods():
+    """Precursor Tablets' and Waystones' modifiers from the installed game, by what they are good for (poe2lab.endgame)."""
+    with _game_lock:
+        try:
+            game = gamedata.game_dir()
+            if game is None:
+                raise gamedata.GameDataError("Path of Exile 2 не найдена — моды плиток и карт берутся из файлов игры")
+            return endgame.guide(game)
         except (gamedata.GameDataError, OSError) as err:
             raise HTTPException(400, str(err))
 

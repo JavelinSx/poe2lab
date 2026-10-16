@@ -14,9 +14,14 @@ const AT_STAGE_COLOR = ["#c9b27a", "#5fc98d", "#5b9cf0", "#5b9cf0", "#e8743f", "
 // key groups and useful groups: the interface's own pictures for them
 const AT_GROUP_IC = { fracturing: "gem", exceptional: "star", tablets: "layers", lineage: "crown",
   monsters: "skull", rarity: "coins", shrines: "spark", waystones: "map" };
-const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "" };
+const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "",
+  mods: null, goal: "", ttype: "", safe: false, prop: "MonsterEffectiveness", min: 30 };
 // the endgame section's tabs (texts: egTab_*)
-const EG_TABS = [["atlas", "map"], ["masters", "person"]];
+const EG_TABS = [["atlas", "map"], ["masters", "person"], ["tablets", "layers"], ["maps", "scroll"]];
+// what a tablet's or a waystone's modifier is for (texts: egG_*), and the tablets' types (egType_*)
+const EG_GOALS = ["rarity", "quantity", "monsters", "waystones", "experience", "gold", "content", "mechanic"];
+const EG_TYPE_IC = { breach: "spark", expedition: "hammer", delirium: "eye", ritual: "skull", abyss: "drop", incursion: "keystone",
+  map_boss: "crown", irradiated: "warn" };
 // what a master's keystone is for (texts: atMT_*)
 const AT_MASTER_TAGS = ["loot", "safety", "pinnacle", "tablets", "strongbox", "explore", "mechanics", "risky"];
 
@@ -44,7 +49,130 @@ function endgamePage(data) {
   return h("div", { class: "ws at-page" },
     h("div", { class: "ws-hero" }, h("span", { class: "ws-crest" }, I("map")),
       h("div", {}, h("h1", {}, t("egTitle")), h("p", {}, t("egSub")))),
-    tabs, ...(AT.tab === "masters" ? mastersBody(data) : atlasPage(data)));
+    tabs, ...(AT.tab === "masters" ? mastersBody(data) : AT.tab === "tablets" || AT.tab === "maps" ? modsBody() : atlasPage(data)));
+}
+
+// ---------- tablets and waystones (poe2lab.endgame) ----------
+// the modifiers load when one of the two tabs opens first
+function modsBody() {
+  const box = h("div", { class: "stack" });
+  if (!AT.mods) {
+    box.append(loading(t("egLoading")));
+    api("/api/endgame/mods").then((r) => { AT.mods = r; if (state.page === "atlas") renderAtlas(); })
+      .catch((e) => box.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("atNoData")), h("p", { class: "muted" }, e.message))));
+    return [box];
+  }
+  return AT.tab === "tablets" ? tabletsBody(AT.mods) : mapsBody(AT.mods);
+}
+const egText = (m, part = "text") => (m[part]?.[LANG] || m[part]?.en || []);
+const goalChips = (goals) => h("div", { class: "row at-chips" }, goals.map((g) => h("span", { class: "chip tag" }, t("egG_" + g))));
+function goalFilter() {
+  return h("div", { class: "row at-chips" }, ["", ...EG_GOALS].map((g) =>
+    h("button", { class: "chip mt-filter" + (g === AT.goal ? " on" : ""), onclick: () => { AT.goal = g; renderAtlas(); } },
+      g ? t("egG_" + g) : t("atMTAll"))));
+}
+const egSec = (title, sub) => h("div", { class: "ws-sec" }, h("div", { class: "ws-sec-l" }, title), sub ? h("div", { class: "hint" }, sub) : null);
+function modCard(m) {
+  return h("div", { class: "mt-node eg-mod" },
+    h("div", { class: "mt-name" }, h("span", { class: "chip warn" }, t("egKind_" + m.kind)),
+      m.tiers > 1 ? h("span", { class: "muted small" }, t("egTiers", m.tiers)) : null),
+    h("div", { class: "mt-text" }, egText(m).map((l) => h("div", {}, l))), goalChips(m.goals));
+}
+
+function tabletsBody(d) {
+  const tablets = d.mods.filter((m) => m.item === "tablet");
+  const types = [];
+  for (const m of tablets.filter((x) => x.base && x.type)) if (!types.some((x) => x.type === m.type)) types.push(m);
+  const typeTiles = h("div", { class: "ws-tiles eg-types" }, [null, ...types].map((m) => {
+    const type = m ? m.type : "";
+    const own = tablets.filter((x) => x.type === type && !x.base && x.kind !== "unique").length;
+    return h("button", { class: "ws-tile at-st" + (type === AT.ttype ? " on" : ""), onclick: () => { AT.ttype = type; renderAtlas(); } },
+      h("span", { class: "ws-ic" }, I(m ? EG_TYPE_IC[type] || "layers" : "layers")),
+      h("div", {}, h("b", {}, m ? t("egType_" + type) : t("egTypeAll")), h("span", {}, m ? egText(m)[0] || "" : t("egTypeAllS")),
+        m && own ? h("span", { class: "chip tag" }, t("egOwnMods", own)) : null));
+  }));
+  const fits = (m) => !AT.goal || m.goals.includes(AT.goal);
+  const affix = (m) => !m.base && m.kind !== "unique";  // prefixes, suffixes and the implicits a type rolls
+  const general = tablets.filter((m) => !m.type && affix(m) && fits(m));
+  const own = AT.ttype ? tablets.filter((m) => m.type === AT.ttype && affix(m) && fits(m)) : [];
+  const uniques = tablets.filter((m) => m.kind === "unique" && fits(m));
+  const grid = (list) => list.length ? h("div", { class: "eg-grid" }, list.map(modCard)) : h("div", { class: "muted small" }, t("atMNone"));
+  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egTabletIntro"))),
+    egSec(t("egTypesTitle"), t("egTypesSub")), typeTiles,
+    egSec(t("egModsTitle"), t("egModsSub")), goalFilter(),
+    AT.ttype ? egSec(t("egOnly", t("egType_" + AT.ttype))) : null, AT.ttype ? grid(own) : null,
+    egSec(t("egGeneral")), grid(general),
+    egSec(t("egUnique"), t("egUniqueSub")), grid(uniques),
+    h("p", { class: "hint at-src" }, t("egSourceMods"))];
+}
+
+// numbers from n up (n < 1000) as a search pattern: 31 -> 3[1-9]|[4-9]\d|\d{3}
+function egAtLeast(n) {
+  n = Math.max(0, Math.min(999, Math.floor(n)));
+  const s = String(n), parts = [];
+  if (s.length === 1) return n === 0 ? "\\d+" : `[${n}-9]|\\d{2,3}`;
+  if (s.length === 2) {
+    const a = +s[0], b = +s[1];
+    parts.push(b === 0 ? `${a}\\d` : b === 9 ? `${a}9` : `${a}[${b}-9]`);
+    if (a < 9) parts.push(a === 8 ? "9\\d" : `[${a + 1}-9]\\d`);
+    parts.push("\\d{3}");
+    return parts.join("|");
+  }
+  const a = +s[0], b = +s[1], c = +s[2];
+  parts.push(c === 9 ? `${a}${b}9` : `${a}${b}[${c}-9]`);
+  if (b < 9) parts.push(b === 8 ? `${a}9\\d` : `${a}[${b + 1}-9]\\d`);
+  if (a < 9) parts.push(a === 8 ? "9\\d{2}" : `[${a + 1}-9]\\d{2}`);
+  return parts.join("|");
+}
+// a waystone modifier's danger part as a short phrase without numbers, for "!" in the stash search
+function egPhrase(m) {
+  const line = (egText(m, "risk")[0] || "").toLowerCase();
+  const runs = line.split(/[\d%+\-–.,:()]+/).map((x) => x.trim()).filter((x) => x.length >= 8);
+  const best = runs.sort((x, y) => y.length - x.length)[0] || "";
+  return best.split(/\s+/).slice(0, 3).join(" ");
+}
+
+function mapsBody(d) {
+  const ways = d.mods.filter((m) => m.item === "waystone");
+  const deadly = ways.filter((m) => m.danger === "deadly");
+  const props = d.properties || [];
+  const out = h("code", { class: "eg-regex" });
+  const note = h("div", { class: "hint" });
+  const sync = () => {
+    const prop = props.find((p) => p.id === AT.prop) || props[0];
+    if (!prop) return;
+    const tail = (prop.search[LANG] || prop.search.en || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let q = `"${tail}: \\+?(${egAtLeast(AT.min)})%"`;
+    if (AT.safe && deadly.length) q += ` "!${[...new Set(deadly.map(egPhrase).filter(Boolean))].join("|")}"`;
+    out.textContent = q;
+    note.textContent = t("egSearchNote", q.length);
+  };
+  const sel = h("select", { onchange: (e) => { AT.prop = e.target.value; sync(); } },
+    props.map((p) => h("option", { value: p.id, selected: p.id === AT.prop ? "" : null }, p.name[LANG] || p.name.en)));
+  const num = h("input", { type: "number", min: "0", max: "999", value: String(AT.min), class: "eg-min",
+    oninput: (e) => { AT.min = +e.target.value || 0; sync(); } });
+  const safe = h("label", { class: "eg-safe" }, h("input", { type: "checkbox", checked: AT.safe ? "" : null,
+    onchange: (e) => { AT.safe = e.target.checked; sync(); } }), " ", t("egNoDeadly"));
+  const copy = h("button", { class: "ghost small", onclick: async () => {
+    try { await navigator.clipboard.writeText(out.textContent); toast(t("egCopied"), true); } catch (_) { toast(out.textContent); }
+  } }, I("clip"), " ", t("egCopy"));
+  sync();
+  const fits = (m) => !AT.goal || m.goals.includes(AT.goal);
+  const order = { deadly: 0, hard: 1, mild: 2 };
+  const list = ways.filter(fits).sort((x, y) => (order[x.danger] ?? 3) - (order[y.danger] ?? 3));
+  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egMapIntro"))),
+    egSec(t("egSearchTitle"), t("egSearchSub")),
+    h("section", { class: "card eg-search" },
+      h("div", { class: "row eg-search-row" }, h("label", {}, h("span", { class: "muted small" }, t("egProp")), sel),
+        h("label", {}, h("span", { class: "muted small" }, t("egMin")), num), safe),
+      h("div", { class: "row eg-search-row" }, out, copy), note),
+    egSec(t("egMapsList"), t("egMapsListSub")), goalFilter(),
+    h("div", { class: "eg-grid" }, list.map((m) => h("div", { class: "mt-node eg-mod eg-" + m.danger },
+      h("div", { class: "mt-name" }, h("span", { class: "chip eg-d-" + m.danger, title: t("egDHint") }, t("egD_" + m.danger)),
+        h("span", { class: "chip warn" }, t("egKind_" + m.kind)), m.tiers > 1 ? h("span", { class: "muted small" }, t("egTiers", m.tiers)) : null),
+      h("div", { class: "mt-text eg-risk" }, egText(m, "risk").map((l) => h("div", {}, l))),
+      h("div", { class: "mt-text eg-reward" }, egText(m, "reward").map((l) => h("div", {}, "+ ", l))), goalChips(m.goals)))),
+    h("p", { class: "hint at-src" }, t("egSourceMods"))];
 }
 
 // The atlas masters: how each is found, and its keystones from the game files with what they are for
