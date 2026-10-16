@@ -1566,3 +1566,14 @@ button.primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 2
 .eg-min { width: 90px; }
 .eg-safe { flex-direction: row !important; align-items: center; gap: 6px !important; }
 .eg-regex { flex: 1; min-width: 280px; padding: 8px 10px; font-size: 13px; word-break: break-all; color: var(--gold-hi); }
+/* the endgame section: farming options */
+.eg-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1250px) { .eg-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.eg-farm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+.eg-farm { display: flex; flex-direction: column; gap: 10px; }
+.eg-score { display: flex; align-items: center; gap: 10px; }
+.eg-score .bar { flex: 1; height: 8px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
+.eg-score .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--gold-lo), var(--gold-hi)); }
+.eg-drops { display: flex; flex-direction: column; gap: 3px; }
+.eg-drop { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.eg-drop b { color: var(--gold-hi); white-space: nowrap; }

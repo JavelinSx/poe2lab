@@ -19,7 +19,7 @@ from .atlas import describe
 from .gamedata import BUN, GAME_CACHE, RAW, GameDataError, read_table
 
 CACHE = GAME_CACHE / "endgame.json"
-VERSION = 3
+VERSION = 4
 TABLES = ["mods", "tags", "stats", "clientstrings"]
 TABLET_DOMAIN, MAP_DOMAIN = 34, 6
 # what a modifier gives, by its stats (the interface names them: egG_<goal>)
@@ -152,7 +152,7 @@ def build(game: Path | None = None, lang: str = "ru") -> dict:
                                for code, key in (("en", "en"), (lang, "want"))}
         mods.append({"item": f["item"], "id": f["id"], "kind": f["kind"], "type": f["type"], "text": text, **parts,
                      "base": bool(re.match(r"TowerAdd\w+?ToMapsImplicit", f["id"])),  # the tablet's type itself, not one of its modifiers
-                     "tiers": len(f["tiers"]), "goals": _tags(reward, GOALS),
+                     "tiers": len(f["tiers"]), "goals": _tags(reward, GOALS), "stats": sorted(f["stats"]),
                      "danger": (_tags(own, DANGER) or [""])[0] if f["item"] == "waystone" else ""})
     out = {"version": VERSION, "lang": lang, "properties": _properties(balance, lang), "mods": sorted(mods, key=lambda m: (m["item"], m["kind"], m["type"], m["id"]))}
     CACHE.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
@@ -193,3 +193,62 @@ def load(game: Path | None = None, lang: str = "ru") -> dict | None:
 
 def guide(game: Path | None = None) -> dict:
     return load(game) or build(game)
+
+
+# ---------- farming options by current prices ----------
+
+# A way to farm: the poe.ninja categories its loot is sold in, the tablet type that brings it, the atlas sub-tree for
+# it, and the stats (of atlas and master nodes, tablet and waystone modifiers) that feed it. "leveling" has no loot
+# to price: it is about experience.
+FARM = [
+    ("breach", ["Breach"], "breach", "Breach", r"breach"),
+    ("delirium", ["Delirium"], "delirium", "Delirium", r"delirium|affliction|simulacrum"),
+    ("ritual", ["Ritual"], "ritual", "Ritual", r"ritual"),
+    ("expedition", ["Expedition", "Verisium"], "expedition", "Expedition", r"expedition|verisium"),
+    ("abyss", ["Abyss"], "abyss", "Abyss", r"abyss"),
+    ("essence", ["Essences"], "", "", r"monolith|essence"),
+    ("bosses", ["Fragments", "LineageSupportGems"], "map_boss", "", r"boss|pinnacle|lineage"),
+    ("currency", ["Currency"], "", "", r"item_drop_rarity|item_drop_quantity|rare_packs|magic_packs|pack_size"),
+    ("leveling", [], "", "", r"experience"),
+]
+TOP_DROPS = 4
+MIN_VOLUME = 1.0  # traded volume (divines) a drop needs to count as one that sells
+UNITS = {"divine", "exalted", "chaos"}  # what the market pays with: not loot of any one way to farm
+JACKPOT = 1000.0  # divines: a drop this rare (a Mirror) is luck, not what a way of farming brings
+
+
+def farm(league: str | None = None) -> dict:
+    """Each farming option with what its loot trades for now on poe.ninja: the total traded volume of its categories
+    (how much of that loot the market moves - a stand-in for how rewarding and sellable it is, not a profit per hour)
+    and its dearest drops that do sell."""
+    from .economy import ninja
+    league = league or ninja.chosen_league() or ninja.leagues()[0]
+    rate = 0.0
+    options = []
+    for fid, types, tablet, part, pattern in FARM:
+        volume, drops = 0.0, []
+        for t in types:
+            try:
+                data = ninja._get("exchange/current/overview", league=league, type=t)
+            except OSError:
+                continue
+            rate = rate or data.get("core", {}).get("rates", {}).get("exalted", 0.0)
+            names = {i["id"]: i.get("name", "") for i in data.get("items", [])}
+            for line in data.get("lines", []):
+                if line["id"] in UNITS:
+                    continue
+                v, p = float(line.get("volumePrimaryValue", 0)), float(line.get("primaryValue", 0))
+                if p >= JACKPOT:
+                    continue
+                volume += v
+                if names.get(line["id"]) and v >= MIN_VOLUME:
+                    drops.append({"name": names[line["id"]], "div": p, "volume": v, "kind": t})
+        drops.sort(key=lambda d: -d["volume"])  # what sells the most, not the rare jackpot
+        options.append({"id": fid, "types": types, "tablet": tablet, "part": part, "stats": pattern,
+                        "volume": round(volume, 1), "drops": drops[:TOP_DROPS]})
+    priced = [o for o in options if o["types"]]
+    top = max((o["volume"] for o in priced), default=0) or 1
+    for o in priced:
+        o["score"] = round(o["volume"] / top, 3)
+    options.sort(key=lambda o: (not o["types"], -o.get("score", 0)))
+    return {"league": league, "exaltedPerDivine": rate, "options": options}

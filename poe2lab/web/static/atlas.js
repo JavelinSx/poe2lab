@@ -15,9 +15,11 @@ const AT_STAGE_COLOR = ["#c9b27a", "#5fc98d", "#5b9cf0", "#5b9cf0", "#e8743f", "
 const AT_GROUP_IC = { fracturing: "gem", exceptional: "star", tablets: "layers", lineage: "crown",
   monsters: "skull", rarity: "coins", shrines: "spark", waystones: "map" };
 const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "",
-  mods: null, goal: "", ttype: "", safe: false, prop: "MonsterEffectiveness", min: 30 };
+  mods: null, goal: "", ttype: "", safe: false, prop: "MonsterEffectiveness", min: 30, farm: null };
 // the endgame section's tabs (texts: egTab_*)
-const EG_TABS = [["atlas", "map"], ["masters", "person"], ["tablets", "layers"], ["maps", "scroll"]];
+const EG_TABS = [["atlas", "map"], ["masters", "person"], ["tablets", "layers"], ["maps", "scroll"], ["farm", "coins"]];
+const EG_FARM_IC = { breach: "spark", delirium: "eye", ritual: "skull", expedition: "hammer", abyss: "drop", essence: "gem",
+  bosses: "crown", currency: "coins", leveling: "run" };
 // what a tablet's or a waystone's modifier is for (texts: egG_*), and the tablets' types (egType_*)
 const EG_GOALS = ["rarity", "quantity", "monsters", "waystones", "experience", "gold", "content", "mechanic"];
 const EG_TYPE_IC = { breach: "spark", expedition: "hammer", delirium: "eye", ritual: "skull", abyss: "drop", incursion: "keystone",
@@ -49,7 +51,7 @@ function endgamePage(data) {
   return h("div", { class: "ws at-page" },
     h("div", { class: "ws-hero" }, h("span", { class: "ws-crest" }, I("map")),
       h("div", {}, h("h1", {}, t("egTitle")), h("p", {}, t("egSub")))),
-    tabs, ...(AT.tab === "masters" ? mastersBody(data) : AT.tab === "tablets" || AT.tab === "maps" ? modsBody() : atlasPage(data)));
+    tabs, ...(AT.tab === "masters" ? mastersBody(data) : AT.tab === "tablets" || AT.tab === "maps" || AT.tab === "farm" ? modsBody() : atlasPage(data)));
 }
 
 // ---------- tablets and waystones (poe2lab.endgame) ----------
@@ -62,7 +64,51 @@ function modsBody() {
       .catch((e) => box.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("atNoData")), h("p", { class: "muted" }, e.message))));
     return [box];
   }
-  return AT.tab === "tablets" ? tabletsBody(AT.mods) : mapsBody(AT.mods);
+  return AT.tab === "tablets" ? tabletsBody(AT.mods) : AT.tab === "maps" ? mapsBody(AT.mods) : farmBody(AT.data, AT.mods);
+}
+
+// ---------- farming options by poe.ninja's prices now (poe2lab.endgame.farm) ----------
+function farmBody(data, mods) {
+  const box = h("div", { class: "stack" });
+  if (!AT.farm) {
+    box.append(loading(t("egFarmLoading")));
+    api("/api/endgame/farm").then((r) => { AT.farm = r; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); })
+      .catch((e) => box.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("egFarmNoPrices")), h("p", { class: "muted" }, e.message))));
+    return [box];
+  }
+  const f = AT.farm, rate = f.exaltedPerDivine || 0;
+  const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
+  const go = (tab, set) => { AT.tab = tab; Object.assign(AT, set); renderAtlas(); window.scrollTo(0, 0); };
+  const masters = data.tree.masters || [];
+  const mainNodes = data.tree.nodes.filter((n) => n.part === "Main" && n.kind !== "image");
+  const cards = f.options.map((o) => {
+    const re = new RegExp(o.stats);
+    const mNodes = masters.flatMap((m) => m.nodes.filter((n) => (n.stats || []).some((x) => re.test(x))).map((n) => ({ m, n })));
+    const aNodes = mainNodes.filter((n) => n.stats.some((x) => re.test(x)));
+    const tMods = mods.mods.filter((m) => m.item === "tablet" && !m.base && m.kind !== "unique"
+      && (o.tablet ? m.type === o.tablet : !m.type && (m.stats || []).some((x) => re.test(x))));
+    const setup = [
+      o.tablet ? h("button", { class: "chip mt-filter", onclick: () => go("tablets", { ttype: o.tablet, goal: "" }) },
+        I("layers", "ic-s"), " ", t("egFTablet", t("egType_" + o.tablet))) : null,
+      o.part ? h("button", { class: "chip mt-filter", onclick: () => go("atlas", { part: o.part, mark: null, focus: null }) },
+        I("map", "ic-s"), " ", t("egFBranch", t("atPart_" + o.part))) : null,
+      aNodes.length ? h("button", { class: "chip mt-filter", onclick: () => go("atlas", { part: "Main", mark: new Set(aNodes.map((n) => n.id)), focus: aNodes[0].id }) },
+        I("eye", "ic-s"), " ", t("egFAtlas", aNodes.length)) : null,
+      mNodes.length ? h("button", { class: "chip mt-filter", onclick: () => go("masters", { tag: "" }) },
+        I("person", "ic-s"), " ", t("egFMasters", mNodes.map(({ m, n }) => `${t("atM_" + m.id.toLowerCase())}: ${(n.name[LANG] || n.name.en).trim()}`).slice(0, 3).join(", "))) : null];
+    return h("section", { class: "card eg-farm" },
+      h("div", { class: "mt-head" }, h("span", { class: "ws-ic" }, I(EG_FARM_IC[o.id] || "coins")),
+        h("div", {}, h("h3", {}, t("egF_" + o.id)), h("div", { class: "muted small" }, t("egFS_" + o.id)))),
+      o.types.length ? h("div", { class: "eg-score" }, h("div", { class: "bar" }, h("span", { style: `width:${Math.max(3, o.score * 100)}%` })),
+        h("span", { class: "small muted" }, t("egFVolume", fmt(o.volume, 0)))) : h("div", { class: "hint" }, t("egFNoPrice")),
+      o.drops.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFDrops")),
+        o.drops.map((d) => h("div", { class: "eg-drop" }, h("span", {}, trName(d.name)), h("b", {}, price(d.div))))) : null,
+      tMods.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFMods")),
+        tMods.slice(0, 3).map((m) => h("div", { class: "small" }, "• ", egText(m)[0] || ""))) : null,
+      h("div", { class: "row at-chips" }, setup.filter(Boolean)));
+  });
+  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egFarmIntro", f.league))),
+    h("div", { class: "eg-farm-grid" }, cards), h("p", { class: "hint at-src" }, t("egFarmSource"))];
 }
 const egText = (m, part = "text") => (m[part]?.[LANG] || m[part]?.en || []);
 const goalChips = (goals) => h("div", { class: "row at-chips" }, goals.map((g) => h("span", { class: "chip tag" }, t("egG_" + g))));

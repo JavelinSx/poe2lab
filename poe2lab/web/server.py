@@ -3404,6 +3404,15 @@ def endgame_mods():
             raise HTTPException(400, str(err))
 
 
+@app.get("/api/endgame/farm")
+def endgame_farm():
+    """The farming options ranked by what their loot trades for now on poe.ninja (the chosen league)."""
+    try:
+        return endgame.farm()
+    except OSError as err:
+        raise HTTPException(502, f"нет цен poe.ninja: {err}")
+
+
 @app.get("/api/glossary")
 def glossary_view(lang: str = "ru"):
     """The beginner's glossary page: groups of terms in our own words (poe2lab.glossary)."""

@@ -25,7 +25,7 @@ TABLES = ["passiveskilltrees", "stats", "atlaspassiveskillsubtrees", "clientstri
 # the atlas masters (Doryani, Hilda, Jado) and their keystones, in English and the player's language
 MASTER_TABLES = ["atlasclasspassives", "atlasclasspassiveclasses"]
 CACHE = GAME_CACHE / "atlas.json"
-VERSION = 3  # bumped when what is built from the game files changes
+VERSION = 4  # bumped when what is built from the game files changes
 # orbits of a group: radius and how many places on it (PoB's tree constants for PoE2, the atlas uses the same)
 RADII = [0, 82, 162, 335, 493, 662, 846, 251, 1080, 1322]
 PER_ORBIT = [1, 12, 24, 24, 72, 72, 72, 24, 72, 144]
@@ -260,7 +260,7 @@ def _masters(balance: Path, lang: str, stat_ids: list[str], descs: dict) -> list
         tags = [t for t, pat in MASTER_TAGS if any(re.search(pat, s) for s in ids)]
         m["nodes"].append({"id": r["Id"], "name": {"en": r["Name"], lang: local[i]["Name"] if i < len(local) else r["Name"]},
                            "text": {"en": describe(stats, descs, "en"), lang: describe(stats, descs, "want")},
-                           "tags": tags[:2], "start": any(re.search(START, s) for s in ids)})
+                           "tags": tags[:2], "start": any(re.search(START, s) for s in ids), "stats": ids})
     order = ["Hilda", "Doryani", "Jado"]
     return sorted(out.values(), key=lambda m: order.index(m["id"]) if m["id"] in order else 9)
 

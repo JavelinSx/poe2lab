@@ -40,6 +40,8 @@ number is computed by PoB itself.
   restart a build that has not changed opens in seconds.
 - **Atlas tree guide** — the Atlas passive tree read from your game: what to take first and the route to it, when
   each part opens, how to earn atlas points fast.
+- **Endgame section** — atlas masters' bonuses, Precursor Tablet and waystone modifiers by farming goal, a stash
+  search for waystones, and farming options ranked by current poe.ninja prices with the setup for each.
 - Crafting journal, a glossary for new players; **English and Russian** interface.
 
 **Quick start (Windows):** *Code → Download ZIP*, unpack to a short path (e.g. `C:\poe2lab`), double-click
