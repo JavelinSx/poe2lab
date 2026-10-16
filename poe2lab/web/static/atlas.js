@@ -14,7 +14,11 @@ const AT_STAGE_COLOR = ["#c9b27a", "#5fc98d", "#5b9cf0", "#5b9cf0", "#e8743f", "
 // key groups and useful groups: the interface's own pictures for them
 const AT_GROUP_IC = { fracturing: "gem", exceptional: "star", tablets: "layers", lineage: "crown",
   monsters: "skull", rarity: "coins", shrines: "spark", waystones: "map" };
-const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null };
+const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "" };
+// the endgame section's tabs (texts: egTab_*)
+const EG_TABS = [["atlas", "map"], ["masters", "person"]];
+// what a master's keystone is for (texts: atMT_*)
+const AT_MASTER_TAGS = ["loot", "safety", "pinnacle", "tablets", "strongbox", "explore", "mechanics", "risky"];
 
 async function renderAtlas() {
   state.page = "atlas";
@@ -29,7 +33,42 @@ async function renderAtlas() {
     return;
   }
   if (state.page !== "atlas") return;  // the player went elsewhere while it loaded
-  view.replaceChildren(atlasPage(AT.data));
+  view.replaceChildren(endgamePage(AT.data));
+}
+
+function endgamePage(data) {
+  const tabs = h("div", { class: "ws-modes eg-tabs" }, EG_TABS.map(([k, ic]) =>
+    h("button", { class: "ws-mode" + (k === AT.tab ? " on" : ""), "aria-pressed": String(k === AT.tab),
+      onclick: () => { AT.tab = k; renderAtlas(); } },
+      h("span", { class: "ws-mode-ic" }, I(ic)), h("span", {}, h("b", {}, t("egTab_" + k)), h("span", {}, t("egTabS_" + k))))));
+  return h("div", { class: "ws at-page" },
+    h("div", { class: "ws-hero" }, h("span", { class: "ws-crest" }, I("map")),
+      h("div", {}, h("h1", {}, t("egTitle")), h("p", {}, t("egSub")))),
+    tabs, ...(AT.tab === "masters" ? mastersBody(data) : atlasPage(data)));
+}
+
+// The atlas masters: how each is found, and its keystones from the game files with what they are for
+function mastersBody(data) {
+  const masters = data.tree.masters || [];
+  const filter = h("div", { class: "row at-chips" }, ["", ...AT_MASTER_TAGS].map((tag) =>
+    h("button", { class: "chip mt-filter" + (tag === AT.tag ? " on" : ""), onclick: () => { AT.tag = tag; renderAtlas(); } },
+      tag ? t("atMT_" + tag) : t("atMTAll"))));
+  const cols = h("div", { class: "mt-cols" }, masters.map((m) => {
+    const key = m.id.toLowerCase();
+    const list = m.nodes.filter((n) => !AT.tag || n.tags.includes(AT.tag));
+    return h("section", { class: "card mt-card" },
+      h("div", { class: "mt-head" }, h("span", { class: "ws-ic" }, I("person")),
+        h("div", {}, h("h3", {}, t("atM_" + key)), h("div", { class: "muted small" }, m.title[LANG] || m.title.en))),
+      h("div", { class: "mt-how" }, I("key", "ic-s"), " ", t("atMS_" + key)),
+      h("div", { class: "mt-list" }, list.length ? list.map((n) => h("div", { class: "mt-node" + (n.start ? " start" : "") },
+        h("div", { class: "mt-name" }, n.start ? h("span", { class: "chip ok", title: t("atMStartHint") }, I("star", "ic-s"), t("atMStart")) : null,
+          h("b", {}, (n.name[LANG] || n.name.en).trim())),
+        h("div", { class: "mt-text" }, (n.text[LANG] || n.text.en).map((l) => h("div", {}, l))),
+        h("div", { class: "row at-chips" }, n.tags.map((tag) => h("span", { class: "chip tag mt-" + tag }, t("atMT_" + tag))))))
+        : h("div", { class: "muted small" }, t("atMNone"))));
+  }));
+  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("atMastersSub"))),
+    filter, cols, h("p", { class: "hint at-src" }, t("atMSource"))];
 }
 $("#atlas-open").addEventListener("click", () => { AT.mark = null; AT.focus = null; renderAtlas(); });
 
@@ -111,12 +150,7 @@ function atlasPage(data) {
   const usefulTiles = h("div", { class: "ws-tiles at-useful" }, (route.useful || []).map((g) =>
     h("button", { class: "ws-tile at-st", onclick: () => show(g.nodes) }, h("span", { class: "ws-ic" }, I(AT_GROUP_IC[g.id] || "star")),
       h("div", {}, h("b", {}, t("atU_" + g.id)), h("span", {}, t("atUS_" + g.id)), h("span", { class: "chip tag" }, t("atNodes", g.nodes.length))))));
-  const masters = h("div", { class: "ws-tiles three" }, ["hilda", "doryani", "jado"].map((k) =>
-    h("div", { class: "ws-tile" }, h("span", { class: "ws-ic" }, I("person")), h("div", {}, h("b", {}, t("atM_" + k)), h("span", {}, t("atMS_" + k))))));
-
-  return h("div", { class: "ws at-page" },
-    h("div", { class: "ws-hero" }, h("span", { class: "ws-crest" }, I("map")),
-      h("div", {}, h("h1", {}, t("atTitle")), h("p", {}, t("atSub")))),
+  return [
     h("div", { class: "at-warn" }, I("warn"), h("span", {}, h("b", {}, t("atWarnT")), " ", t("atWarnS"))),
     sec(t("atHowTitle"), t("atHowSub")), how,
     sec(t("atFirstTitle"), t("atFirstSub", total)), firstTiles,
@@ -124,8 +158,7 @@ function atlasPage(data) {
     h("section", { class: "card at-card" }, h("div", { class: "at-bar" }, parts, modes, legend), map.box),
     sec(t("atStagesTitle"), t("atStagesSub")), stageTiles,
     sec(t("atUsefulTitle"), t("atUsefulSub")), usefulTiles,
-    sec(t("atMastersTitle"), t("atMastersSub")), masters,
-    h("p", { class: "hint at-src" }, t("atSource")));
+    h("p", { class: "hint at-src" }, t("atSource"))];
 }
 
 // The tree drawn in SVG: links, nodes with the game's icons, a ring coloured by the stage or the route; drag to move,

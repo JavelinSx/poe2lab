@@ -22,8 +22,10 @@ from .gamedata import BUN, GAME_CACHE, RAW, GameDataError, read_table
 GRAPH = "metadata/atlasskillgraphs/atlasskillgraph.psg"
 CSD = "data/statdescriptions/atlas_stat_descriptions.csd"
 TABLES = ["passiveskilltrees", "stats", "atlaspassiveskillsubtrees", "clientstrings"]
+# the atlas masters (Doryani, Hilda, Jado) and their keystones, in English and the player's language
+MASTER_TABLES = ["atlasclasspassives", "atlasclasspassiveclasses"]
 CACHE = GAME_CACHE / "atlas.json"
-VERSION = 2  # bumped when what is built from the game files changes
+VERSION = 3  # bumped when what is built from the game files changes
 # orbits of a group: radius and how many places on it (PoB's tree constants for PoE2, the atlas uses the same)
 RADII = [0, 82, 162, 335, 493, 662, 846, 251, 1080, 1322]
 PER_ORBIT = [1, 12, 24, 24, 72, 72, 72, 24, 72, 144]
@@ -60,7 +62,7 @@ def _extract(game: Path):
     if not BUN.is_file():
         raise GameDataError(f"нет {BUN.relative_to(gamedata.ROOT)}")
     patterns = [rf"^{re.escape(GRAPH)}$", rf"^{re.escape(CSD)}$", rf"^data/balance/({'|'.join(TABLES)})\.datc64$",
-                r"^data/balance/(russian/)?passiveskills\.datc64$"]
+                rf"^data/balance/(russian/)?(passiveskills|{'|'.join(MASTER_TABLES)})\.datc64$"]
     RAW.mkdir(parents=True, exist_ok=True)
     res = subprocess.run([str(BUN), "extract-files", "--regex", str(game), str(RAW), *patterns],
                          capture_output=True, text=True)
@@ -217,9 +219,50 @@ def build(game: Path | None = None, lang: str = "ru") -> dict:
                                                                       key=lambda k: (order.get(k, len(STAGES)), k))]
     out = {"version": VERSION, "lang": lang, "nodes": list(nodes.values()), "stages": stages,
            "links": [[a, b] for a, b in sorted(links) if a in nodes and b in nodes]}
+    out["masters"] = _masters(balance, lang, stat_ids, descs)
     _convert_icons(game, {n["icon"] for n in nodes.values() if n["icon"]})
     CACHE.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     return out
+
+
+# what a master's keystone is for, found by its stats (the interface names the tags: atMT_<tag>); "start" marks the ones
+# worth having from the first maps: more revives, more and stronger rare monsters, exceptional items
+MASTER_TAGS = [
+    ("safety", r"portals|revive"),
+    ("pinnacle", r"pinnacle"),
+    ("tablets", r"tablet|waystone|prefix_or_suffix"),
+    ("strongbox", r"strongbox|chest"),
+    ("explore", r"reveal|accessible|citadel|terraformer|hidden_map|atlas_event"),
+    ("risky", r"irradiated|corrupt_or_cleansed"),
+    ("mechanics", r"expedition|rogue_exile|azmeri|tormented_spirit|essence|extra_content|added_content|unique_monsters_gain"),
+    ("loot", r"rare_packs|rare_monster_modifiers|magic_monster_additional|rarity|exceptional|potency|unique_item|powerful_boss|replaced_by_random_map_boss"),
+]
+START = r"^map_contains_\+_portals$|^map_number_of_rare_packs_\+%$|^map_items_drop_exceptional_chance_\+%$|^map_powerful_boss_chance_%$"
+
+
+def _masters(balance: Path, lang: str, stat_ids: list[str], descs: dict) -> list[dict]:
+    folder = gamedata.LANG_NAMES[lang].lower()
+    if not (balance / "atlasclasspassives.datc64").is_file():
+        return []
+    classes = read_table(balance / "atlasclasspassiveclasses.datc64", ["Id", "Description"])
+    local_classes = read_table(balance / folder / "atlasclasspassiveclasses.datc64", ["Description"])
+    rows = read_table(balance / "atlasclasspassives.datc64", ["Id", "Class", "Stats", "StatValues", "Name", "KeystoneArt"])
+    local = read_table(balance / folder / "atlasclasspassives.datc64", ["Name"])
+    out = {}
+    for i, r in enumerate(rows):
+        c = r["Class"]
+        if c is None or c >= len(classes) or not classes[c]["Id"]:
+            continue
+        m = out.setdefault(classes[c]["Id"], {"id": classes[c]["Id"], "title": {"en": classes[c]["Description"],
+                           lang: local_classes[c]["Description"]}, "nodes": []})
+        stats = [(stat_ids[s], v) for s, v in zip(r["Stats"], r["StatValues"]) if s < len(stat_ids)]
+        ids = [s for s, _ in stats]
+        tags = [t for t, pat in MASTER_TAGS if any(re.search(pat, s) for s in ids)]
+        m["nodes"].append({"id": r["Id"], "name": {"en": r["Name"], lang: local[i]["Name"] if i < len(local) else r["Name"]},
+                           "text": {"en": describe(stats, descs, "en"), lang: describe(stats, descs, "want")},
+                           "tags": tags[:2], "start": any(re.search(START, s) for s in ids)})
+    order = ["Hilda", "Doryani", "Jado"]
+    return sorted(out.values(), key=lambda m: order.index(m["id"]) if m["id"] in order else 9)
 
 
 def _convert_icons(game: Path, paths: set[str]):

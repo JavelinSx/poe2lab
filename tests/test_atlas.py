@@ -92,3 +92,13 @@ def test_endpoint(monkeypatch):
     monkeypatch.setattr(server.atlas, "guide", lambda game: {"tree": {"nodes": []}, "route": {"steps": []}, "game": game})
     with TestClient(server.app) as c:
         assert c.get("/api/atlas").json()["game"] == "game"
+
+
+def test_master_keystones_get_their_purpose_from_stats():
+    import re
+    tag = lambda stats: [t for t, pat in atlas.MASTER_TAGS if any(re.search(pat, s) for s in stats)]
+    assert tag(["map_contains_+_portals"]) == ["safety"]
+    assert tag(["map_pinnacles_have_1_portal", "map_pinnacle_boss_additional_unique_drop_chance_%"])[0] == "pinnacle"
+    assert tag(["map_opened_maps_are_irradiated"]) == ["risky"]
+    assert tag(["map_rare_monster_modifiers_chance_%", "map_number_of_rare_packs_+%"]) == ["loot"]
+    assert re.search(atlas.START, "map_contains_+_portals") and not re.search(atlas.START, "map_opened_maps_are_irradiated")
