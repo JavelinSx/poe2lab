@@ -1595,3 +1595,11 @@ button.primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 2
 .eg-q-mod.need .eg-q-st { color: #5aa05f; }
 .eg-q-mod.skip { background: rgba(192, 57, 43, .14); border-color: #c0392b; opacity: .85; }
 .eg-q-mod.skip .eg-q-st { color: #c0392b; }
+.eg-q-block { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; border: 1px solid var(--line-2); }
+.eg-q-own { border-left: 4px solid var(--gold-hi); background: rgba(212, 170, 90, .05); }
+.eg-q-rolled { border-left: 4px solid #8a6fc0; background: rgba(138, 111, 192, .06); }
+.eg-q-bh { display: flex; gap: 10px; align-items: flex-start; }
+.eg-q-bh b { font-size: 15px; }
+.eg-q-num { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700;
+  background: var(--panel-2); border: 1px solid var(--line-2); }
+.eg-q-own .eg-q-num { color: var(--gold-hi); } .eg-q-rolled .eg-q-num { color: #a58ad8; }
