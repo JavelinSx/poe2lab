@@ -15,7 +15,17 @@ const AT_STAGE_COLOR = ["#c9b27a", "#5fc98d", "#5b9cf0", "#5b9cf0", "#e8743f", "
 const AT_GROUP_IC = { fracturing: "gem", exceptional: "star", tablets: "layers", lineage: "crown",
   monsters: "skull", rarity: "coins", shrines: "spark", waystones: "map" };
 const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "",
-  mods: null, goal: "", ttype: "", safe: false, prop: "MonsterEffectiveness", min: 30, farm: null };
+  mods: null, goal: "", ttype: "", farm: null,
+  // the stash search builder: header lines with their minimum, all of them or any one, the waystone's least tier,
+  // and modifiers the waystone must have (need) or must not have (skip), by mod id
+  q: { props: { Pack: 20, RareMonsterQuantityBonus: 20 }, any: false, tier: 0, need: new Set(), skip: new Set() } };
+// ready-made searches: header lines and minimums, and whether to leave out the deadly modifiers
+const EG_PRESETS = [
+  ["ritual", { Pack: 20, RareMonsterQuantityBonus: 20 }, true],
+  ["rarity", { ItemRarity: 50 }, true],
+  ["waystones", { WaystoneDropChance: 100 }, false],
+  ["effect", { MonsterEffectiveness: 30 }, false],
+  ["exp", { ExperienceGained: 20 }, true]];
 // the endgame section's tabs (texts: egTab_*)
 const EG_TABS = [["atlas", "map"], ["masters", "person"], ["tablets", "layers"], ["maps", "scroll"], ["farm", "coins"]];
 const EG_FARM_IC = { breach: "spark", delirium: "eye", ritual: "skull", expedition: "hammer", abyss: "drop", essence: "gem",
@@ -170,48 +180,116 @@ function egAtLeast(n) {
   if (a < 9) parts.push(a === 8 ? "9\\d{2}" : `[${a + 1}-9]\\d{2}`);
   return parts.join("|");
 }
-// a waystone modifier's danger part as a short phrase without numbers, for "!" in the stash search
-function egPhrase(m) {
-  const line = (egText(m, "risk")[0] || "").toLowerCase();
-  const runs = line.split(/[\d%+\-–.,:()]+/).map((x) => x.trim()).filter((x) => x.length >= 8);
-  const best = runs.sort((x, y) => y.length - x.length)[0] || "";
-  return best.split(/\s+/).slice(0, 3).join(" ");
+// a waystone modifier's danger part as a short phrase without numbers for the stash search: the shortest run of its
+// words that no other modifier's danger line and no header line has, so it finds this modifier only
+function egPhrase(m, ways = [], props = []) {
+  const low = (x) => (egText(x, "risk")[0] || "").toLowerCase();
+  const line = low(m);
+  const others = [...ways.filter((x) => x !== m && x.id !== m.id).map(low),
+    ...ways.flatMap((x) => egText(x, "reward")), ...egText(m, "risk").slice(1),
+    ...props.map((p) => p.name[LANG] || p.name.en || "")].map((x) => x.toLowerCase());
+  const runs = line.split(/[\d%+\-–.,:()]+/).map((x) => x.trim()).filter(Boolean);
+  const pick = (min) => {
+    let best = "";
+    for (const run of runs) {
+      const words = run.split(/\s+/);
+      for (let n = 1; n <= Math.min(4, words.length); n++)
+        for (let i = 0; i + n <= words.length; i++) {
+          const c = words.slice(i, i + n).join(" ");
+          if (c.length >= min && !others.some((o) => o.includes(c)) && (!best || c.length < best.length)) best = c;
+        }
+    }
+    return best;
+  };
+  const best = pick(10) || pick(8);
+  return best || (runs.sort((x, y) => y.length - x.length)[0] || "").split(/\s+/).slice(0, 3).join(" ");
+}
+
+const egEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// the stash search line: every header line at its minimum ("all"), or any one of them; the tier; modifiers wanted
+// each as its own term, the unwanted ones in one "!a|b" term (quoted terms must all match in the game's search)
+function egQuery(q, props, ways, lang) {
+  const terms = [];
+  const lines = props.filter((p) => q.props[p.id] !== undefined)
+    .map((p) => `${egEsc(p.search[lang] || p.search.en || "")}: \\+?(${egAtLeast(q.props[p.id])})%`);
+  if (lines.length) {
+    if (q.any && lines.length > 1) terms.push(`"(${lines.join("|")})"`);
+    else terms.push(...lines.map((l) => `"${l}"`));
+  }
+  if (q.tier > 1) terms.push(`"${lang === "ru" ? "\\(ур\\. " : "\\(tier "}(${egAtLeast(q.tier)})\\)"`);
+  const phrase = (id) => egPhrase(ways.find((m) => m.id === id) || {}, ways, props);
+  for (const id of q.need) { const x = phrase(id); if (x) terms.push(`"${egEsc(x)}"`); }
+  const skip = [...new Set([...q.skip].map(phrase).filter(Boolean))];
+  if (skip.length) terms.push(`"!${skip.map(egEsc).join("|")}"`);
+  return terms.join(" ");
 }
 
 function mapsBody(d) {
   const ways = d.mods.filter((m) => m.item === "waystone");
-  const deadly = ways.filter((m) => m.danger === "deadly");
   const props = d.properties || [];
+  const q = AT.q;
   const out = h("code", { class: "eg-regex" });
   const note = h("div", { class: "hint" });
   const sync = () => {
-    const prop = props.find((p) => p.id === AT.prop) || props[0];
-    if (!prop) return;
-    const tail = (prop.search[LANG] || prop.search.en || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    let q = `"${tail}: \\+?(${egAtLeast(AT.min)})%"`;
-    if (AT.safe && deadly.length) q += ` "!${[...new Set(deadly.map(egPhrase).filter(Boolean))].join("|")}"`;
-    out.textContent = q;
-    note.textContent = t("egSearchNote", q.length);
+    const text = egQuery(q, props, ways, LANG);
+    out.textContent = text || t("egQEmpty");
+    note.className = "hint" + (text.length > 250 ? " eg-long" : "");
+    note.textContent = text ? t("egSearchNote", text.length) + (text.length > 250 ? " " + t("egQLong") : "") : "";
   };
-  const sel = h("select", { onchange: (e) => { AT.prop = e.target.value; sync(); } },
-    props.map((p) => h("option", { value: p.id, selected: p.id === AT.prop ? "" : null }, p.name[LANG] || p.name.en)));
-  const num = h("input", { type: "number", min: "0", max: "999", value: String(AT.min), class: "eg-min",
-    oninput: (e) => { AT.min = +e.target.value || 0; sync(); } });
-  const safe = h("label", { class: "eg-safe" }, h("input", { type: "checkbox", checked: AT.safe ? "" : null,
-    onchange: (e) => { AT.safe = e.target.checked; sync(); } }), " ", t("egNoDeadly"));
+  const redraw = () => { renderAtlas(); };
+  const presets = h("div", { class: "row at-chips" }, EG_PRESETS.map(([id, set, safe]) =>
+    h("button", { class: "chip mt-filter", onclick: () => {
+      q.props = { ...set }; q.any = false; q.need = new Set();
+      q.skip = new Set(safe ? ways.filter((m) => m.danger === "deadly").map((m) => m.id) : []);
+      redraw();
+    } }, t("egQP_" + id))));
+  const rows = h("div", { class: "eg-q-props" }, props.map((p) => {
+    const on = q.props[p.id] !== undefined;
+    const num = h("input", { type: "number", min: "0", max: "999", class: "eg-min", value: String(on ? q.props[p.id] : 20),
+      disabled: on ? null : "", oninput: (e) => { q.props[p.id] = +e.target.value || 0; sync(); } });
+    return h("label", { class: "eg-q-prop" + (on ? " on" : "") },
+      h("input", { type: "checkbox", checked: on ? "" : null, onchange: (e) => {
+        if (e.target.checked) q.props[p.id] = +num.value || 0; else delete q.props[p.id];
+        redraw();
+      } }),
+      h("span", {}, p.name[LANG] || p.name.en), h("span", { class: "muted small" }, "≥"), num, h("span", { class: "muted small" }, "%"));
+  }));
+  const anyBox = h("label", { class: "eg-safe" }, h("input", { type: "checkbox", checked: q.any ? "" : null,
+    onchange: (e) => { q.any = e.target.checked; sync(); } }), " ", t("egQAny"));
+  const tier = h("label", { class: "eg-safe" }, t("egQTier"), " ",
+    h("input", { type: "number", min: "0", max: "16", class: "eg-min", value: String(q.tier || ""), placeholder: "—",
+      oninput: (e) => { q.tier = +e.target.value || 0; sync(); } }));
+  const order = { deadly: 0, hard: 1, mild: 2 };
+  const modChips = h("div", { class: "eg-q-mods" }, [...ways].sort((x, y) => (order[x.danger] ?? 3) - (order[y.danger] ?? 3)).map((m) => {
+    const st = q.need.has(m.id) ? "need" : q.skip.has(m.id) ? "skip" : "";
+    return h("button", { class: `eg-q-mod eg-d-${m.danger}` + (st ? " " + st : ""), title: [...egText(m, "risk"), ...egText(m, "reward").map((l) => "+ " + l)].join("\n"),
+      onclick: () => {  // nothing -> must have -> must not have -> nothing
+        if (st === "") q.need.add(m.id); else if (st === "need") { q.need.delete(m.id); q.skip.add(m.id); } else q.skip.delete(m.id);
+        redraw();
+      } },
+    h("span", { class: "eg-q-st" }, st === "need" ? "✓" : st === "skip" ? "✕" : "·"),
+    h("span", {}, egText(m, "risk")[0] || ""),
+    h("span", { class: "muted small" }, egText(m, "reward").map((l) => "+ " + l).join(", ")));
+  }));
+  const allDeadly = h("button", { class: "chip mt-filter", onclick: () => {
+    ways.filter((m) => m.danger === "deadly").forEach((m) => { q.need.delete(m.id); q.skip.add(m.id); }); redraw();
+  } }, t("egNoDeadly"));
+  const clear = h("button", { class: "chip mt-filter", onclick: () => { q.need = new Set(); q.skip = new Set(); redraw(); } }, t("egQClear"));
   const copy = h("button", { class: "ghost small", onclick: async () => {
     try { await navigator.clipboard.writeText(out.textContent); toast(t("egCopied"), true); } catch (_) { toast(out.textContent); }
   } }, I("clip"), " ", t("egCopy"));
   sync();
   const fits = (m) => !AT.goal || m.goals.includes(AT.goal);
-  const order = { deadly: 0, hard: 1, mild: 2 };
   const list = ways.filter(fits).sort((x, y) => (order[x.danger] ?? 3) - (order[y.danger] ?? 3));
   return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egMapIntro"))),
     egSec(t("egSearchTitle"), t("egSearchSub")),
     h("section", { class: "card eg-search" },
-      h("div", { class: "row eg-search-row" }, h("label", {}, h("span", { class: "muted small" }, t("egProp")), sel),
-        h("label", {}, h("span", { class: "muted small" }, t("egMin")), num), safe),
-      h("div", { class: "row eg-search-row" }, out, copy), note),
+      h("div", { class: "row eg-search-row eg-q-out" }, out, copy), note,
+      h("div", { class: "muted small" }, t("egQPresets")), presets,
+      h("div", { class: "muted small" }, t("egQLines")), rows,
+      h("div", { class: "row eg-search-row" }, anyBox, tier),
+      h("div", { class: "muted small" }, t("egQMods")),
+      h("div", { class: "row at-chips" }, allDeadly, clear), modChips),
     egSec(t("egMapsList"), t("egMapsListSub")), goalFilter(),
     h("div", { class: "eg-grid" }, list.map((m) => h("div", { class: "mt-node eg-mod eg-" + m.danger },
       h("div", { class: "mt-name" }, h("span", { class: "chip eg-d-" + m.danger, title: t("egDHint") }, t("egD_" + m.danger)),
