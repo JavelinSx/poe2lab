@@ -18,7 +18,15 @@ const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, v
   mods: null, goal: "", ttype: "", farm: null,
   // the stash search builder: header lines with their minimum, all of them or any one, the waystone's least tier,
   // and modifiers the waystone must have (need) or must not have (skip), by mod id
-  q: { props: { Pack: 20, RareMonsterQuantityBonus: 20 }, any: false, tier: 0, need: new Set(), skip: new Set() } };
+  q: { props: { Pack: 20, RareMonsterQuantityBonus: 20 }, any: false, tier: 0, need: new Set(), skip: new Set() },
+  // the tablet search: its type, modifiers it must have (id -> least value, 0 for any) and must not have
+  tq: { type: "", any: false, need: new Map(), skip: new Set() } };
+// ready-made tablet searches: the type and the modifiers wanted (any one of them is enough)
+const EG_TPRESETS = [
+  ["delirium", "delirium", ["TowerDeliriumMonsterSplinterIncrease", "TowerDeliriumFogDissipationDelayNew", "TowerDeliriumRareMonsterPause"]],
+  ["ritual", "ritual", ["TowerRitualTributeIncrease", "TowerRitualAdditionalReroll", "TowerRitualOmenChance"]],
+  ["breach", "breach", ["TowerBreachMonsterSplinterIncrease", "TowerBreach3AdditionalChance", "TowerBreachAdditionalChance"]],
+  ["monsters", "", ["TowerRarePackIncrease", "TowerMagicPackIncrease", "TowerPackSizeIncrease"]]];
 // ready-made searches: header lines and minimums, and whether to leave out the deadly modifiers
 const EG_PRESETS = [
   ["ritual", { Pack: 20, RareMonsterQuantityBonus: 20 }, true],
@@ -135,6 +143,96 @@ function modCard(m) {
     h("div", { class: "mt-text" }, egText(m).map((l) => h("div", {}, l))), goalChips(m.goals));
 }
 
+// a tablet modifier as a search term: its own phrase, with the number next to it at least `min` when asked
+// (a range written high to low, "30–20% less", is a "less is better" number: then only the phrase)
+function egModTerm(m, pool, min) {
+  const lines = egText(m);
+  let phrase = "", line = "";
+  for (const l of lines) { const x = egPhrase(m, pool, [], "text", l); if (x && (!phrase || /\d/.test(l) && !/\d/.test(line))) { phrase = x; line = l; } }
+  if (!phrase) return "";
+  const low = line.toLowerCase(), num = low.match(/(\d+)(?:–(\d+))?/);
+  if (!min || !num || (num[2] && +num[1] > +num[2])) return egEsc(phrase);
+  const n = `\\b(${egAtLeast(min)})\\b`;
+  return num.index < low.indexOf(phrase) ? `${n}\\D*${egEsc(phrase)}` : `${egEsc(phrase)}\\D*${n}`;
+}
+function egTabletQuery(q, all) {
+  const terms = [], tablets = all.filter((m) => m.kind !== "unique");  // a unique tablet is known by its own name
+  const base = tablets.find((m) => m.base && m.type === q.type && m.kind !== "unique");
+  if (base) terms.push(`"${egEsc(egPhrase(base, tablets.filter((m) => m.base), [], "text"))}"`);
+  const need = [...q.need].map(([id, min]) => egModTerm(tablets.find((m) => m.id === id) || {}, tablets, min)).filter(Boolean);
+  if (q.any && need.length > 1) terms.push(`"(${need.join("|")})"`);
+  else terms.push(...need.map((x) => `"${x}"`));
+  const skip = [...q.skip].map((id) => egModTerm(tablets.find((m) => m.id === id) || {}, tablets, 0)).filter(Boolean);
+  if (skip.length) terms.push(`"!${[...new Set(skip)].join("|")}"`);
+  return terms.join(" ");
+}
+function tabletSearch(tablets, types) {
+  const q = AT.tq;
+  const out = h("code", { class: "eg-regex" });
+  const note = h("div", { class: "hint" });
+  const sync = () => {
+    const text = egTabletQuery(q, tablets);
+    out.textContent = text || t("egTQEmpty");
+    note.className = "hint" + (text.length > 250 ? " eg-long" : "");
+    note.textContent = text ? t("egSearchNote", text.length) + (text.length > 250 ? " " + t("egQLong") : "") : "";
+  };
+  const presets = h("div", { class: "row at-chips" }, EG_TPRESETS.map(([id, type, ids]) =>
+    h("button", { class: "chip mt-filter", onclick: () => {
+      q.type = type; q.any = true; q.need = new Map(ids.map((x) => [x, 0])); q.skip = new Set(); renderAtlas();
+    } }, t("egTQP_" + id))));
+  const typeChips = h("div", { class: "row at-chips" }, [null, ...types].map((m) => {
+    const type = m ? m.type : "";
+    return h("button", { class: "chip mt-filter" + (type === q.type ? " on" : ""), onclick: () => {
+      q.type = type;  // the other type's own modifiers do not fit it any more
+      for (const id of [...q.need.keys(), ...q.skip]) {
+        const x = tablets.find((y) => y.id === id);
+        if (x && x.type && x.type !== type) { q.need.delete(id); q.skip.delete(id); }
+      }
+      renderAtlas();
+    } }, m ? t("egType_" + type) : t("egTQAnyType"));
+  }));
+  const plain = tablets.filter((m) => m.kind !== "unique");
+  const list = tablets.filter((m) => !m.base && m.kind !== "unique" && (!m.type || m.type === q.type))
+    .sort((x, y) => (y.type ? 1 : 0) - (x.type ? 1 : 0));
+  const modChips = h("div", { class: "eg-q-mods" }, list.map((m) => {
+    const st = q.need.has(m.id) ? "need" : q.skip.has(m.id) ? "skip" : "";
+    const line = egText(m).find((l) => /\d/.test(l)) || "";
+    const num = line.match(/(\d+)(?:–(\d+))?/);
+    const ranged = num && !(num[2] && +num[1] > +num[2]);
+    const min = st === "need" && ranged ? h("label", { class: "eg-q-minbox", onclick: (e) => e.stopPropagation() }, "≥ ",
+      h("input", { type: "number", min: "0", max: "999", class: "eg-min", value: String(q.need.get(m.id) || ""), placeholder: num[1],
+        oninput: (e) => { q.need.set(m.id, +e.target.value || 0); sync(); } })) : null;
+    const re = new RegExp(egModTerm(m, plain, 0), "i");
+    const alike = plain.filter((x) => x !== m && re.test(egText(x).join("\n").toLowerCase()));
+    return h("div", { class: `eg-q-mod` + (m.type ? " eg-own" : "") + (st ? " " + st : ""), title: egText(m).join("\n"),
+      onclick: () => {  // nothing -> must have -> must not have -> nothing
+        if (st === "") q.need.set(m.id, 0); else if (st === "need") { q.need.delete(m.id); q.skip.add(m.id); } else q.skip.delete(m.id);
+        renderAtlas();
+      } },
+    h("span", { class: "eg-q-st" }, st === "need" ? "✓" : st === "skip" ? "✕" : "·"),
+    h("span", {}, egText(m).join(" / ")),
+    h("span", { class: "muted small" }, m.type ? t("egOnly", t("egType_" + m.type)) : t("egKind_" + m.kind), min ? " " : "", min,
+      alike.length ? h("span", { class: "eg-alike", title: alike.map((x) => egText(x).join(" / ")).join("\n") }, " · ", t("egTQAlike", alike.length)) : null));
+  }));
+  const anyBox = h("label", { class: "eg-safe" }, h("input", { type: "checkbox", checked: q.any ? "" : null,
+    onchange: (e) => { q.any = e.target.checked; sync(); } }), " ", t("egTQAny"));
+  const clear = h("button", { class: "chip mt-filter", onclick: () => { q.need = new Map(); q.skip = new Set(); renderAtlas(); } }, t("egQClear"));
+  const copy = h("button", { class: "ghost small", onclick: async () => {
+    try { await navigator.clipboard.writeText(out.textContent); toast(t("egCopied"), true); } catch (_) { toast(out.textContent); }
+  } }, I("clip"), " ", t("egCopy"));
+  sync();
+  return [egSec(t("egTSearchTitle"), t("egTSearchSub")),
+    h("section", { class: "card eg-search" },
+      h("div", { class: "row eg-search-row eg-q-out" }, out, copy), note,
+      h("div", { class: "muted small" }, t("egQPresets")), presets,
+      h("div", { class: "eg-q-block eg-q-own" },
+        h("div", { class: "eg-q-bh" }, h("span", { class: "eg-q-num" }, "1"), h("div", {}, h("b", {}, t("egTQType")), h("div", { class: "muted small" }, t("egTQTypeS")))),
+        typeChips),
+      h("div", { class: "eg-q-block eg-q-rolled" },
+        h("div", { class: "eg-q-bh" }, h("span", { class: "eg-q-num" }, "2"), h("div", {}, h("b", {}, t("egTQMods")), h("div", { class: "muted small" }, t("egTQModsS")))),
+        h("div", { class: "row at-chips" }, anyBox, clear), modChips))];
+}
+
 function tabletsBody(d) {
   const tablets = d.mods.filter((m) => m.item === "tablet");
   const types = [];
@@ -154,6 +252,7 @@ function tabletsBody(d) {
   const uniques = tablets.filter((m) => m.kind === "unique" && fits(m));
   const grid = (list) => list.length ? h("div", { class: "eg-grid" }, list.map(modCard)) : h("div", { class: "muted small" }, t("atMNone"));
   return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egTabletIntro"))),
+    ...tabletSearch(tablets, types),
     egSec(t("egTypesTitle"), t("egTypesSub")), typeTiles,
     egSec(t("egModsTitle"), t("egModsSub")), goalFilter(),
     AT.ttype ? egSec(t("egOnly", t("egType_" + AT.ttype))) : null, AT.ttype ? grid(own) : null,
@@ -182,27 +281,28 @@ function egAtLeast(n) {
 }
 // a waystone modifier's danger part as a short phrase without numbers for the stash search: the shortest run of its
 // words that no other modifier's danger line and no header line has, so it finds this modifier only
-function egPhrase(m, ways = [], props = []) {
-  const low = (x) => (egText(x, "risk")[0] || "").toLowerCase();
-  const line = low(m);
+function egPhrase(m, ways = [], props = [], part = "risk", line = null) {
+  const low = (x) => egText(x, part).join("\n").toLowerCase();
+  line = (line ?? egText(m, part)[0] ?? "").toLowerCase();
   const others = [...ways.filter((x) => x !== m && x.id !== m.id).map(low),
-    ...ways.flatMap((x) => egText(x, "reward")), ...egText(m, "risk").slice(1),
+    ...ways.flatMap((x) => egText(x, "reward")), ...egText(m, part).filter((l) => l.toLowerCase() !== line),
     ...props.map((p) => p.name[LANG] || p.name.en || "")].map((x) => x.toLowerCase());
   const runs = line.split(/[\d%+\-–.,:()]+/).map((x) => x.trim()).filter(Boolean);
   const pick = (min) => {
     let best = "";
     for (const run of runs) {
       const words = run.split(/\s+/);
-      for (let n = 1; n <= Math.min(4, words.length); n++)
+      for (let n = 1; n <= Math.min(8, words.length); n++)
         for (let i = 0; i + n <= words.length; i++) {
           const c = words.slice(i, i + n).join(" ");
-          if (c.length >= min && !others.some((o) => o.includes(c)) && (!best || c.length < best.length)) best = c;
+          if (c.length >= min && line.includes(c) && !others.some((o) => o.includes(c)) && (!best || c.length < best.length)) best = c;
         }
     }
     return best;
   };
   const best = pick(10) || pick(8);
-  return best || (runs.sort((x, y) => y.length - x.length)[0] || "").split(/\s+/).slice(0, 3).join(" ");
+  // no piece is its own (its whole line is inside another one): the longest run, the closest it gets
+  return best || runs.sort((x, y) => y.length - x.length)[0] || "";
 }
 
 const egEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
