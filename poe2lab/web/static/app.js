@@ -451,7 +451,8 @@ $("#add-build").addEventListener("click", renderAddBuild);
 // ---------- the build constructor: a build from nothing (PLAN.md, "Конструктор билда с нуля") ----------
 const ATTR_COLOR = { str: "#c8463a", dex: "#4fae5a", int: "#5467d8" };
 const nbState = { asc: null, ascName: "", stage: "endgame", level: 92, name: "" };
-const nbLadder = { shares: null, error: "", tops: {} };  // poe.ninja's ladder: kept while the page is open
+// poe.ninja's ladder, kept while the page is open; the skills, uniques and keystones the characters must have
+const nbLadder = { shares: null, error: "", tops: {}, filter: { skill: new Set(), item: new Set(), keystone: new Set() } };
 
 async function renderNewBuild() {
   hideBuildChrome();
@@ -468,15 +469,27 @@ async function renderNewBuild() {
   const drawTop = async () => {
     const asc = nbState.ascName;
     if (!asc) { ladderBox.replaceChildren(); return; }
-    if (!nbLadder.tops[asc]) {
+    const f = nbLadder.filter;
+    const query = ["skill", "item", "keystone"].flatMap((k) => [...f[k]].map((v) => `&${k}=${encodeURIComponent(v)}`)).join("");
+    const key = asc + query;
+    if (!nbLadder.tops[key]) {
       ladderBox.replaceChildren(loading(t("nbLadderLoading")));
-      try { nbLadder.tops[asc] = await api(`/api/ladder/top?ascendancy=${encodeURIComponent(asc)}`); } catch (e) {
+      try { nbLadder.tops[key] = await api(`/api/ladder/top?ascendancy=${encodeURIComponent(asc)}${query}`); } catch (e) {
         ladderBox.replaceChildren(h("p", { class: "muted small" }, t("nbLadderFail", e.message)));
         return;
       }
       if (nbState.ascName !== asc) return;
     }
-    const top = nbLadder.tops[asc];
+    const top = nbLadder.tops[key];
+    // a build described in words (a video's): press what it has - the characters left have all of it
+    const pick = (kind, list) => {
+      const on = f[kind], count = Object.fromEntries((list || []).map((x) => [x.name, x.count]));
+      const names = [...new Set([...on, ...(list || []).map((x) => x.name)])];
+      return names.length ? h("div", { class: "row at-chips nb-lfilter" }, h("span", { class: "muted small nb-lf-l" }, t("nbLF_" + kind)),
+        names.map((n) => h("button", { class: "chip mt-filter" + (on.has(n) ? " on" : ""),
+          onclick: () => { if (on.has(n)) on.delete(n); else on.add(n); drawTop(); } },
+          icon(n), " ", trName(n), !on.has(n) && count[n] ? h("span", { class: "nb-lf-n" }, " " + fmt(count[n])) : null))) : null;
+    };
     const take = (c) => async (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
@@ -495,6 +508,8 @@ async function renderNewBuild() {
     };
     ladderBox.replaceChildren(h("h3", {}, t("nbLadderTitle", trName(asc))),
       h("div", { class: "sub" }, t("nbLadderSub", top.league, fmt(top.total))),
+      h("div", { class: "hint" }, I("search", "ic-s"), " ", t("nbLFHint")),
+      pick("skill", top.skills), pick("item", top.uniques), pick("keystone", top.keystones),
       top.characters.length ? h("div", { class: "nb-ladder" }, top.characters.map((c) => h("div", { class: "nb-lrow" },
         h("span", { class: "nb-llevel" }, c.level),
         h("span", { class: "named" }, icon(c.skill), h("b", {}, trName(c.skill))),
@@ -517,7 +532,7 @@ async function renderNewBuild() {
         h("div", { class: "nb-cname" }, trName(c.name)),
         h("div", { class: "nb-attrs" }, attr("str", c.str), attr("dex", c.dex), attr("int", c.int)),
         h("div", { class: "nb-ascs" }, c.ascendancies.map((a) => h("button", { class: "nb-asc" + (nbState.asc === a.id ? " sel" : ""),
-          onclick: () => { nbState.asc = a.id; nbState.ascName = a.name; draw(); drawTop(); } },
+          onclick: () => { nbState.asc = a.id; nbState.ascName = a.name; Object.values(nbLadder.filter).forEach((x) => x.clear()); draw(); drawTop(); } },
         h("span", {}, trName(a.name), best === a && share(a) > 0 ? h("span", { class: "nb-best", title: t("nbLadderBest") }, " ★") : null),
         shares ? h("span", { class: "nb-share", title: t("nbShareHint", fmt((shares[a.name] || {}).count || 0), nbLadder.shares.league) },
           h("span", { class: "nb-share-bar", style: `width:${Math.max(2, Math.round(share(a) * 100 * 1.4))}px` }),

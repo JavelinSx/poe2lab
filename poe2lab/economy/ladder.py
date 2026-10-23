@@ -123,8 +123,9 @@ def _dictionary(hash_: str) -> list[str]:
 
 
 def parse_search(body: bytes, names_of) -> dict:
-    """A search answer as {"total", "ascendancies": {name: count}, "items": {unique: count}, "characters": [...]}:
-    names_of(dictionary id) -> the dictionary's entries (the class, gem and item names)."""
+    """A search answer as {"total", "ascendancies": {name: count}, "items": {unique: count}, "skills": {main skill:
+    count}, "keystones": {keystone: count}, "characters": [...]}: names_of(dictionary id) -> the dictionary's entries
+    (the class, gem and item names)."""
     result = next(v for n, wt, v in fields(body) if n == 1)
     parts = fields(result)
     total = next((v for n, wt, v in parts if n == 1 and wt == 0), 0)
@@ -159,26 +160,31 @@ def parse_search(body: bytes, names_of) -> dict:
     classes = names_of(refs["class"]) if "class" in refs else []
     gems = names_of(refs["gem"]) if "gem" in refs else []
     col = lambda name, i, default=None: (columns.get(name) or [])[i] if i < len(columns.get(name) or []) else default  # noqa: E731
+    # the damage columns: "dps.*", or "dps-<skill>.*" when the search asked for a skill
+    dps = next((c.removesuffix(".skill") for c in columns if c.startswith("dps") and c.endswith(".skill")), "dps")
     chars = []
     for i, name in enumerate(columns.get("name") or []):
-        cls, skill = col("class", i), col("dps.skill", i)
+        cls, skill = col("class", i), col(dps + ".skill", i)
         chars.append({"name": name, "account": col("account", i, ""), "level": col("level", i, 0),
                       "class": classes[cls] if cls is not None and cls < len(classes) else "",
                       "skill": gems[skill] if skill is not None and skill < len(gems) else "",
                       "life": col("life", i, 0), "es": col("energyshield", i, 0),
-                      "ehp": col("ehp__str", i, ""), "dps": col("dps.total", i, "")})
-    # the uniques the characters wear (poe.ninja's "items" filter), when the answer has them
+                      "ehp": col("ehp__str", i, ""), "dps": col(dps + ".total", i, "")})
+    # the uniques the characters wear, their skills and keystones (poe.ninja's filters), when the answer has them
     return {"total": total, "ascendancies": counts, "items": dimension(b"items") if "item" in refs else {},
-            "characters": chars}
+            "skills": dimension(b"skills") if "gem" in refs else {},
+            "keystones": dimension(b"keypassives") if "keypassive" in refs else {}, "characters": chars}
 
 
-def search(ascendancy: str | None = None, league: str | None = None) -> dict:
+def search(ascendancy: str | None = None, league: str | None = None, skills=(), items=(), keypassives=()) -> dict:
     """The league's ladder, of one ascendancy or of all: how many pick each ascendancy and the top characters (by
-    experience, as poe.ninja lists them), each with a link to its page there."""
+    experience, as poe.ninja lists them), each with a link to its page there. Skills (main skills), items (uniques)
+    and keypassives (keystones), by their English names, are what every character found must have - all of them."""
     snap = snapshot(league)
-    params = {"overview": snap["snapshotName"], "type": "exp"}
+    params = [("overview", snap["snapshotName"]), ("type", "exp")]
     if ascendancy:
-        params["class"] = ascendancy
+        params.append(("class", ascendancy))
+    params += [("skills", s) for s in skills] + [("items", i) for i in items] + [("keypassives", k) for k in keypassives]
     body = _fetch(f"{ROOT}/builds/{snap['version']}/search?" + urllib.parse.urlencode(params))
     out = parse_search(body, _dictionary)
     for c in out["characters"]:
@@ -267,6 +273,48 @@ def top_bases_cached(classes: dict[str, list[str]], league: str | None = None, p
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         key.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     return out
+
+
+def worn(data: dict) -> dict:
+    """What a ladder character (character()) has, by name: its uniques (gear, flasks, jewels), the bases of its gear,
+    its gems, and its main skill (the one poe.ninja shows the most damage for)."""
+    worn_items = [it.get("itemData") or {} for part in ("items", "flasks", "jewels") for it in data.get(part) or []]
+    uniques = {d.get("name", "") for d in worn_items if d.get("frameType") == UNIQUE}
+    gems = {g.get("name", "") for s in data.get("skills") or [] for g in s.get("allGems") or []}
+    dps = [((d.get("dps") or 0) + (d.get("dotDps") or 0), d.get("name", "")) for s in data.get("skills") or []
+           for d in s.get("dps") or []]
+    return {"uniques": uniques - {""}, "bases": {d.get("baseType", "") for d in worn_items} - {""}, "gems": gems - {""},
+            "main": max(dps)[1] if dps else ""}
+
+
+def similar(ascendancy: str, skills=(), items=(), keypassives=(), prefer=(), budget: float | None = None,
+            prices: dict[str, float] | None = None, league: str | None = None, candidates: int = 8,
+            pause: float = 0.3) -> dict:
+    """Ladder characters like a build described in words (a video without a link): the ascendancy, main skills,
+    uniques and keystones every one must have (the search), then the first `candidates` of them (by experience)
+    ranked by whether their main skill is one of `skills`, how many of `prefer` (more uniques, bases or gems, by
+    name) they have and - with a budget in divines - by
+    whether their uniques cost more (prices: unique name -> divines). {"league", "total", "characters": [{"name",
+    "account", "level", "url", "main", "has", "lacks", "uniques", "cost"}]}, the closest first."""
+    found = search(ascendancy, league, skills, items, keypassives)
+    prices = prices or {}
+    out = []
+    for rank, c in enumerate(found["characters"][:candidates]):
+        try:
+            have = worn(character(c["account"], c["name"], league))
+        except (OSError, ValueError):
+            continue
+        names = have["uniques"] | have["bases"] | have["gems"]
+        has = [p for p in prefer if p in names or any(p in g for g in have["gems"])]
+        cost = round(sum(prices.get(u, 0) for u in have["uniques"]), 1)
+        over = max(0.0, cost - budget) / max(budget, 1) if budget else 0.0
+        out.append({k: c[k] for k in ("name", "account", "level", "url")} | {
+            "has": has, "lacks": [p for p in prefer if p not in has], "uniques": sorted(have["uniques"]), "cost": cost,
+            "main": have["main"],
+            "score": len(has) + (4 if have["main"] in skills else 0) - min(over, 3) - rank * 0.05})
+        time.sleep(pause)
+    out.sort(key=lambda x: -x["score"])
+    return {"league": found["league"], "total": found["total"], "characters": out}
 
 
 def character_code(account: str, name: str, league: str | None = None) -> str:

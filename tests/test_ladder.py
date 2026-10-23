@@ -88,14 +88,18 @@ def test_the_interface_takes_a_ladder_build(tmp_path, monkeypatch):
             monkeypatch.setattr(module, "PROJECT_BUILDS", tmp_path)
     monkeypatch.setattr(library, "TRASH", tmp_path / ".trash")
     names = {"hash-class": CLASSES, "hash-gem": GEMS}
-    monkeypatch.setattr(ladder, "search", lambda asc=None, league=None: ladder.parse_search(search_answer(), names.__getitem__)
-                        | {"league": "Forbidden Rites"})
+    asked = {}
+    monkeypatch.setattr(ladder, "search", lambda asc=None, league=None, **filters: asked.update(filters)
+                        or ladder.parse_search(search_answer(), names.__getitem__) | {"league": "Forbidden Rites"})
     monkeypatch.setattr(ladder, "character_code", lambda account, name, league=None: CODE)
     with TestClient(server.app) as client:
         shares = client.get("/api/ladder/ascendancies").json()
         assert shares["total"] == 300 and shares["shares"]["Invoker"] == {"count": 233, "share": 233 / 300}
         top = client.get("/api/ladder/top?ascendancy=Invoker&limit=1").json()
         assert [c["name"] for c in top["characters"]] == ["Aaeaala"]
+        # a build described in words: every character found has all of them
+        client.get("/api/ladder/top?ascendancy=Invoker&skill=Comet&item=Atziri%27s%20Rule&item=Skin%20of%20the%20Loyal")
+        assert asked == {"skills": ["Comet"], "items": ["Atziri's Rule", "Skin of the Loyal"], "keypassives": []}
         b = client.post("/api/ladder/take", json={"account": "aa-1", "name": "Aaeaala", "skill": "Falling Thunder"},
                         headers=H).json()
         assert b["name"] == "Aaeaala (Falling Thunder)" and b["info"]["ascendancy"] == "Titan"  # the fixture's code

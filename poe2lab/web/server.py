@@ -8,7 +8,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -2154,9 +2154,9 @@ def new_classes():
 
 # ---- the ladder of poe.ninja: which ascendancies players pick, and a top character's build to start from ----
 
-def _ladder(ascendancy: str | None = None) -> dict:
+def _ladder(ascendancy: str | None = None, **filters) -> dict:
     try:
-        return ladder.search(ascendancy, ninja.chosen_league())
+        return ladder.search(ascendancy, ninja.chosen_league(), **filters)
     except (OSError, ValueError, StopIteration) as err:
         raise HTTPException(502, f"poe.ninja не отвечает: {err}")
 
@@ -2170,12 +2170,21 @@ def ladder_ascendancies():
             "shares": {k: {"count": v, "share": v / total} for k, v in s["ascendancies"].items()}}
 
 
+LADDER_CHOICES = 20  # the skills, uniques and keystones offered to narrow the ladder down
+
+
 @app.get("/api/ladder/top")
-def ladder_top(ascendancy: str, limit: int = 12):
+def ladder_top(ascendancy: str, limit: int = 12, skill: list[str] = Query([]), item: list[str] = Query([]),
+               keystone: list[str] = Query([])):
     """The ascendancy's top characters on the ladder (by experience): level, main skill, damage, effective life,
-    and each one's page on poe.ninja."""
-    s = _ladder(ascendancy)
-    return {"league": s["league"], "total": s["total"], "characters": s["characters"][:max(1, min(limit, 50))]}
+    and each one's page on poe.ninja - all of them with the skills, uniques and keystones given (a build described
+    in words: a video's). With what those characters use most, to narrow it down further."""
+    s = _ladder(ascendancy, skills=skill, items=item, keypassives=keystone)
+    common = lambda counts, skip=(): [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda kv: -kv[1])  # noqa: E731
+                                      if v and not k.startswith(skip)][:LADDER_CHOICES]
+    return {"league": s["league"], "total": s["total"], "characters": s["characters"][:max(1, min(limit, 50))],
+            "skills": common(s.get("skills", {})), "uniques": common(s.get("items", {}), ("Rare ", "Magic ", "Normal ")),
+            "keystones": common(s.get("keystones", {}))}
 
 
 class LadderTake(BaseModel):

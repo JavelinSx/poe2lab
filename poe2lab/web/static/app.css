@@ -1535,6 +1535,12 @@ button.primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 2
 .mt-intro .ic { color: var(--gold); }
 .chip.mt-filter { border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
 .chip.mt-filter.on { background: var(--gold-bg); border-color: var(--gold-line); color: var(--gold-hi); }
+/* the ladder narrowed down by what a build has (the new build page) */
+.nb-lfilter { align-items: center; gap: 5px; }
+.nb-lfilter .chip { display: inline-flex; align-items: center; gap: 3px; }
+.nb-lfilter .ico { width: 18px; height: 18px; }
+.nb-lf-l { min-width: 84px; }
+.nb-lf-n { color: var(--faint); font-weight: 500; }
 .mt-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .mt-card { display: flex; flex-direction: column; gap: 10px; }
 .mt-head { display: grid; grid-template-columns: 38px 1fr; gap: 10px; align-items: center; }
