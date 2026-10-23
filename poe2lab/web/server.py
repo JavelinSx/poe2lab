@@ -46,7 +46,8 @@ from ..economy import ninja
 from ..economy.ninja import PriceBook
 from ..engine import PobEngine, PobError
 from ..engine.pobcode import encode_pob_code
-from .. import (atlas, author, buildplanner, constructor, crafting, endgame, feedback, gamedata, gemcraft, glossary,
+from .. import (atlas, author, buildplanner, constructor, crafting, endgame, farmguide, feedback, gamedata, gemcraft,
+               glossary,
                icons, itemcraft,
                itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality,
                resultcache)
@@ -3411,6 +3412,12 @@ def endgame_farm():
         return endgame.farm()
     except OSError as err:
         raise HTTPException(502, f"нет цен poe.ninja: {err}")
+
+
+@app.get("/api/endgame/strategies")
+def endgame_strategies(lang: str = "ru"):
+    """The farming strategies with how to set each up (poe2lab.farmguide)."""
+    return {"strategies": farmguide.strategies(lang if lang in ("ru", "en") else "ru")}
 
 
 @app.get("/api/glossary")

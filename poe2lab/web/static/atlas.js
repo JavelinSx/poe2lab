@@ -15,7 +15,7 @@ const AT_STAGE_COLOR = ["#c9b27a", "#5fc98d", "#5b9cf0", "#5b9cf0", "#e8743f", "
 const AT_GROUP_IC = { fracturing: "gem", exceptional: "star", tablets: "layers", lineage: "crown",
   monsters: "skull", rarity: "coins", shrines: "spark", waystones: "map" };
 const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "",
-  mods: null, goal: "", ttype: "", farm: null,
+  mods: null, goal: "", ttype: "", farm: null, strats: null, strat: null,
   // the stash search builder: header lines with their minimum, all of them or any one, the waystone's least tier,
   // and modifiers the waystone must have (need) or must not have (skip), by mod id
   q: { props: { Pack: 20, RareMonsterQuantityBonus: 20 }, any: false, tier: 0, need: new Set(), skip: new Set() },
@@ -23,17 +23,38 @@ const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, v
   tq: { type: "", any: false, need: new Map(), skip: new Set() } };
 // ready-made tablet searches: the type and the modifiers wanted (any one of them is enough)
 const EG_TPRESETS = [
-  ["delirium", "delirium", ["TowerDeliriumMonsterSplinterIncrease", "TowerDeliriumFogDissipationDelayNew", "TowerDeliriumRareMonsterPause"]],
-  ["ritual", "ritual", ["TowerRitualTributeIncrease", "TowerRitualAdditionalReroll", "TowerRitualOmenChance"]],
-  ["breach", "breach", ["TowerBreachMonsterSplinterIncrease", "TowerBreach3AdditionalChance", "TowerBreachAdditionalChance"]],
-  ["monsters", "", ["TowerRarePackIncrease", "TowerMagicPackIncrease", "TowerPackSizeIncrease"]]];
+  ["ritual", "ritual", ["TowerRitualTributeIncrease", "TowerRitualAdditionalReroll", "TowerRitualOmenChance"], true],
+  ["delirium_fog", "delirium", ["TowerDeliriumDifficultyIncrease", "TowerMonsterEffectiveness"], false],
+  ["delirium", "delirium", ["TowerDeliriumMonsterSplinterIncrease", "TowerDeliriumFogDissipationDelayNew", "TowerDeliriumRareMonsterPause"], true],
+  ["fractures", "", ["TowerMapAdditionalModifier", "TowerMonsterRarityIncrease"], false],
+  ["circles", "", ["TowerAdditionalStoneCircle", "TowerMonsterEffectiveness"], false],
+  ["strongboxes", "map_boss", ["TowerAdditionalStrongbox", "TowerRareChestCount", "TowerMapBossAdditionalStrongbox",
+    "TowerMapBossAdditionalSpirit", "TowerAdditionalAzmeriWisp", "TowerRarePackIncrease"], true],
+  ["expedition", "irradiated", ["TowerMonsterEffectiveness", "TowerRarePackIncrease", "TowerDroppedItemRarityIncrease"], true],
+  ["breach", "breach", ["TowerBreachMonsterSplinterIncrease", "TowerBreach3AdditionalChance", "TowerBreachAdditionalChance"], true],
+  ["wombgifts", "breach", ["TowerBreachWombgiftQuantity", "TowerBreachHivebloodQuantity"], true],
+  ["monsters", "", ["TowerRarePackIncrease", "TowerMagicPackIncrease", "TowerPackSizeIncrease"], true]];
 // ready-made searches: header lines and minimums, and whether to leave out the deadly modifiers
 const EG_PRESETS = [
   ["ritual", { Pack: 20, RareMonsterQuantityBonus: 20 }, true],
   ["rarity", { ItemRarity: 50 }, true],
   ["waystones", { WaystoneDropChance: 100 }, false],
   ["effect", { MonsterEffectiveness: 30 }, false],
-  ["exp", { ExperienceGained: 20 }, true]];
+  ["exp", { ExperienceGained: 20 }, true],
+  ["monsters", { MonsterRarity: 100 }, false],
+  ["juiced", { MonsterEffectiveness: 80 }, false]];
+// a ready-made search put into the search state (the waystone or the tablet one)
+function egMapPreset(id) {
+  const p = EG_PRESETS.find((x) => x[0] === id);
+  if (!p) return;
+  const ways = (AT.mods?.mods || []).filter((m) => m.item === "waystone");
+  Object.assign(AT.q, { props: { ...p[1] }, any: false, need: new Set(),
+    skip: new Set(p[2] ? ways.filter((m) => m.danger === "deadly").map((m) => m.id) : []) });
+}
+function egTabletPreset(id) {
+  const p = EG_TPRESETS.find((x) => x[0] === id);
+  if (p) Object.assign(AT.tq, { type: p[1], any: p[3], need: new Map(p[2].map((x) => [x, 0])), skip: new Set() });
+}
 // the endgame section's tabs (texts: egTab_*)
 const EG_TABS = [["atlas", "map"], ["masters", "person"], ["tablets", "layers"], ["maps", "scroll"], ["farm", "coins"]];
 const EG_FARM_IC = { breach: "spark", delirium: "eye", ritual: "skull", expedition: "hammer", abyss: "drop", essence: "gem",
@@ -86,17 +107,84 @@ function modsBody() {
 }
 
 // ---------- farming options by poe.ninja's prices now (poe2lab.endgame.farm) ----------
+const EG_WHAT_IC = { waystone: "scroll", tablets: "layers", atlas: "map", master: "person", other: "info" };
 function farmBody(data, mods) {
-  const box = h("div", { class: "stack" });
-  if (!AT.farm) {
-    box.append(loading(t("egFarmLoading")));
-    api("/api/endgame/farm").then((r) => { AT.farm = r; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); })
-      .catch((e) => box.replaceChildren(h("div", { class: "card" }, h("h3", {}, t("egFarmNoPrices")), h("p", { class: "muted" }, e.message))));
-    return [box];
+  if (!AT.strats || AT.strats.lang !== LANG) {
+    AT.strats = { lang: LANG, list: null };
+    api("/api/endgame/strategies?lang=" + LANG).then((r) => { AT.strats.list = r.strategies; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); })
+      .catch(() => { AT.strats.list = []; });
   }
-  const f = AT.farm, rate = f.exaltedPerDivine || 0;
-  const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
+  if (AT.farm === null) {
+    AT.farm = "loading";
+    api("/api/endgame/farm").then((r) => { AT.farm = r; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); })
+      .catch((e) => { AT.farm = { error: e.message }; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); });
+  }
   const go = (tab, set) => { AT.tab = tab; Object.assign(AT, set); renderAtlas(); window.scrollTo(0, 0); };
+  const list = AT.strats.list;
+  const strat = list ? stratSection(list, data, go) : [loading(t("egStratLoading"))];
+  const f = AT.farm;
+  const prices = f === "loading" ? [loading(t("egFarmLoading"))]
+    : f.error ? [h("div", { class: "card" }, h("h3", {}, t("egFarmNoPrices")), h("p", { class: "muted" }, f.error))]
+    : priceCards(f, data, mods, go);
+  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egStratIntro"))),
+    egSec(t("egStratTitle"), t("egStratSub")), ...strat,
+    egSec(t("egPriceTitle")), ...prices];
+}
+
+// a strategy: what it farms and why, where, what to set up (each with a button into the program's own tools), how
+function stratSection(list, data, go) {
+  const tiles = h("div", { class: "eg-strat-grid" }, list.map((s) =>
+    h("button", { class: "ws-tile at-st eg-strat" + (AT.strat === s.id ? " on" : ""),
+      onclick: () => { AT.strat = AT.strat === s.id ? null : s.id; renderAtlas(); } },
+      h("span", { class: "ws-ic" }, I(s.icon || "coins")),
+      h("div", {}, h("b", {}, s.name), h("span", {}, s.goal),
+        h("span", { class: "row eg-strat-tags" }, h("span", { class: "chip tag eg-lv" + s.budget }, I("coins", "ic-s"), " ", s.budgetText),
+          h("span", { class: "chip tag eg-lv" + s.build }, I("sword", "ic-s"), " ", s.buildText))))));
+  const s = list.find((x) => x.id === AT.strat);
+  return s ? [tiles, stratCard(s, data, go)] : [tiles];
+}
+function stratLink(link, data, go) {
+  if (!link) return null;
+  const btn = (ic, text, onclick) => h("button", { class: "chip mt-filter", onclick }, I(ic, "ic-s"), " ", text);
+  if (link.maps) return btn("search", t("egStratMaps"), () => { egMapPreset(link.maps); go("maps", {}); });
+  if (link.tablets) return btn("search", t("egStratTablets"), () => { egTabletPreset(link.tablets); go("tablets", {}); });
+  if (link.part) return btn("map", t("egFBranch", t("atPart_" + link.part)), () => go("atlas", { part: link.part, mark: null, focus: null }));
+  if (link.master) return btn("person", t("egStratMaster", t("atM_" + link.master.toLowerCase())), () => go("masters", { tag: "" }));
+  if (link.atlas) {
+    const nodes = data.tree.nodes.filter((n) => link.atlas.includes(n.name.en));
+    if (!nodes.length) return null;
+    return btn("eye", t("egFAtlas", nodes.length), () => go("atlas", { part: nodes[0].part, mark: new Set(nodes.map((n) => n.id)), focus: nodes[0].id }));
+  }
+  return null;
+}
+function stratCard(s, data, go) {
+  const block = (ic, title, ...body) => h("div", { class: "eg-sblock" }, h("div", { class: "eg-sblock-h" }, I(ic, "ic-s"), " ", title), ...body);
+  const opt = AT.farm && AT.farm.options ? AT.farm.options.find((o) => o.id === s.option) : null;
+  const rate = AT.farm?.exaltedPerDivine || 0;
+  const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
+  return h("section", { class: "card eg-scard" },
+    h("div", { class: "mt-head" }, h("span", { class: "ws-ic" }, I(s.icon || "coins")),
+      h("div", {}, h("h3", {}, s.name), h("div", { class: "muted small" }, s.goal))),
+    h("div", { class: "eg-scols" },
+      h("div", { class: "stack" },
+        block("help", t("egStratWhy"), h("p", {}, s.why)),
+        block("map", t("egStratWhere"), h("p", {}, s.where)),
+        s.setup.length ? block("gear", t("egStratSetup"), h("div", { class: "eg-setup" }, s.setup.map((x) =>
+          h("div", { class: "eg-setup-row" }, h("span", { class: "eg-setup-ic" }, I(EG_WHAT_IC[x.what] || "info")),
+            h("div", {}, h("div", {}, x.text), stratLink(x.link, data, go)))))) : null),
+      h("div", { class: "stack" },
+        s.steps.length ? block("flag", t("egStratSteps"), h("ol", { class: "eg-steps" }, s.steps.map((x) => h("li", {}, x)))) : null,
+        s.tips.length ? block("warn", t("egStratTips"), h("ul", { class: "eg-tips" }, s.tips.map((x) => h("li", {}, x)))) : null,
+        block("coins", t("egStratProfit"), h("p", {}, s.profit),
+          opt && opt.drops.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFDrops")),
+            opt.drops.map((d) => h("div", { class: "eg-drop" }, h("span", {}, trName(d.name)), h("b", {}, price(d.div))))) : null),
+        h("p", { class: "hint" }, t("egStratSource", s.sources.join(", "))))));
+}
+
+// what each mechanic's loot trades for now on poe.ninja (poe2lab.endgame.farm)
+function priceCards(f, data, mods, go) {
+  const rate = f.exaltedPerDivine || 0;
+  const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
   const masters = data.tree.masters || [];
   const mainNodes = data.tree.nodes.filter((n) => n.part === "Main" && n.kind !== "image");
   const cards = f.options.map((o) => {
@@ -125,7 +213,7 @@ function farmBody(data, mods) {
         tMods.slice(0, 3).map((m) => h("div", { class: "small" }, "• ", egText(m)[0] || ""))) : null,
       h("div", { class: "row at-chips" }, setup.filter(Boolean)));
   });
-  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egFarmIntro", f.league))),
+  return [h("div", { class: "hint" }, t("egFarmIntro", f.league)),
     h("div", { class: "eg-farm-grid" }, cards), h("p", { class: "hint at-src" }, t("egFarmSource"))];
 }
 const egText = (m, part = "text") => (m[part]?.[LANG] || m[part]?.en || []);
@@ -176,10 +264,8 @@ function tabletSearch(tablets, types) {
     note.className = "hint" + (text.length > 250 ? " eg-long" : "");
     note.textContent = text ? t("egSearchNote", text.length) + (text.length > 250 ? " " + t("egQLong") : "") : "";
   };
-  const presets = h("div", { class: "row at-chips" }, EG_TPRESETS.map(([id, type, ids]) =>
-    h("button", { class: "chip mt-filter", onclick: () => {
-      q.type = type; q.any = true; q.need = new Map(ids.map((x) => [x, 0])); q.skip = new Set(); renderAtlas();
-    } }, t("egTQP_" + id))));
+  const presets = h("div", { class: "row at-chips" }, EG_TPRESETS.map(([id]) =>
+    h("button", { class: "chip mt-filter", onclick: () => { egTabletPreset(id); renderAtlas(); } }, t("egTQP_" + id))));
   const typeChips = h("div", { class: "row at-chips" }, [null, ...types].map((m) => {
     const type = m ? m.type : "";
     return h("button", { class: "chip mt-filter" + (type === q.type ? " on" : ""), onclick: () => {
@@ -337,12 +423,8 @@ function mapsBody(d) {
     note.textContent = text ? t("egSearchNote", text.length) + (text.length > 250 ? " " + t("egQLong") : "") : "";
   };
   const redraw = () => { renderAtlas(); };
-  const presets = h("div", { class: "row at-chips" }, EG_PRESETS.map(([id, set, safe]) =>
-    h("button", { class: "chip mt-filter", onclick: () => {
-      q.props = { ...set }; q.any = false; q.need = new Set();
-      q.skip = new Set(safe ? ways.filter((m) => m.danger === "deadly").map((m) => m.id) : []);
-      redraw();
-    } }, t("egQP_" + id))));
+  const presets = h("div", { class: "row at-chips" }, EG_PRESETS.map(([id]) =>
+    h("button", { class: "chip mt-filter", onclick: () => { egMapPreset(id); redraw(); } }, t("egQP_" + id))));
   const rows = h("div", { class: "eg-q-props" }, props.map((p) => {
     const on = q.props[p.id] !== undefined;
     const num = h("input", { type: "number", min: "0", max: "999", class: "eg-min", value: String(on ? q.props[p.id] : 20),
