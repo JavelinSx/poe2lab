@@ -192,8 +192,7 @@ function stratCard(s, data, go) {
         s.tips.length ? block("warn", t("egStratTips"), h("ul", { class: "eg-tips" }, s.tips.map((x) => h("li", {}, x)))) : null,
         block("coins", t("egStratProfit"), h("p", {}, s.profit),
           opt && opt.drops.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFDrops")),
-            opt.drops.map(egDrop(price))) : null),
-        h("p", { class: "hint" }, t("egStratSource", s.sources.join(", "))))));
+            opt.drops.map(egDrop(price))) : null))));
 }
 
 const egDrop = (price) => (d) => h("div", { class: "eg-drop" },
@@ -483,14 +482,15 @@ function mapsBody(d) {
   const fits = (m) => !AT.goal || m.goals.includes(AT.goal);
   const list = ways.filter(fits).sort((x, y) => (order[x.danger] ?? 3) - (order[y.danger] ?? 3));
   return [h("div", { class: "at-warn mt-intro eg-intro-art" }, egImg(d.art?.waystone, "eg-art eg-art-intro") || I("info"), h("span", {}, t("egMapIntro"))),
+    h("button", { class: "eg-craft-btn", onclick: () => { AT.tab = "farm"; AT.strat = "craft_waystones"; renderAtlas();
+      setTimeout(() => document.querySelector(".eg-scard")?.scrollIntoView({ block: "start", behavior: "smooth" }), 400); } },
+      egImg(d.art?.waystone, "eg-art eg-art-craft") || I("scroll"),
+      h("span", {}, h("b", {}, t("egQCraft")), h("span", {}, t("egQCraftS"))), I("arrow-r")),
     egSec(t("egSearchTitle"), t("egSearchSub")),
     h("section", { class: "card eg-search" },
       h("div", { class: "row eg-search-row eg-q-out" }, out, copy), note,
       h("div", { class: "muted small" }, t("egQPresets")), presets,
-      h("div", { class: "hint eg-omens" }, I("info", "ic-s"), " ", t("egQOmens"), " ",
-        h("button", { class: "chip mt-filter", onclick: () => { AT.tab = "farm"; AT.strat = "craft_waystones"; renderAtlas();
-          setTimeout(() => document.querySelector(".eg-scard")?.scrollIntoView({ block: "start" }), 300); } },
-          egImg(d.art?.waystone, "eg-art eg-art-chip") || I("scroll", "ic-s"), " ", t("egQCraft"))),
+      h("div", { class: "hint eg-omens" }, I("info", "ic-s"), " ", t("egQOmens")),
       // the waystone's own header lines (the totals) and its rolled modifiers are two different things: kept apart
       h("div", { class: "eg-q-block eg-q-own" },
         h("div", { class: "eg-q-bh" }, h("span", { class: "eg-q-num" }, "1"), h("div", {}, h("b", {}, t("egQOwn")), h("div", { class: "muted small" }, t("egQLines")))),
