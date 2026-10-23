@@ -20,7 +20,7 @@ from .gamedata import BUN, GAME_CACHE, RAW, GameDataError, read_table
 
 CACHE = GAME_CACHE / "endgame.json"
 VERSION = 4
-TABLES = ["mods", "tags", "stats", "clientstrings"]
+TABLES = ["mods", "tags", "stats", "clientstrings", "baseitemtypes", "itemvisualidentity"]
 TABLET_DOMAIN, MAP_DOMAIN = 34, 6
 # what a modifier gives, by its stats (the interface names them: egG_<goal>)
 GOALS = [
@@ -191,8 +191,37 @@ def load(game: Path | None = None, lang: str = "ru") -> dict | None:
     return data if data.get("version") == VERSION and data.get("lang") == lang else None
 
 
+# the tablet types (as endgame names them) -> the base item that carries the type
+TABLET_BASES = {"breach": "Breach Tablet", "expedition": "Expedition Tablet", "delirium": "Delirium Tablet",
+                "ritual": "Ritual Tablet", "irradiated": "Irradiated Tablet", "map_boss": "Overseer Tablet",
+                "abyss": "Abyss Tablet", "incursion": "Temple Tablet"}
+
+
+def _art() -> dict:
+    """The tablets' (per type) and the waystone's item art paths."""
+    balance = RAW / "data/balance"
+    try:
+        vis = [r["DDSFile"] for r in read_table(balance / "itemvisualidentity.datc64", ["DDSFile"])]
+        bases = read_table(balance / "baseitemtypes.datc64", ["Name", "ItemVisualIdentityKey"])
+    except (OSError, KeyError):
+        return {}
+    by_name = {r["Name"]: vis[r["ItemVisualIdentityKey"]] for r in bases
+               if r["ItemVisualIdentityKey"] is not None and r["ItemVisualIdentityKey"] < len(vis)}
+    out = {"tablets": {t: by_name.get(n, "") for t, n in TABLET_BASES.items()}, "waystone": by_name.get("Waystone (Tier 15)", "")}
+    out["tablet"] = out["tablets"].get("irradiated", "")
+    return out
+
+
 def guide(game: Path | None = None) -> dict:
-    return load(game) or build(game)
+    from . import icons
+    data = load(game) or build(game)
+    art = _art()
+    paths = {p for p in [*art.get("tablets", {}).values(), art.get("waystone", ""), art.get("tablet", "")] if p}
+    if game and any(not icons.art_file(p) for p in paths):
+        icons.convert(game, paths)
+    data["art"] = {"tablets": {t: icons.art_file(p) for t, p in art.get("tablets", {}).items()},
+                   "waystone": icons.art_file(art.get("waystone", "")), "tablet": icons.art_file(art.get("tablet", ""))}
+    return data
 
 
 # ---------- farming options by current prices ----------

@@ -17,6 +17,7 @@ INDEX = ICONS / "index.json"
 # table -> (name column, icon column): names are the English display names PoB uses
 SOURCES = {"activeskills": ("DisplayName", "Icon"), "passiveskills": ("Name", "Icon")}
 BC1_FORMATS = {71, 72}  # BC1_UNORM, BC1_UNORM_SRGB
+BC7_FORMATS = {98, 99}  # BC7_UNORM, BC7_UNORM_SRGB: UI art (the atlas masters)
 RGBA_FORMATS = {28: False, 29: False, 87: True, 91: True}  # R8G8B8A8 (UNORM/SRGB); B8G8R8A8: channels swapped
 ITEM_SIDE = 96  # item thumbnails: the longer side at most this many pixels
 # item art worth a picture: gear, supports, socketables and crafting currency (not maps, quest items)
@@ -72,13 +73,17 @@ def png(rgba: bytes, width: int, height: int) -> bytes:
 
 
 def dds_to_png(raw: bytes) -> bytes | None:
-    """The top mip of a BC1 DDS texture as PNG; None for other formats."""
+    """The top mip of a BC1 (or BC7) DDS texture as PNG; None for other formats."""
     if raw[:4] != b"DDS ":
         return None
     height, width = struct.unpack_from("<II", raw, 12)
     fourcc = raw[84:88]
     if fourcc == b"DX10":
-        if struct.unpack_from("<I", raw, 128)[0] not in BC1_FORMATS:
+        fmt = struct.unpack_from("<I", raw, 128)[0]
+        if fmt in BC7_FORMATS:
+            from . import bc7
+            return png(bytes(bc7.decode(raw[148:], width, height)), width, height)
+        if fmt not in BC1_FORMATS:
             return None
         start = 148
     elif fourcc == b"DXT1":
@@ -142,6 +147,30 @@ def item_art() -> dict[str, str]:
         if v is not None and v < len(vis) and r["Name"].strip() and ITEM_ART.match(vis[v].lower()):
             art.setdefault(r["Name"].strip(), vis[v])
     return {name: path for name, path in art.items() if path.lower().endswith(".dds")}
+
+
+def convert(game: Path, paths: set[str]):
+    """Game textures (any .dds path) into the icons folder as PNG, the ones not there yet: unpacked from the game and
+    converted the same way as the others. A path that cannot be unpacked or decoded just has no picture."""
+    missing = sorted(p for p in paths if p.lower().endswith(".dds") and not (ICONS / _file_name(p)).is_file())
+    if not missing or not BUN.is_file():
+        return
+    res = subprocess.run([str(BUN), "extract-files", str(game), str(RAW)], input="\n".join(p.lower() for p in missing) + "\n",
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        return
+    ICONS.mkdir(parents=True, exist_ok=True)
+    for p in missing:
+        src = RAW / p.lower()
+        data = (dds_to_png(src.read_bytes()) or item_png(src.read_bytes())) if src.is_file() else None
+        if data:
+            (ICONS / _file_name(p)).write_bytes(data)
+
+
+def art_file(path: str) -> str:
+    """The PNG name of a converted texture, or "" when there is none."""
+    file = _file_name(path) if path else ""
+    return file if file and (ICONS / file).is_file() else ""
 
 
 def _file_name(icon_path: str) -> str:

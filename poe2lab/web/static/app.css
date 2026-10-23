@@ -1625,3 +1625,14 @@ div.eg-q-mod { user-select: none; }
 .eg-setup-row .chip { margin-top: 4px; }
 .eg-setup-ic { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; background: var(--panel-2); }
 .eg-steps, .eg-tips { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; line-height: 1.4; }
+/* the endgame section: the game's own art */
+.eg-art { display: block; object-fit: contain; }
+.eg-ic-art .eg-art { width: 100%; height: 100%; }
+.eg-art-tab { width: 34px; height: 34px; }
+.eg-art-chip { width: 22px; height: 22px; display: inline-block; vertical-align: middle; margin: -4px 4px -4px -4px; }
+.eg-art-intro { width: 48px; height: 48px; flex: none; }
+.eg-intro-art { align-items: center; }
+.eg-setup-ic .eg-art { width: 26px; height: 26px; }
+.mt-card.mt-has-art { position: relative; overflow: hidden; }
+.mt-portrait { height: 170px; margin: -14px -14px 10px; background-size: cover; background-position: center 18%;
+  -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); }

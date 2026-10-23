@@ -24,10 +24,12 @@ STRATEGIES = [
                "en": "Any map of level 80+ (tier 16, or tier 15 +1): the dearest omens only appear from area level "
                      "80. Open biomes — a corridor makes a small circle with few monsters."},
      "setup": [
-         {"what": "waystone", "text": {"ru": "Шапка камня: размер групп и редкие монстры (омены «хаотичного "
-                                             "количества» и «хаотичных монстров» + сфера хаоса на камень с 6 свойствами).",
-                                       "en": "The waystone's header: pack size and rare monsters (Omens of Chaotic "
-                                             "Quantity and Chaotic Monsters + a Chaos Orb on a 6-modifier waystone)."},
+         {"what": "waystone", "text": {"ru": "Шапка камня: размер групп и редкость монстров. На камень с 6 свойствами — "
+                                             "омены хаотичной редкости и хаотичной эффективности + сфера хаоса: они "
+                                             "исключают редкость предметов и эффективность, остаются нужные строки.",
+                                       "en": "The waystone's header: pack size and monster rarity. On a 6-modifier "
+                                             "waystone: Omens of Chaotic Rarity and Chaotic Effectiveness + a Chaos Orb: "
+                                             "they rule out item rarity and effectiveness, the lines you want stay."},
           "link": {"maps": "ritual"}},
          {"what": "tablets", "text": {"ru": "Две плитки Ритуала: больше дани + размер групп; третья — заражённая "
                                             "(поднимает уровень области) или ещё одна Ритуала.",
@@ -129,10 +131,10 @@ STRATEGIES = [
                "en": "Corruption zones on the atlas (a red dot with a pillar of light): kill its boss and the zone "
                      "becomes cleansed. Maps with Entombed Fury (search the atlas) give a guaranteed Fracturing Orb."},
      "setup": [
-         {"what": "waystone", "text": {"ru": "~100% редкости монстров в шапке (омены хаотичной редкости, "
-                                             "количества, монстров + хаос).",
-                                       "en": "~100% Monster Rarity in the header (Chaotic Rarity, Quantity, Monsters "
-                                             "omens + Chaos)."},
+         {"what": "waystone", "text": {"ru": "~100% редкости монстров в шапке: омены хаотичной редкости, количества "
+                                             "и эффективности + хаос — исключают всё, кроме редкости монстров.",
+                                       "en": "~100% Monster Rarity in the header: Chaotic Rarity, Quantity and "
+                                             "Effectiveness omens + Chaos rule out everything but monster rarity."},
           "link": {"maps": "monsters"}},
          {"what": "tablets", "text": {"ru": "Три плитки РАЗНЫХ типов (Делириум, Бездна, Ритуал): на каждой «+1–2 "
                                             "случайных свойства карте» и редкость монстров. Бездна — треть дохода.",
@@ -279,9 +281,10 @@ STRATEGIES = [
                                            "Partial Translation, Unexpected Missions."},
           "link": {"master": "Jado"}},
          {"what": "waystone", "text": {"ru": "Бюджетно — «по толщинке» (оставить возрождения); уверенно — 6 свойств; "
-                                             "обмазанно — 3 хаотичных омена + хаос → ~86% эффективности.",
-                                       "en": "Budget: a thick one (keep revives); confident: 6 modifiers; juiced: 3 "
-                                             "chaotic omens + Chaos → ~86% effectiveness."},
+                                             "обмазанно — омены хаотичной редкости, количества и монстров + хаос (исключают всё, кроме эффективности) → ~86%.",
+                                       "en": "Budget: a thick one (keep revives); confident: 6 modifiers; juiced: "
+                                             "Chaotic Rarity, Quantity and Monsters omens + Chaos (everything but "
+                                             "effectiveness ruled out) → ~86%."},
           "link": {"maps": "juiced"}}],
      "steps": {"ru": ["Проверить все реликты (Ancient Price Helper показывает цены); дешевле 1 div — перероллить "
                       "жидким веризием или пропустить.",
@@ -318,10 +321,10 @@ STRATEGIES = [
                                       "en": "3 Overseer (strongboxes, Azmeri spirits, rare count) + 1 Expedition "
                                             "(2 Vaal relics, extra runic modifier, spirits; no buried strongboxes)."},
           "link": {"tablets": "strongboxes"}},
-         {"what": "waystone", "text": {"ru": "Редкость монстров ≥100% (3 хаотичных омена + хаос); осквернить → 8 "
-                                             "свойств или Т16.",
-                                       "en": "Monster Rarity ≥100% (3 chaotic omens + Chaos); corrupt → 8 modifiers "
-                                             "or tier 16."},
+         {"what": "waystone", "text": {"ru": "Редкость монстров ≥100%: омены хаотичной редкости, количества и "
+                                             "эффективности + хаос; осквернить → 8 свойств или Т16.",
+                                       "en": "Monster Rarity ≥100%: Chaotic Rarity, Quantity and Effectiveness "
+                                             "omens + Chaos; corrupt → 8 modifiers or tier 16."},
           "link": {"maps": "monsters"}},
          {"what": "atlas", "text": {"ru": "«Живой металл» (духи вселяются в ларцы), «Потайные отсеки», «Вражеские "
                                           "запасы».",
@@ -371,12 +374,115 @@ STRATEGIES = [
               "en": ["You can sell the gifts themselves (6–8 chaos) — about the same income, the author says."]},
      "profit": {"ru": "Автор: 500 даров (~80 карт) → ~320 div.", "en": "The author: 500 gifts (~80 maps) → ~320 div."}},
 
-    {"id": "craft_tablets", "icon": "layers", "option": None, "budget": 1, "build": 1, "sources": [37],
-     "name": {"ru": "Заработок: крафт плиток Смотрителя", "en": "Money: crafting Overseer tablets"},
-     "goal": {"ru": "Плитки с ларцами/духами/редкими монстрами за 7–200 div из плиток по 20–35 ex.",
-              "en": "Tablets with strongboxes/spirits/rare monsters for 7–200 div, from 20–35 ex tablets."},
-     "why": {"ru": "Стратегии на ларцы и духов покупают такие плитки дорого, а основа дешёвая.",
-             "en": "The strongbox and spirit strategies pay a lot for these tablets, and the base is cheap."},
+    {"id": "abyss", "icon": "drop", "option": "abyss", "budget": 1, "build": 2, "sources": [51, 26],
+     "name": {"ru": "Бездна: предзнаменования света", "en": "Abyss: Omens of Light"},
+     "goal": {"ru": "Омены света и эха с редких Аманаму (~9–10 div), раскалывающие сферы с очищенных зон.",
+              "en": "Omens of Light and Echoes from rare Amanamu (~9–10 div), Fracturing Orbs from cleansed zones."},
+     "why": {"ru": "Редкие монстры Аманаму из провалов Бездны роняют омены света — если убить их вне их тучи. Ключевой "
+                   "узел Бездны гарантирует Аманаму на карте, плитки добавляют монстрам свойства Бездны.",
+             "en": "Rare Amanamu monsters from the Abyss chasms drop Omens of Light — if killed outside their cloud. "
+                   "The Abyss keystone guarantees Amanamu on the map, tablets give monsters more Abyss modifiers."},
+     "where": {"ru": "Любые карты с Бездной; лучше — очищенные зоны (ещё и раскалывающие сферы). Карта ~3–4 минуты.",
+               "en": "Any map with an Abyss; cleansed zones are better (Fracturing Orbs too). ~3–4 minutes a map."},
+     "setup": [
+         {"what": "atlas", "text": {"ru": "Ветка Бездны целиком (квесты — все 35 очков): «Повелитель Ямы» — выбрать "
+                                          "Аманаму, омены, +20% к доп. провалу. Основное древо: везде эффективность, "
+                                          "обязательно «Скрытые шрамы».",
+                                    "en": "The whole Abyss branch (its quests give all 35 points): Lord of the Pit — "
+                                          "pick Amanamu, omens, +20% extra chasm. The main tree: effectiveness "
+                                          "wherever there is a choice, and Hidden Scars."},
+          "link": {"atlas": ["Lord of the Pit", "Hidden Scars"]}},
+         {"what": "waystone", "text": {"ru": "Т15 → алхимия → экзальты до 0 возрождений → омены хаотичной эффективности и "
+                                             "количества + хаос: остаются редкость предметов и монстров (~100% вместе).",
+                                       "en": "Tier 15 → Alchemy → Exalts to 0 revives → Chaotic Effectiveness and "
+                                             "Quantity omens + Chaos: item and monster rarity stay (~100% together)."},
+          "link": {"maps": "monsters"}},
+         {"what": "tablets", "text": {"ru": "Три плитки (в городе — четыре): редкость на карте + «монстры Бездны чаще "
+                                            "со свойствами Бездны». Третий мод «очерняющая валюта» не окупается.",
+                                      "en": "Three tablets (four in a city): map rarity + 'Abyss monsters more often "
+                                            "with Abyss modifiers'. A third 'desecrated currency' modifier doesn't pay."},
+          "link": {"tablets": "abyss"}},
+         {"what": "master", "text": {"ru": "Дориани: эффективность и редкость за свойства карты, «Улучшенная "
+                                           "калибровка», «Скрытые закономерности» (открыть ближние карты).",
+                                     "en": "Doryani: effectiveness and rarity per map modifier, Improved Calibration, "
+                                           "Hidden Patterns (open nearby maps)."},
+          "link": {"master": "Doryani"}}],
+     "steps": {"ru": ["Зачищать провалы; редкого Аманаму (над ним свойство, он выпускает тучу) убивать ВНЕ тучи — "
+                      "быстро или выведя из неё.",
+                      "Выпал Omen of Light — всё правильно; «очищение» вместо него — убили в туче.",
+                      "Глубины Бездны по времени не окупаются; «Lightless Void» — 1–2 проходки к Кулимаку (~2 div)."],
+               "en": ["Clear the chasms; kill the rare Amanamu (its modifier shows, it releases a cloud) OUTSIDE the "
+                      "cloud — fast, or after pulling it out.",
+                      "An Omen of Light drops — done right; a purification omen instead — it died in the cloud.",
+                      "The Abyss Depths don't pay for their time; a Lightless Void gives 1–2 Kulmak keys (~2 div)."]},
+     "tips": {"ru": ["Двигаться к очищенным зонам, остальные карты — по пути, быстро."],
+              "en": ["Head for the cleansed zones; the maps on the way — quickly."]},
+     "profit": {"ru": "Автор: 50 карт — 220 div флэтом (омены света 107) при расходах ~25 div, ≈50 div/час.",
+                "en": "The author: 50 maps — 220 div flat (Omens of Light 107) for ~25 div spent, ≈50 div/hour."}},
+
+    {"id": "atlas_route", "icon": "map", "option": "bosses", "budget": 1, "build": 2, "sources": [60, 22],
+     "name": {"ru": "Атлас для работяги: цитадели и аномалии", "en": "The atlas for a worker: citadels and anomalies"},
+     "goal": {"ru": "Проходки на Арбитров, головы Хозяина и шанс династических камней (Гарухан ~350 div).",
+              "en": "Arbiter fragments, King's heads and a chance at Lineage gems (Garukhan ~350 div)."},
+     "why": {"ru": "Без дорогого «обмаза»: идёшь по атласу и берёшь ключевые точки. Количество путевых камней на плитках "
+                   "увеличивает число проходок с босса цитадели; династические камни аномалий от модов карты не "
+                   "зависят — их бегают на синих картах.",
+             "en": "No expensive juicing: walk the atlas and take its key points. Waystone quantity on tablets raises "
+                   "a citadel boss's fragment count; anomaly Lineage gems don't depend on map modifiers — run them on "
+                   "magic maps."},
+     "where": {"ru": "Цитадели (луч света; всегда на городах), аномальные карты: Нефритовые острова (Ракиата), "
+                     "Священный водоём (Гарухан), замок с огоньками (Ригвальд); залы матриарха и патриарха.",
+               "en": "Citadels (a beam of light; always on cities), anomaly maps: Jade Isles (Rakiata), Sacred "
+                     "Reservoir (Garukhan), the bat castle (Rigwald); the Matriarch's and Patriarch's halls."},
+     "setup": [
+         {"what": "tablets", "text": {"ru": "На цитадель — 4 плитки любой базы с «увеличением количества находимых путевых "
+                                            "камней» (~37%+, по 5–15 ex); 4-я ячейка — «Промышленные улучшения».",
+                                      "en": "For a citadel — 4 tablets of any base with 'increased quantity of waystones "
+                                            "found' (~37%+, 5–15 ex each); the 4th slot comes from Industrial "
+                                            "Improvements."},
+          "link": {"tablets": "waystones"}},
+         {"what": "atlas", "text": {"ru": "«Воспоминания ваал / маракетов / каруи / эзомитов» (+15% второго "
+                                          "династического камня), «Промышленные улучшения».",
+                                    "en": "Memories of the Vaal / Maraketh / Karui / Ezomytes (+15% a second Lineage "
+                                          "gem), Industrial Improvements."},
+          "link": {"atlas": ["Memories of the Vaal", "Memories of the Maraketh", "Memories of the Karui",
+                             "Memories of the Ezomytes", "Industrial Improvements"]}},
+         {"what": "master", "text": {"ru": "Джадо до 4 уровня (по одной аномалии каждого вида): «Неожиданные задания», "
+                                           "«Непредвиденные угрозы», «Частичный перевод», «Нерассказанные истории».",
+                                     "en": "Jado to level 4 (one anomaly of each kind): Unexpected Missions, "
+                                           "Unforeseen Threats, Partial Translation, Untold Histories."},
+          "link": {"master": "Jado"}},
+         {"what": "waystone", "text": {"ru": "По пути — шестимодовые осквернённые Т15 (Т16 после осквернения продавать); "
+                                             "слабому билду — 4 мода (2 возрождения).",
+                                       "en": "On the way — corrupted 6-modifier tier 15 (sell the tier 16 that corrupting "
+                                             "makes); a weak build — 4 modifiers (2 revives)."}}],
+     "steps": {"ru": ["Проходить башни — открывают обзор, видно лучи цитаделей.",
+                      "Нефритовые острова: маяк на одной из соседних карт; водоём: пройти все карты с ветерками; "
+                      "замок: идти за огоньками.",
+                      "Встреча с Хозяином в инвентаре — на атласе видна «суть небытия»: по пути — убить босса Ритуала "
+                      "(голова Хозяина)."],
+               "en": ["Run the towers — they reveal the area and the citadels' beams.",
+                      "Jade Isles: a beacon on one of the maps around; the reservoir: run every map with wind "
+                      "trails; the castle: follow the wisps.",
+                      "An Audience with the King in your bag shows the 'essence of oblivion' on the atlas: on the way, "
+                      "kill the Ritual boss (a King's head)."]},
+     "tips": {"ru": ["В медную цитадель плитки не вставляются (баг) — поэтому её проходки дороже."],
+              "en": ["The copper citadel takes no tablets (a bug) — that's why its fragments cost more."]},
+     "profit": {"ru": "Автор: ~78 div за вечер без единого династического камня, плюс Т16, плитки, базы.",
+                "en": "The author: ~78 div an evening without a single Lineage gem, plus tier 16s, tablets, bases."}},
+
+    {"id": "craft_tablets", "icon": "layers", "option": None, "budget": 1, "build": 1, "sources": [37, 46, 52],
+     "name": {"ru": "Заработок: крафт плиток", "en": "Money: crafting tablets"},
+     "goal": {"ru": "Плитки за 2–200 div из основ по 2–35 хаосов: Смотрителя, заражённые, Бездны.",
+              "en": "Tablets worth 2–200 div from 2–35 chaos bases: Overseer, Irradiated, Abyss."},
+     "why": {"ru": "Плитки — «лопаты» для чужого фарма: их покупают всегда, а у модов плиток один тир, поэтому хватает "
+                   "самых дешёвых сфер. Ценные моды: заражённые — «+1–2 случайных свойства карте» (с эффективностью "
+                   "15–50 div), Смотрителя — ларцы, духи, редкие, Бездны — «в 2 раза выше шанс наград в провалах», "
+                   "«4 доп. провала».",
+             "en": "Tablets are the shovels of other people's farming: they always sell, and a tablet's modifiers have "
+                   "one tier, so the cheapest orbs do. Valuable modifiers: Irradiated — '+1–2 random map modifiers' "
+                   "(15–50 div with effectiveness), Overseer — strongboxes, spirits, rares, Abyss — 'twice the chasm "
+                   "rewards chance', '4 extra chasms'."},
      "where": {"ru": "Убежище: стопка плиток Смотрителя на 10 зарядов + сферы хаоса.",
                "en": "The hideout: a stack of 10-charge Overseer tablets + Chaos Orbs."},
      "setup": [
@@ -384,14 +490,51 @@ STRATEGIES = [
                                             "каждого хаоса.",
                                       "en": "The tablet stash search highlights the good ones after each Chaos."},
           "link": {"tablets": "strongboxes"}}],
-     "steps": {"ru": ["Купить плитки Смотрителя с 10 зарядами (фильтр зарядов на трейде).",
-                      "Хаосить по очереди; серую (без нужного мода) дальше не хаосить.",
-                      "Префикс с числом 1 (ларцы/духи) поднять божественной сферой до 2."],
-               "en": ["Buy 10-charge Overseer tablets (charge filter on the trade site).",
-                      "Chaos them in turn; leave a grey one (no wanted modifier).",
-                      "A prefix at 1 (strongboxes/spirits) — a Divine Orb raises it to 2."]},
-     "tips": {"ru": [], "en": []},
+     "steps": {"ru": ["Купить плитки с 10 зарядами (фильтр зарядов на трейде; неопознанные синие — по 2–4 хаоса).",
+                      "Опознать всё (Ctrl-клик по Дариане), усилить до 2 модов; поиском склада найти ценные.",
+                      "С ценным модом — сфера царей + экзальт до 4; без — алхимия и снова поиск; Смотрителя — хаосом.",
+                      "Префикс с числом 1 (ларцы, духи, +свойства карте) — божественной сферой до 2.",
+                      "Цену смотреть оценкой оверлея; остаток — по 9 хаосов и снижать до 4–5."],
+               "en": ["Buy 10-charge tablets (charge filter on the trade site; unidentified magic ones for 2–4 chaos).",
+                      "Identify all (Ctrl-click Doryani), augment to 2 modifiers; find the valuable ones with the "
+                      "stash search.",
+                      "With a valuable modifier — Regal + Exalt to 4; without — Alchemy and search again; Overseer "
+                      "ones — Chaos.",
+                      "A prefix at 1 (strongboxes, spirits, +map modifiers) — a Divine Orb raises it to 2.",
+                      "Price them with the overlay's estimate; the rest at 9 chaos, lowered to 4–5."]},
+     "tips": {"ru": ["Редкие (4 мода) плитки — только после убийства Арбитра и узла «Обратная транскрипция»."],
+              "en": ["Rare (4-modifier) tablets only after killing the Arbiter and the Reverse Transcription node."]},
      "profit": {"ru": "Автор: из ~20 div — плиток на 50–55 div.", "en": "The author: ~20 div in, 50–55 div of tablets out."}},
+
+    {"id": "craft_desecrate", "icon": "helm", "option": None, "budget": 2, "build": 1, "sources": [57, 49, 31, 34],
+     "name": {"ru": "Заработок: броня через очернение (тапки, тиары)", "en": "Money: armour through desecration (boots, tiaras)"},
+     "goal": {"ru": "Сандалии Сихемы и тиары 82 уровня на 300+ ES: 1–60 div за вещь, партия ~4–5 div.",
+              "en": "Item level 82 Sandals of Sihema and tiaras with 300+ ES: 1–60 div each, ~4–5 div a batch."},
+     "why": {"ru": "Предзнаменование разложения + кость делают из вещи шесть очернений; в Колодце душ из каждых трёх "
+                   "вариантов выбираешь лучший — по сути, сам собираешь вещь. Тиары носит половина игроков.",
+             "en": "An Omen of Putrefaction + a bone turn an item into six desecrated modifiers; at the Well of Souls you "
+                   "pick the best of each three — you build the item yourself. Half the players wear a tiara."},
+     "where": {"ru": "Убежище и Колодец душ (2 акт, Бесплодные земли мастодонтов).",
+               "en": "The hideout and the Well of Souls (act 2, the Mastodon Badlands)."},
+     "setup": [],
+     "steps": {"ru": ["Жёлтая база 82 уровня без очернения: качество 20, все гнёзда, руны железа — после очернения "
+                      "ничего не добавить.",
+                      "Omen of Putrefaction + кость → 6 очернений; раскрывать в Колодце.",
+                      "Сначала префиксы: плоский ES (бывает один — брать сразу), потом процентный; Omen of Abyssal Echoes "
+                      "— только когда вещь уже удачная (тапки: 35% скорости + 300 ES).",
+                      "Суффиксы: резисты (хаос >20 — топ), редкость, критшанс (тиары), +2 миньонов."],
+               "en": ["An item level 82 rare base, not desecrated: quality 20, all sockets, iron runes — nothing can be "
+                      "added after.",
+                      "Omen of Putrefaction + a bone → 6 desecrated modifiers; reveal them at the Well.",
+                      "Prefixes first: flat ES (there is only one — take it), then percent; an Omen of Abyssal Echoes "
+                      "only once the item is already good (boots: 35% speed + 300 ES).",
+                      "Suffixes: resistances (chaos >20 is top), rarity, crit chance (tiaras), +2 minions."]},
+     "tips": {"ru": ["Тир числа в колодце не виден — сверять с poe2db / Craft of Exile.",
+                     "300 энергощита на тапках — порог, после которого цена резко растёт; 20% скорости уже плохо продаются."],
+              "en": ["The well doesn't show a number's tier — check poe2db / Craft of Exile.",
+                     "300 energy shield on boots is the line after which the price jumps; 20% speed sells poorly."]},
+     "profit": {"ru": "Кардес: за день из 80 div стало 160 + тапок на ~200 div.",
+                "en": "Kardes: 80 div became 160 in a day + ~200 div of boots on sale."}},
 
     {"id": "craft_jewels", "icon": "jewel", "option": None, "budget": 1, "build": 1, "sources": [43, 45],
      "name": {"ru": "Заработок: дешёвый крафт самоцветов и колец", "en": "Money: cheap jewel and ring crafting"},

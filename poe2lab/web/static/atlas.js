@@ -33,7 +33,9 @@ const EG_TPRESETS = [
   ["expedition", "irradiated", ["TowerMonsterEffectiveness", "TowerRarePackIncrease", "TowerDroppedItemRarityIncrease"], true],
   ["breach", "breach", ["TowerBreachMonsterSplinterIncrease", "TowerBreach3AdditionalChance", "TowerBreachAdditionalChance"], true],
   ["wombgifts", "breach", ["TowerBreachWombgiftQuantity", "TowerBreachHivebloodQuantity"], true],
-  ["monsters", "", ["TowerRarePackIncrease", "TowerMagicPackIncrease", "TowerPackSizeIncrease"], true]];
+  ["monsters", "", ["TowerRarePackIncrease", "TowerMagicPackIncrease", "TowerPackSizeIncrease"], true],
+  ["abyss", "abyss", ["TowerAbyssExtraModifiers", "TowerDroppedItemRarityIncrease"], false],
+  ["waystones", "", ["TowerMapDroppedMapsIncrease"], false]];
 // ready-made searches: header lines and minimums, and whether to leave out the deadly modifiers
 const EG_PRESETS = [
   ["ritual", { Pack: 20, RareMonsterQuantityBonus: 20 }, true],
@@ -82,11 +84,18 @@ async function renderAtlas() {
   view.replaceChildren(endgamePage(AT.data));
 }
 
+// game art for the endgame pages: tablet types, the waystone, the masters' icons (an icon of ours without the files)
+const egImg = (file, cls = "eg-art") => file ? h("img", { src: `/icons/${file}`, class: cls, alt: "", loading: "lazy" }) : null;
+const egTabletArt = (type) => AT.mods?.art?.tablets?.[type] || "";
+const egMasterArt = (id, kind = "icon") => (AT.data?.tree?.masters || []).find((m) => m.id === id)?.art?.[kind] || "";
+const EG_TAB_ART = { masters: () => egMasterArt("Jado"), tablets: () => AT.mods?.art?.tablet || egTabletArt("ritual"),
+  maps: () => AT.mods?.art?.waystone || "", farm: () => egTabletArt("map_boss") };
 function endgamePage(data) {
   const tabs = h("div", { class: "ws-modes eg-tabs" }, EG_TABS.map(([k, ic]) =>
     h("button", { class: "ws-mode" + (k === AT.tab ? " on" : ""), "aria-pressed": String(k === AT.tab),
       onclick: () => { AT.tab = k; renderAtlas(); } },
-      h("span", { class: "ws-mode-ic" }, I(ic)), h("span", {}, h("b", {}, t("egTab_" + k)), h("span", {}, t("egTabS_" + k))))));
+      h("span", { class: "ws-mode-ic" }, egImg(EG_TAB_ART[k]?.(), "eg-art eg-art-tab") || I(ic)),
+      h("span", {}, h("b", {}, t("egTab_" + k)), h("span", {}, t("egTabS_" + k))))));
   return h("div", { class: "ws at-page" },
     h("div", { class: "ws-hero" }, h("span", { class: "ws-crest" }, I("map")),
       h("div", {}, h("h1", {}, t("egTitle")), h("p", {}, t("egSub")))),
@@ -126,8 +135,7 @@ function farmBody(data, mods) {
   const prices = f === "loading" ? [loading(t("egFarmLoading"))]
     : f.error ? [h("div", { class: "card" }, h("h3", {}, t("egFarmNoPrices")), h("p", { class: "muted" }, f.error))]
     : priceCards(f, data, mods, go);
-  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egStratIntro"))),
-    egSec(t("egStratTitle"), t("egStratSub")), ...strat,
+  return [egSec(t("egStratTitle"), t("egStratSub")), ...strat,
     egSec(t("egPriceTitle")), ...prices];
 }
 
@@ -142,6 +150,13 @@ function stratSection(list, data, go) {
           h("span", { class: "chip tag eg-lv" + s.build }, I("sword", "ic-s"), " ", s.buildText))))));
   const s = list.find((x) => x.id === AT.strat);
   return s ? [tiles, stratCard(s, data, go)] : [tiles];
+}
+function stratArt(x) {
+  const l = x.link || {};
+  if (l.tablets) return egTabletArt(EG_TPRESETS.find((p) => p[0] === l.tablets)?.[1]) || AT.mods?.art?.tablet || "";
+  if (x.what === "waystone") return AT.mods?.art?.waystone || "";
+  if (l.master) return egMasterArt(l.master);
+  return "";
 }
 function stratLink(link, data, go) {
   if (!link) return null;
@@ -170,7 +185,7 @@ function stratCard(s, data, go) {
         block("help", t("egStratWhy"), h("p", {}, s.why)),
         block("map", t("egStratWhere"), h("p", {}, s.where)),
         s.setup.length ? block("gear", t("egStratSetup"), h("div", { class: "eg-setup" }, s.setup.map((x) =>
-          h("div", { class: "eg-setup-row" }, h("span", { class: "eg-setup-ic" }, I(EG_WHAT_IC[x.what] || "info")),
+          h("div", { class: "eg-setup-row" }, h("span", { class: "eg-setup-ic" }, egImg(stratArt(x)) || I(EG_WHAT_IC[x.what] || "info")),
             h("div", {}, h("div", {}, x.text), stratLink(x.link, data, go)))))) : null),
       h("div", { class: "stack" },
         s.steps.length ? block("flag", t("egStratSteps"), h("ol", { class: "eg-steps" }, s.steps.map((x) => h("li", {}, x)))) : null,
@@ -275,7 +290,7 @@ function tabletSearch(tablets, types) {
         if (x && x.type && x.type !== type) { q.need.delete(id); q.skip.delete(id); }
       }
       renderAtlas();
-    } }, m ? t("egType_" + type) : t("egTQAnyType"));
+    } }, m ? egImg(egTabletArt(type), "eg-art eg-art-chip") : null, m ? t("egType_" + type) : t("egTQAnyType"));
   }));
   const plain = tablets.filter((m) => m.kind !== "unique");
   const list = tablets.filter((m) => !m.base && m.kind !== "unique" && (!m.type || m.type === q.type))
@@ -327,7 +342,7 @@ function tabletsBody(d) {
     const type = m ? m.type : "";
     const own = tablets.filter((x) => x.type === type && !x.base && x.kind !== "unique").length;
     return h("button", { class: "ws-tile at-st" + (type === AT.ttype ? " on" : ""), onclick: () => { AT.ttype = type; renderAtlas(); } },
-      h("span", { class: "ws-ic" }, I(m ? EG_TYPE_IC[type] || "layers" : "layers")),
+      h("span", { class: "ws-ic eg-ic-art" }, egImg(m ? egTabletArt(type) : AT.mods?.art?.tablet) || I(m ? EG_TYPE_IC[type] || "layers" : "layers")),
       h("div", {}, h("b", {}, m ? t("egType_" + type) : t("egTypeAll")), h("span", {}, m ? egText(m)[0] || "" : t("egTypeAllS")),
         m && own ? h("span", { class: "chip tag" }, t("egOwnMods", own)) : null));
   }));
@@ -337,7 +352,7 @@ function tabletsBody(d) {
   const own = AT.ttype ? tablets.filter((m) => m.type === AT.ttype && affix(m) && fits(m)) : [];
   const uniques = tablets.filter((m) => m.kind === "unique" && fits(m));
   const grid = (list) => list.length ? h("div", { class: "eg-grid" }, list.map(modCard)) : h("div", { class: "muted small" }, t("atMNone"));
-  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egTabletIntro"))),
+  return [h("div", { class: "at-warn mt-intro eg-intro-art" }, egImg(AT.mods?.art?.tablet, "eg-art eg-art-intro") || I("info"), h("span", {}, t("egTabletIntro"))),
     ...tabletSearch(tablets, types),
     egSec(t("egTypesTitle"), t("egTypesSub")), typeTiles,
     egSec(t("egModsTitle"), t("egModsSub")), goalFilter(),
@@ -463,11 +478,12 @@ function mapsBody(d) {
   sync();
   const fits = (m) => !AT.goal || m.goals.includes(AT.goal);
   const list = ways.filter(fits).sort((x, y) => (order[x.danger] ?? 3) - (order[y.danger] ?? 3));
-  return [h("div", { class: "at-warn mt-intro" }, I("info"), h("span", {}, t("egMapIntro"))),
+  return [h("div", { class: "at-warn mt-intro eg-intro-art" }, egImg(d.art?.waystone, "eg-art eg-art-intro") || I("info"), h("span", {}, t("egMapIntro"))),
     egSec(t("egSearchTitle"), t("egSearchSub")),
     h("section", { class: "card eg-search" },
       h("div", { class: "row eg-search-row eg-q-out" }, out, copy), note,
       h("div", { class: "muted small" }, t("egQPresets")), presets,
+      h("div", { class: "hint eg-omens" }, I("info", "ic-s"), " ", t("egQOmens")),
       // the waystone's own header lines (the totals) and its rolled modifiers are two different things: kept apart
       h("div", { class: "eg-q-block eg-q-own" },
         h("div", { class: "eg-q-bh" }, h("span", { class: "eg-q-num" }, "1"), h("div", {}, h("b", {}, t("egQOwn")), h("div", { class: "muted small" }, t("egQLines")))),
@@ -493,8 +509,9 @@ function mastersBody(data) {
   const cols = h("div", { class: "mt-cols" }, masters.map((m) => {
     const key = m.id.toLowerCase();
     const list = m.nodes.filter((n) => !AT.tag || n.tags.includes(AT.tag));
-    return h("section", { class: "card mt-card" },
-      h("div", { class: "mt-head" }, h("span", { class: "ws-ic" }, I("person")),
+    return h("section", { class: "card mt-card" + (m.art?.portrait ? " mt-has-art" : "") },
+      m.art?.portrait ? h("div", { class: "mt-portrait", style: `background-image:url(/icons/${m.art.portrait})` }) : null,
+      h("div", { class: "mt-head" }, h("span", { class: "ws-ic eg-ic-art" }, egImg(m.art?.icon) || I("person")),
         h("div", {}, h("h3", {}, t("atM_" + key)), h("div", { class: "muted small" }, m.title[LANG] || m.title.en))),
       h("div", { class: "mt-how" }, I("key", "ic-s"), " ", t("atMS_" + key)),
       h("div", { class: "mt-list" }, list.length ? list.map((n) => h("div", { class: "mt-node" + (n.start ? " start" : "") },

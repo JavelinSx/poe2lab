@@ -267,21 +267,9 @@ def _masters(balance: Path, lang: str, stat_ids: list[str], descs: dict) -> list
 
 def _convert_icons(game: Path, paths: set[str]):
     """The nodes' pictures icons.build leaves out: the clusters' centre art (nodes without a name) and nodes whose
-    name another node's picture already took. Unpacked and converted the same way, into the same folder."""
+    name another node's picture already took."""
     from . import icons
-    missing = sorted(p for p in paths if p.lower().endswith(".dds") and not (icons.ICONS / icons._file_name(p)).is_file())
-    if not missing:
-        return
-    res = subprocess.run([str(BUN), "extract-files", str(game), str(RAW)], input="\n".join(p.lower() for p in missing) + "\n",
-                         capture_output=True, text=True)
-    if res.returncode != 0:
-        return  # the tree still shows, those nodes just have no picture
-    icons.ICONS.mkdir(parents=True, exist_ok=True)
-    for p in missing:
-        src = RAW / p.lower()
-        data = (icons.dds_to_png(src.read_bytes()) or icons.item_png(src.read_bytes())) if src.is_file() else None
-        if data:
-            (icons.ICONS / icons._file_name(p)).write_bytes(data)
+    icons.convert(game, paths)
 
 
 def load(lang: str = "ru", game: Path | None = None) -> dict | None:
@@ -354,6 +342,18 @@ def route(tree: dict) -> dict:
     return {"root": root, "groups": groups, "useful": useful, "steps": steps}
 
 
+def _master_art() -> dict[str, dict[str, str]]:
+    """Each atlas master's portrait and tab icon (UI art: the texture next to the name the table keeps)."""
+    # "Art/2DArt/UIImages/..." -> its texture "Art/Textures/Interface/2D/2DArt/UIImages/....dds" (as uiimages lays out)
+    tex = lambda p: "Art/Textures/Interface/2D/" + p.removeprefix("Art/") + ".dds" if p else ""  # noqa: E731
+    try:
+        rows = read_table(RAW / "data/balance/atlasclasspassiveclasses.datc64", ["Id", "MasterNormal", "TabActive"])
+    except (OSError, KeyError):
+        return {}
+    return {r["Id"]: {"portrait": tex(r["MasterNormal"]), "icon": tex(r["TabActive"])}
+            for r in rows if r["Id"] and r["MasterNormal"]}
+
+
 def guide(game: Path | None = None) -> dict:
     """The tree (names and texts in English and Russian) and what to take first; built from the game when needed."""
     from . import icons  # the nodes' pictures, converted with the other passives' (icons.build)
@@ -361,4 +361,9 @@ def guide(game: Path | None = None) -> dict:
     for n in tree["nodes"]:
         file = icons._file_name(n["icon"]) if n.get("icon") else ""
         n["img"] = file if file and (icons.ICONS / file).is_file() else ""
+    art = _master_art()
+    if game and any(not icons.art_file(p) for p in art.values() for p in p.values()):
+        icons.convert(game, {p for a in art.values() for p in a.values()})
+    for m in tree.get("masters", []):
+        m["art"] = {k: icons.art_file(p) for k, p in art.get(m["id"], {}).items()}
     return {"tree": tree, "route": route(tree)}
