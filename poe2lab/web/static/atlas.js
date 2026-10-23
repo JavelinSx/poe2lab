@@ -487,7 +487,10 @@ function mapsBody(d) {
     h("section", { class: "card eg-search" },
       h("div", { class: "row eg-search-row eg-q-out" }, out, copy), note,
       h("div", { class: "muted small" }, t("egQPresets")), presets,
-      h("div", { class: "hint eg-omens" }, I("info", "ic-s"), " ", t("egQOmens")),
+      h("div", { class: "hint eg-omens" }, I("info", "ic-s"), " ", t("egQOmens"), " ",
+        h("button", { class: "chip mt-filter", onclick: () => { AT.tab = "farm"; AT.strat = "craft_waystones"; renderAtlas();
+          setTimeout(() => document.querySelector(".eg-scard")?.scrollIntoView({ block: "start" }), 300); } },
+          egImg(d.art?.waystone, "eg-art eg-art-chip") || I("scroll", "ic-s"), " ", t("egQCraft"))),
       // the waystone's own header lines (the totals) and its rolled modifiers are two different things: kept apart
       h("div", { class: "eg-q-block eg-q-own" },
         h("div", { class: "eg-q-bh" }, h("span", { class: "eg-q-num" }, "1"), h("div", {}, h("b", {}, t("egQOwn")), h("div", { class: "muted small" }, t("egQLines")))),

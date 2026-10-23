@@ -471,6 +471,67 @@ STRATEGIES = [
      "profit": {"ru": "Автор: ~78 div за вечер без единого династического камня, плюс Т16, плитки, базы.",
                 "en": "The author: ~78 div an evening without a single Lineage gem, plus tier 16s, tablets, bases."}},
 
+    {"id": "craft_waystones", "icon": "scroll", "option": None, "budget": 1, "build": 1, "sources": [29, 44, 51, 60, 38, 27],
+     "name": {"ru": "Крафт путевых камней", "en": "Crafting waystones"},
+     "goal": {"ru": "Камень с нужной шапкой (размер групп, редкость монстров, эффективность) — для своего фарма и на "
+                    "продажу (Т16 и восьмимодовые).",
+              "en": "A waystone with the header you need (pack size, monster rarity, effectiveness) — for your own "
+                    "farming and to sell (tier 16 and 8-modifier ones)."},
+     "why": {"ru": "Шапка камня — сумма наград его свойств: размер групп, редкость монстров, эффективность, редкость "
+                   "предметов. Предзнаменования «хаотичные» убирают ненужные строки, и сфера хаоса перекидывает все "
+                   "свойства в те, что дают оставшиеся — так получают 100%+ в одной строке.",
+             "en": "A waystone's header is the sum of its modifiers' rewards: pack size, monster rarity, effectiveness, "
+                   "item rarity. The Chaotic omens rule out the lines you don't want, and a Chaos Orb rerolls every "
+                   "modifier into ones that give the rest — that is how one line gets to 100%+."},
+     "where": {"ru": "Убежище. Камни Т15 — сами (своих хватает), Т16 — продавать, Т14 и ниже — продавать или в мусор.",
+               "en": "The hideout. Tier 15 waystones — craft them yourself (you drop enough), tier 16 — sell, tier 14 "
+                     "and lower — sell or bin."},
+     "setup": [
+         {"what": "waystone", "text": {"ru": "Размер групп + редкость монстров (Ритуал): омены хаотичной редкости и "
+                                             "хаотичной эффективности.",
+                                       "en": "Pack size + monster rarity (Ritual): Chaotic Rarity and Chaotic "
+                                             "Effectiveness omens."},
+          "link": {"maps": "ritual"}},
+         {"what": "waystone", "text": {"ru": "Редкость монстров 100%+ (фрактуры, Бездна, ларцы): омены хаотичной редкости, "
+                                             "количества и эффективности.",
+                                       "en": "Monster rarity 100%+ (fractures, Abyss, strongboxes): Chaotic Rarity, "
+                                             "Quantity and Effectiveness omens."},
+          "link": {"maps": "monsters"}},
+         {"what": "waystone", "text": {"ru": "Эффективность 80%+ (обмаз Экспедиции, Делириум): омены хаотичной редкости, "
+                                             "количества и монстров.",
+                                       "en": "Effectiveness 80%+ (juiced Expedition, Delirium): Chaotic Rarity, "
+                                             "Quantity and Monsters omens."},
+          "link": {"maps": "juiced"}},
+         {"what": "master", "text": {"ru": "Дориани: «Улучшенная калибровка» — +25% эффекта префиксам или суффиксам при "
+                                           "открытии карты; Джадо: «Неожиданные задания» — +1 свойство осквернённым камням.",
+                                     "en": "Doryani: Improved Calibration — +25% to prefixes or suffixes when opening a "
+                                           "map; Jado: Unexpected Missions — +1 modifier on corrupted waystones."},
+          "link": {"master": "Doryani"}}],
+     "steps": {"ru": ["Опознать все камни (Ctrl-клик по Дариане); синие — алхимия, жёлтые — экзальты до 6 свойств "
+                      "(или до 5, если нужен запас возрождений).",
+                      "Включить нужные омены в инвентаре (они действуют на следующую сферу хаоса) и кинуть сферу хаоса — "
+                      "все свойства заменятся.",
+                      "Если камень с 5 свойствами — после хаоса экзальт на 6-е.",
+                      "По желанию — сфера ваал: восемь свойств (лучший исход), Т16 (продать) или испорченный камень — "
+                      "такой не брать.",
+                      "Проверить шапку поиском склада (вкладка «Карты») — пресеты под каждую цель."],
+               "en": ["Identify all waystones (Ctrl-click Doryani); magic ones — Alchemy, rare ones — Exalts to 6 modifiers "
+                      "(or 5 if you want spare revives).",
+                      "Activate the omens you need in your bag (they work on the next Chaos Orb) and use a Chaos Orb — "
+                      "every modifier is replaced.",
+                      "A 5-modifier waystone — an Exalt for the 6th after the Chaos.",
+                      "Optionally a Vaal Orb: eight modifiers (the best outcome), tier 16 (sell it) or a spoiled "
+                      "waystone — don't use that one.",
+                      "Check the header with the stash search (the Maps tab) — a preset for each goal."]},
+     "tips": {"ru": ["Предзнаменование ИСКЛЮЧАЕТ свою строку — берите омены тех строк, что вам не нужны.",
+                     "Слабому билду — 4 свойства: два возрождения и две плитки.",
+                     "Т16 после осквернения уходят по ~40 ex — это окупает экзальты на камни."],
+              "en": ["An omen RULES OUT its own line — take the omens of the lines you don't want.",
+                     "A weak build — 4 modifiers: two revives and two tablets.",
+                     "Tier 16s from corrupting sell for ~40 ex — that pays for the Exalts."]},
+     "profit": {"ru": "Камни — расходник своего фарма; Т16 и восьмимодовые продаются (Бесок: Т16 — на продажу).",
+                "en": "Waystones are your farming's consumable; tier 16 and 8-modifier ones sell (Besok: tier 16 to sell)."}},
+
     {"id": "craft_tablets", "icon": "layers", "option": None, "budget": 1, "build": 1, "sources": [37, 46, 52],
      "name": {"ru": "Заработок: крафт плиток", "en": "Money: crafting tablets"},
      "goal": {"ru": "Плитки за 2–200 div из основ по 2–35 хаосов: Смотрителя, заражённые, Бездны.",
@@ -572,6 +633,7 @@ ART = {'ritual': 'Ritual Tablet',
        'breach_t1': 'Lavish Wombgift',
        'abyss': 'Omen of Light',
        'atlas_route': 'Waystone (Tier 15)',
+       'craft_waystones': 'Waystone (Tier 16)',
        'craft_tablets': 'Irradiated Tablet',
        'craft_desecrate': 'Omen of Putrefaction',
        'craft_jewels': 'Sapphire'}
