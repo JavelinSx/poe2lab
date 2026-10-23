@@ -2,7 +2,8 @@
 atlas it runs, what to set up (waystone, tablets, atlas nodes, master) and how a map goes. Taken from players'
 guide videos (data/transcripts, folders 26-45 and earlier) and checked against the game files where the game says
 it: node texts (atlas.json), tablet modifiers (endgame.json), item names. Incomes are what the authors reported for
-their own sessions in one league - a pointer, not a promise.
+their own sessions in one league - a pointer, not a promise; "income" prices the sessions they showed item by item at
+today's poe.ninja prices.
 
 Links in "setup" open the program's own tools: {"maps": preset} the waystone stash search, {"tablets": preset} the
 tablet stash search, {"atlas": [node names]} the nodes on the atlas tree, {"master": id} the atlas masters."""
@@ -655,4 +656,162 @@ def strategies(lang: str = "ru", art: dict[str, str] | None = None) -> list[dict
                     "budgetText": pick(LEVELS[s["budget"]]), "buildText": pick(BUILDS[s["build"]]),
                     **{k: pick(s[k]) for k in ("name", "goal", "why", "where", "steps", "tips", "profit")},
                     "setup": [{"what": x["what"], "text": pick(x["text"]), "link": x.get("link")} for x in s["setup"]]})
+    return out
+
+
+# ---------- what a strategy brings at today's prices (poe.ninja) ----------
+
+def _waystone(*omens: str, vaal: bool = False) -> list[tuple[str, float]]:
+    """What one waystone takes ("craft_waystones"): Alchemy, an Exalt to five modifiers, the omens with a Chaos Orb,
+    an Exalt for the sixth (and a Vaal Orb for eight)."""
+    return [("Orb of Alchemy", 1), ("Exalted Orb", 2), *[(o, 1) for o in omens], ("Chaos Orb", 1)] + \
+        ([("Vaal Orb", 1)] if vaal else [])
+
+
+# the Chaotic omens rule out their own line of the header: take the omens of the lines you don't want
+WAYSTONES = {
+    "ritual": ({"ru": "Камень на размер групп + редкость монстров", "en": "A pack size + monster rarity waystone"},
+               _waystone("Omen of Chaotic Rarity", "Omen of Chaotic Effectiveness")),
+    "monsters": ({"ru": "Камень на редкость монстров 100%+", "en": "A 100%+ monster rarity waystone"},
+                 _waystone("Omen of Chaotic Rarity", "Omen of Chaotic Quantity", "Omen of Chaotic Effectiveness")),
+    "juiced": ({"ru": "Камень на эффективность 80%+", "en": "An 80%+ effectiveness waystone"},
+               _waystone("Omen of Chaotic Rarity", "Omen of Chaotic Quantity", "Omen of Chaotic Monsters")),
+    "rarity": ({"ru": "Камень на редкость предметов и монстров", "en": "An item + monster rarity waystone"},
+               _waystone("Omen of Chaotic Quantity", "Omen of Chaotic Effectiveness")),
+    "delirium": ({"ru": "Восьмимодовый камень на эффективность и редкость монстров",
+                  "en": "An 8-modifier effectiveness + monster rarity waystone"},
+                 _waystone("Omen of Chaotic Rarity", "Omen of Chaotic Quantity", vaal=True)),
+}
+PURPLE_OMENS = ["Omen of Sinistral Erasure", "Omen of Sinistral Annulment", "Omen of Whittling",
+                "Omen of Dextral Erasure", "Omen of Dextral Annulment"]
+CRAFT_CURRENCY = ["Orb of Alchemy", "Regal Orb", "Exalted Orb", "Chaos Orb", "Divine Orb"]
+
+
+def _times(items: list[tuple[str, float]], n: float) -> list[tuple[str, float]]:
+    return [(name, qty * n) for name, qty in items]
+
+
+# What each strategy brings and costs, in items poe.ninja prices (English names as it lists them):
+# - "session": what its author dropped (and spent) by item in the video - maps, hours, "drops"; "other" and
+#   "costs_other" are what poe.ninja does not price (waystones, tablets), at the author's word; a drop given as
+#   (name, qty, (item, n)) is worth n of that item each by the author's word (wombgifts in chaos);
+# - "recipe": what one map (an attempt, a batch) takes - a waystone of WAYSTONES or a list of items;
+# - "hunt": the items the strategy is after, whose price now is the point; "inputs": what a craft spends.
+# Lucky drops (a cranium, a 30-quality base) are left out of the sessions: they are luck, not the strategy.
+INCOME = {
+    "ritual": {"recipe": "ritual", "hunt": PURPLE_OMENS + ["Head of the King"]},
+    "nameless": {"recipe": [("Head of the King", 1)], "per": "attempt", "hunt": PURPLE_OMENS + ["Mageblood"]},
+    "fractures": {
+        "session": {"maps": 50, "hours": 5,
+                    "drops": [("Divine Orb", 103), ("Chaos Orb", 260), ("Simulacrum", 15), ("Omen of Light", 14),
+                              ("Fracturing Orb", 25)],
+                    "other": [({"ru": "~220 путевых камней на продажу", "en": "~220 waystones to sell"}, 25)],
+                    "costs": _times(WAYSTONES["monsters"][1], 50),
+                    "costs_other": [({"ru": "Плитки (3 на карту, с «+1–2 свойства карте»)",
+                                      "en": "Tablets (3 a map, with +1-2 map modifiers)"}, 90)]},
+        "recipe": "monsters"},
+    "circles": {"hunt": ["Fracturing Orb", "Simulacrum", "Potent Liquid Ferocity", "Ancient Potent Liquid Contempt"]},
+    "delirium": {"recipe": "delirium",
+                 "hunt": ["Fracturing Orb", "Simulacrum", "Potent Liquid Ferocity", "Ancient Potent Liquid Contempt"]},
+    "expedition": {"recipe": "juiced", "hunt": ["Uhtred's Saga", "Olroth's Saga", "Medved's Saga", "Expedition Logbook"]},
+    "strongboxes": {
+        "session": {"maps": 1,
+                    "drops": [("Divine Orb", 29), ("Chaos Orb", 198), ("Orb of Annulment", 22),
+                              ("Perfect Exalted Orb", 1), ("Greater Chaos Orb", 3)],
+                    "costs": WAYSTONES["monsters"][1] + [("Vaal Orb", 1), ("Cryptic Key", 1),
+                                                         ("Omen of Secret Compartments", 1), ("Omen of the Hunt", 1)],
+                    "costs_unknown": {"ru": "плитки Смотрителя и Экспедиции", "en": "the Overseer and Expedition tablets"}},
+        "recipe": "monsters", "hunt": ["Omen of Secret Compartments", "Omen of the Hunt"]},
+    "breach_t1": {
+        "session": {"maps": 80, "drops": [("Lavish Wombgift", 500, ("Chaos Orb", 7))],
+                    "costs_unknown": {"ru": "плитки на дары утробы", "en": "the wombgift tablets"}},
+        "hunt": ["Refined Sibilant Catalyst", "Refined Reaver Catalyst", "Breachstone"]},
+    "abyss": {
+        "session": {"maps": 50, "hours": 50 * 4 / 60,
+                    "drops": [("Omen of Light", 11), ("Fracturing Orb", 7), ("Kulemak's Invitation", 5),
+                              ("Divine Orb", 29), ("Chaos Orb", 61)],
+                    "other": [({"ru": "Предзнаменования отголосков Бездны", "en": "Omens of Abyssal Echoes"}, 9)],
+                    "costs": _times(WAYSTONES["rarity"][1], 50),
+                    "costs_other": [({"ru": "Плитки Бездны (2 свойства)", "en": "Abyss tablets (2 modifiers)"}, 5)]},
+        "recipe": "rarity"},
+    "atlas_route": {
+        "session": {"evening": True,
+                    "drops": [("Faded Crisis Fragment", 11), ("Ancient Crisis Fragment", 9),
+                              ("Weathered Crisis Fragment", 17), ("Origin Cradle", 1), ("Head of the King", 6),
+                              ("Divine Orb", 13)],
+                    "costs_unknown": {"ru": "камни и плитки (дёшево)", "en": "waystones and tablets (cheap)"}}},
+    "craft_waystones": {"recipes": ["ritual", "monsters", "juiced"]},
+    "craft_tablets": {"inputs": CRAFT_CURRENCY},
+    "craft_desecrate": {"recipe": [("Preserved Rib", 12), ("Omen of Putrefaction", 12)], "per": "batch",
+                        "inputs": ["Omen of Abyssal Echoes"]},
+    "craft_jewels": {"inputs": ["Orb of Augmentation", "Regal Orb", "Exalted Orb", "Orb of Alchemy",
+                                "Concentrated Liquid Fear"]},
+}
+PER = {"map": {"ru": "за карту", "en": "a map"}, "attempt": {"ru": "за попытку (голову)", "en": "an attempt (a head)"},
+       "batch": {"ru": "за партию из 12 вещей (без баз)", "en": "a batch of 12 items (bases aside)"}}
+SPENDING = {"ru": "Расход", "en": "Spending"}
+
+
+def _recipes(spec: dict) -> list:
+    return spec.get("recipes") or ([spec["recipe"]] if "recipe" in spec else [])
+
+
+def income_items() -> set[str]:
+    """Every item the incomes price (for their pictures)."""
+    names = set()
+    for spec in INCOME.values():
+        s = spec.get("session") or {}
+        names |= {d[0] for d in s.get("drops", [])} | {c[0] for c in s.get("costs", [])}
+        names |= set(spec.get("hunt", [])) | set(spec.get("inputs", []))
+        for r in _recipes(spec):
+            names |= {n for n, _ in (WAYSTONES[r][1] if isinstance(r, str) else r)}
+    return names
+
+
+def income(price, lang: str = "ru") -> dict[str, dict]:
+    """Each strategy's loot and spending at today's prices. price(name) -> divines for one, or None when poe.ninja
+    has no price for it (that line is then left out of the sums and named in "missing")."""
+    pick = lambda t: t.get(lang, t["en"]) if isinstance(t, dict) else t  # noqa: E731
+    total = lambda rows: sum(r["sum"] or 0 for r in rows)  # noqa: E731
+    out = {}
+    for sid, spec in INCOME.items():
+        missing = set()
+
+        def row(name, qty, via=None):
+            unit = price(via[0] if via else name)
+            if unit is not None and via:
+                unit *= via[1]
+            if unit is None:
+                missing.add(name)
+            return {"name": name, "qty": qty, "div": unit, "sum": unit * qty if unit is not None else None,
+                    **({"via": {"name": via[0], "qty": via[1]}} if via else {})}
+
+        res = {}
+        if "session" in spec:
+            s = spec["session"]
+            drops = [row(*d) for d in s.get("drops", [])]
+            other = [{"text": pick(t), "div": d} for t, d in s.get("other", [])]
+            costs = [row(*c) for c in s.get("costs", [])]
+            costs_other = [{"text": pick(t), "div": d} for t, d in s.get("costs_other", [])]
+            got = total(drops) + sum(o["div"] for o in other)
+            net = got - total(costs) - sum(o["div"] for o in costs_other)
+            res["session"] = {
+                "maps": s.get("maps"), "hours": s.get("hours"), "evening": s.get("evening", False),
+                "drops": drops, "other": other, "costs": costs, "costsOther": costs_other,
+                "costsUnknown": pick(s["costs_unknown"]) if "costs_unknown" in s else "",
+                "income": round(got, 1), "cost": round(got - net, 1), "net": round(net, 1),
+                "perHour": round(net / s["hours"], 1) if s.get("hours") else None,
+                "perMap": round(net / s["maps"], 2) if s.get("maps") else None}
+        if _recipes(spec):
+            res["recipes"] = []
+            for r in _recipes(spec):
+                text, items = WAYSTONES[r] if isinstance(r, str) else (SPENDING, r)
+                rows = [row(n, q) for n, q in items]
+                res["recipes"].append({"text": pick(text), "per": pick(PER[spec.get("per", "map")]), "rows": rows,
+                                       "div": round(total(rows), 3)})
+        for key in ("hunt", "inputs"):
+            if spec.get(key):
+                res[key] = [row(n, 1) for n in spec[key]]
+        res["missing"] = sorted(missing)
+        out[sid] = res
     return out

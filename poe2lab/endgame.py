@@ -227,6 +227,11 @@ def item_art(names, game: Path | None = None) -> dict[str, str]:
         k = r["ItemVisualIdentityKey"]
         if r["Name"] in wanted and r["Name"] not in paths and k is not None and k < len(vis) and vis[k]:
             paths[r["Name"]] = vis[k]
+    if wanted - set(paths):  # a unique (a Mageblood): its own art
+        try:
+            paths |= {n: p for n, p in icons.item_art().items() if n in wanted and n not in paths}
+        except (OSError, KeyError):
+            pass
     if game and any(not icons.art_file(p) for p in paths.values()):
         icons.convert(game, set(paths.values()))
     return {n: icons.art_file(paths.get(n, "")) for n in wanted}

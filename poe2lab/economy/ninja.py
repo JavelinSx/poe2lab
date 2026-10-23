@@ -132,10 +132,10 @@ def market(league: str) -> dict:
     return {"league": league, "items": items, "uniques": uniques, "exaltedPerDivine": rate}
 
 
-def unique_prices(league: str) -> dict[str, dict]:
+def unique_prices(league: str, types=UNIQUE_TYPES) -> dict[str, dict]:
     """Uniques' prices in divines by name: {name: {"div", "listings"}} (the cheapest line when poe.ninja has a few)."""
     out = {}
-    for t in UNIQUE_TYPES:
+    for t in types:
         try:
             data = _get("stash/current/item/overview", league=league, type=t)
         except OSError:

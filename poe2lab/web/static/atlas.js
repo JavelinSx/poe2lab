@@ -15,7 +15,7 @@ const AT_STAGE_COLOR = ["#c9b27a", "#5fc98d", "#5b9cf0", "#5b9cf0", "#e8743f", "
 const AT_GROUP_IC = { fracturing: "gem", exceptional: "star", tablets: "layers", lineage: "crown",
   monsters: "skull", rarity: "coins", shrines: "spark", waystones: "map" };
 const AT = { data: null, part: "Main", show: "route", focus: null, mark: null, view: null, tab: "atlas", tag: "",
-  mods: null, goal: "", ttype: "", farm: null, strats: null, strat: null,
+  mods: null, goal: "", ttype: "", farm: null, strats: null, strat: null, income: null,
   // the stash search builder: header lines with their minimum, all of them or any one, the waystone's least tier,
   // and modifiers the waystone must have (need) or must not have (skip), by mod id
   q: { props: { Pack: 20, RareMonsterQuantityBonus: 20 }, any: false, tier: 0, need: new Set(), skip: new Set() },
@@ -123,6 +123,11 @@ function farmBody(data, mods) {
     api("/api/endgame/strategies?lang=" + LANG).then((r) => { AT.strats.list = r.strategies; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); })
       .catch(() => { AT.strats.list = []; });
   }
+  if (!AT.income || AT.income.lang !== LANG) {
+    const box = AT.income = { lang: LANG, data: null };
+    const done = (d) => { box.data = d; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); };
+    api("/api/endgame/income?lang=" + LANG).then(done).catch((e) => done({ error: e.message }));
+  }
   if (AT.farm === null) {
     AT.farm = "loading";
     api("/api/endgame/farm").then((r) => { AT.farm = r; if (state.page === "atlas" && AT.tab === "farm") renderAtlas(); })
@@ -146,7 +151,8 @@ function stratSection(list, data, go) {
       onclick: () => { AT.strat = AT.strat === s.id ? null : s.id; renderAtlas(); } },
       h("span", { class: "ws-ic eg-ic-art" }, egImg(s.img) || I(s.icon || "coins")),
       h("div", {}, h("b", {}, s.name), h("span", {}, s.goal),
-        h("span", { class: "row eg-strat-tags" }, h("span", { class: "chip tag eg-lv" + s.budget }, I("coins", "ic-s"), " ", s.budgetText),
+        h("span", { class: "row eg-strat-tags" }, egIncomeBadge(s.id),
+          h("span", { class: "chip tag eg-lv" + s.budget }, I("coins", "ic-s"), " ", s.budgetText),
           h("span", { class: "chip tag eg-lv" + s.build }, I("sword", "ic-s"), " ", s.buildText))))));
   const s = list.find((x) => x.id === AT.strat);
   return s ? [tiles, stratCard(s, data, go)] : [tiles];
@@ -177,9 +183,11 @@ function stratCard(s, data, go) {
   const opt = AT.farm && AT.farm.options ? AT.farm.options.find((o) => o.id === s.option) : null;
   const rate = AT.farm?.exaltedPerDivine || 0;
   const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
+  const income = incomeBlock(s, block);
   return h("section", { class: "card eg-scard" },
     h("div", { class: "mt-head" }, h("span", { class: "ws-ic eg-ic-art" }, egImg(s.img) || I(s.icon || "coins")),
       h("div", {}, h("h3", {}, s.name), h("div", { class: "muted small" }, s.goal))),
+    income,
     h("div", { class: "eg-scols" },
       h("div", { class: "stack" },
         block("help", t("egStratWhy"), h("p", {}, s.why)),
@@ -190,9 +198,56 @@ function stratCard(s, data, go) {
       h("div", { class: "stack" },
         s.steps.length ? block("flag", t("egStratSteps"), h("ol", { class: "eg-steps" }, s.steps.map((x) => h("li", {}, x)))) : null,
         s.tips.length ? block("warn", t("egStratTips"), h("ul", { class: "eg-tips" }, s.tips.map((x) => h("li", {}, x)))) : null,
-        block("coins", t("egStratProfit"), h("p", {}, s.profit),
+        income ? null : block("coins", t("egStratProfit"), h("p", {}, s.profit),
           opt && opt.drops.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFDrops")),
             opt.drops.map(egDrop(price))) : null))));
+}
+
+// what a strategy brings and costs at poe.ninja's prices now (poe2lab.farmguide.income): the author's loot by item
+// priced today, what a map takes, what the strategy hunts for; the author's own words under it
+const egMoney = (rate) => (div) => div === null || div === undefined ? "—"
+  : Math.abs(div) >= 1 || !rate ? `${fmt(div, Math.abs(div) < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
+function egIncomeBadge(id) {
+  const inc = AT.income?.data, ses = inc?.strategies?.[id]?.session;
+  if (!ses) return null;
+  const money = egMoney(inc.exaltedPerDivine);
+  const [v, key] = ses.perHour !== null ? [ses.perHour, "egIBHour"] : ses.perMap !== null ? [ses.perMap, "egIBMap"] : [ses.net, "egIBEvening"];
+  return h("span", { class: "chip tag eg-inc-badge" + (v < 0 ? " bad" : "") }, I("coins", "ic-s"), " ", t(key, money(v)));
+}
+function incomeBlock(s, block) {
+  const inc = AT.income?.data, x = inc?.strategies?.[s.id];
+  if (!x) return null;
+  const money = egMoney(inc.exaltedPerDivine), art = inc.art || {};
+  const item = (r) => h("div", { class: "eg-drop" },
+    h("span", { class: "eg-drop-n" }, egImg(art[r.name], "eg-art eg-art-drop"), trName(r.name),
+      r.qty !== 1 ? h("span", { class: "muted" }, ` ×${fmt(r.qty, 0)}`) : null,
+      r.via ? h("span", { class: "muted small" }, " " + t("egIVia", fmt(r.via.qty, 0), trName(r.via.name))) : null),
+    h("b", {}, money(r.sum)));
+  const other = (o) => h("div", { class: "eg-drop" },
+    h("span", { class: "eg-drop-n" }, I("info", "ic-s"), o.text, h("span", { class: "muted small" }, " " + t("egIAuthor"))), h("b", {}, money(o.div)));
+  const list = (title, rows, extra = []) => h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, title), rows.map(item), extra.map(other));
+  const stat = (value, label, cls = "") => h("div", { class: "eg-inc-stat " + cls }, h("b", {}, value), h("span", {}, label));
+  const parts = [];
+  const ses = x.session;
+  if (ses) {
+    parts.push(h("div", { class: "eg-inc-stats" },
+      stat(money(ses.net), ses.evening ? t("egIEvening") : t("egIMaps", ses.maps), ses.net >= 0 ? "good" : "bad"),
+      ses.perHour !== null ? stat(money(ses.perHour), t("egIHour")) : null,
+      ses.perMap !== null && ses.maps > 1 ? stat(money(ses.perMap), t("egIMap")) : null),
+    h("div", { class: "eg-inc-cols" },
+      list(t("egIDrops", money(ses.income)), ses.drops, ses.other),
+      ses.costs.length || ses.costsOther.length ? list(t("egICosts", money(ses.cost)), ses.costs, ses.costsOther) : null),
+    ses.costsUnknown ? h("div", { class: "hint" }, t("egIUnknown", ses.costsUnknown)) : null);
+  } else {
+    for (const r of x.recipes || []) parts.push(list(t("egIRecipe", r.text, r.per, money(r.div)), r.rows));
+  }
+  const chips = (title, rows) => h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, title),
+    h("div", { class: "eg-inc-hunt" }, rows.map((r) => h("span", { class: "eg-inc-chip" },
+      egImg(art[r.name], "eg-art eg-art-drop"), h("span", {}, trName(r.name)), h("b", {}, money(r.div))))));
+  if (x.hunt) parts.push(chips(t("egIHunt"), x.hunt));
+  if (x.inputs) parts.push(chips(t("egIInputs"), x.inputs));
+  parts.push(h("div", { class: "hint" }, I("person", "ic-s"), " ", t("egIAuthorSaid"), " ", s.profit));
+  return h("div", { class: "eg-income" }, block("coins", t("egIncome", inc.league), ...parts));
 }
 
 const egDrop = (price) => (d) => h("div", { class: "eg-drop" },

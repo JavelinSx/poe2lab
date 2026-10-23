@@ -3424,6 +3424,30 @@ def endgame_strategies(lang: str = "ru"):
     return {"strategies": farmguide.strategies(lang if lang in ("ru", "en") else "ru", art)}
 
 
+# the poe.ninja categories the strategies' items are in (omens are "Ritual"), and the uniques they hunt (Mageblood)
+INCOME_TYPES = ("Currency", "Ritual", "Abyss", "Breach", "Delirium", "Fragments", "Expedition")
+
+
+@app.get("/api/endgame/income")
+def endgame_income(lang: str = "ru"):
+    """What each farming strategy brings and costs at poe.ninja's prices now, in the chosen league
+    (poe2lab.farmguide.income), with the items' pictures."""
+    try:
+        league = ninja.chosen_league() or ninja.leagues()[0]
+        book = PriceBook.load(league, INCOME_TYPES)
+        uniques = ninja.unique_prices(league, ("UniqueAccessories",))
+    except (OSError, IndexError) as err:
+        raise HTTPException(502, f"нет цен poe.ninja: {err}")
+
+    def price(name: str) -> float | None:
+        p = book.get(name)
+        return p.divine if p else (uniques.get(name) or {}).get("div")
+    with _game_lock:
+        art = endgame.item_art(farmguide.income_items(), gamedata.game_dir())
+    return {"league": league, "exaltedPerDivine": book.exalted_per_divine, "art": art,
+            "strategies": farmguide.income(price, lang if lang in ("ru", "en") else "ru")}
+
+
 @app.get("/api/glossary")
 def glossary_view(lang: str = "ru"):
     """The beginner's glossary page: groups of terms in our own words (poe2lab.glossary)."""
