@@ -3409,15 +3409,19 @@ def endgame_mods():
 def endgame_farm():
     """The farming options ranked by what their loot trades for now on poe.ninja (the chosen league)."""
     try:
-        return endgame.farm()
+        result = endgame.farm()
     except OSError as err:
         raise HTTPException(502, f"нет цен poe.ninja: {err}")
+    with _game_lock:
+        return endgame.farm_art(result, gamedata.game_dir())
 
 
 @app.get("/api/endgame/strategies")
 def endgame_strategies(lang: str = "ru"):
-    """The farming strategies with how to set each up (poe2lab.farmguide)."""
-    return {"strategies": farmguide.strategies(lang if lang in ("ru", "en") else "ru")}
+    """The farming strategies with how to set each up (poe2lab.farmguide), and their pictures."""
+    with _game_lock:
+        art = endgame.item_art(farmguide.ART.values(), gamedata.game_dir())
+    return {"strategies": farmguide.strategies(lang if lang in ("ru", "en") else "ru", art)}
 
 
 @app.get("/api/glossary")

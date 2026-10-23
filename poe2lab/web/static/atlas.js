@@ -144,7 +144,7 @@ function stratSection(list, data, go) {
   const tiles = h("div", { class: "eg-strat-grid" }, list.map((s) =>
     h("button", { class: "ws-tile at-st eg-strat" + (AT.strat === s.id ? " on" : ""),
       onclick: () => { AT.strat = AT.strat === s.id ? null : s.id; renderAtlas(); } },
-      h("span", { class: "ws-ic" }, I(s.icon || "coins")),
+      h("span", { class: "ws-ic eg-ic-art" }, egImg(s.img) || I(s.icon || "coins")),
       h("div", {}, h("b", {}, s.name), h("span", {}, s.goal),
         h("span", { class: "row eg-strat-tags" }, h("span", { class: "chip tag eg-lv" + s.budget }, I("coins", "ic-s"), " ", s.budgetText),
           h("span", { class: "chip tag eg-lv" + s.build }, I("sword", "ic-s"), " ", s.buildText))))));
@@ -178,7 +178,7 @@ function stratCard(s, data, go) {
   const rate = AT.farm?.exaltedPerDivine || 0;
   const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
   return h("section", { class: "card eg-scard" },
-    h("div", { class: "mt-head" }, h("span", { class: "ws-ic" }, I(s.icon || "coins")),
+    h("div", { class: "mt-head" }, h("span", { class: "ws-ic eg-ic-art" }, egImg(s.img) || I(s.icon || "coins")),
       h("div", {}, h("h3", {}, s.name), h("div", { class: "muted small" }, s.goal))),
     h("div", { class: "eg-scols" },
       h("div", { class: "stack" },
@@ -192,10 +192,14 @@ function stratCard(s, data, go) {
         s.tips.length ? block("warn", t("egStratTips"), h("ul", { class: "eg-tips" }, s.tips.map((x) => h("li", {}, x)))) : null,
         block("coins", t("egStratProfit"), h("p", {}, s.profit),
           opt && opt.drops.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFDrops")),
-            opt.drops.map((d) => h("div", { class: "eg-drop" }, h("span", {}, trName(d.name)), h("b", {}, price(d.div))))) : null),
+            opt.drops.map(egDrop(price))) : null),
         h("p", { class: "hint" }, t("egStratSource", s.sources.join(", "))))));
 }
 
+const egDrop = (price) => (d) => h("div", { class: "eg-drop" },
+  h("span", { class: "eg-drop-n" }, egImg(d.img, "eg-art eg-art-drop"), trName(d.name)), h("b", {}, price(d.div)));
+// a price card's picture: the tablet of its mechanic, else its first drop's
+const egOptArt = (o) => (o.tablet && egTabletArt(o.tablet)) || o.drops.find((d) => d.img)?.img || AT.mods?.art?.waystone || "";
 // what each mechanic's loot trades for now on poe.ninja (poe2lab.endgame.farm)
 function priceCards(f, data, mods, go) {
   const rate = f.exaltedPerDivine || 0;
@@ -210,7 +214,7 @@ function priceCards(f, data, mods, go) {
       && (o.tablet ? m.type === o.tablet : !m.type && (m.stats || []).some((x) => re.test(x))));
     const setup = [
       o.tablet ? h("button", { class: "chip mt-filter", onclick: () => go("tablets", { ttype: o.tablet, goal: "" }) },
-        I("layers", "ic-s"), " ", t("egFTablet", t("egType_" + o.tablet))) : null,
+        egImg(egTabletArt(o.tablet), "eg-art eg-art-chip") || I("layers", "ic-s"), " ", t("egFTablet", t("egType_" + o.tablet))) : null,
       o.part ? h("button", { class: "chip mt-filter", onclick: () => go("atlas", { part: o.part, mark: null, focus: null }) },
         I("map", "ic-s"), " ", t("egFBranch", t("atPart_" + o.part))) : null,
       aNodes.length ? h("button", { class: "chip mt-filter", onclick: () => go("atlas", { part: "Main", mark: new Set(aNodes.map((n) => n.id)), focus: aNodes[0].id }) },
@@ -218,12 +222,12 @@ function priceCards(f, data, mods, go) {
       mNodes.length ? h("button", { class: "chip mt-filter", onclick: () => go("masters", { tag: "" }) },
         I("person", "ic-s"), " ", t("egFMasters", mNodes.map(({ m, n }) => `${t("atM_" + m.id.toLowerCase())}: ${(n.name[LANG] || n.name.en).trim()}`).slice(0, 3).join(", "))) : null];
     return h("section", { class: "card eg-farm" },
-      h("div", { class: "mt-head" }, h("span", { class: "ws-ic" }, I(EG_FARM_IC[o.id] || "coins")),
+      h("div", { class: "mt-head" }, h("span", { class: "ws-ic eg-ic-art" }, egImg(egOptArt(o)) || I(EG_FARM_IC[o.id] || "coins")),
         h("div", {}, h("h3", {}, t("egF_" + o.id)), h("div", { class: "muted small" }, t("egFS_" + o.id)))),
       o.types.length ? h("div", { class: "eg-score" }, h("div", { class: "bar" }, h("span", { style: `width:${Math.max(3, o.score * 100)}%` })),
         h("span", { class: "small muted" }, t("egFVolume", fmt(o.volume, 0)))) : h("div", { class: "hint" }, t("egFNoPrice")),
       o.drops.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFDrops")),
-        o.drops.map((d) => h("div", { class: "eg-drop" }, h("span", {}, trName(d.name)), h("b", {}, price(d.div))))) : null,
+        o.drops.map(egDrop(price))) : null,
       tMods.length ? h("div", { class: "eg-drops" }, h("div", { class: "muted small" }, t("egFMods")),
         tMods.slice(0, 3).map((m) => h("div", { class: "small" }, "• ", egText(m)[0] || ""))) : null,
       h("div", { class: "row at-chips" }, setup.filter(Boolean)));

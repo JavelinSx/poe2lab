@@ -212,6 +212,36 @@ def _art() -> dict:
     return out
 
 
+def item_art(names, game: Path | None = None) -> dict[str, str]:
+    """English item name -> its picture under /icons (converted from the game when missing); "" when it has none."""
+    from . import icons
+    balance = RAW / "data/balance"
+    try:
+        vis = [r["DDSFile"] for r in read_table(balance / "itemvisualidentity.datc64", ["DDSFile"])]
+        bases = read_table(balance / "baseitemtypes.datc64", ["Name", "ItemVisualIdentityKey"])
+    except (OSError, KeyError):
+        return {}
+    wanted = set(names)
+    paths = {}
+    for r in bases:
+        k = r["ItemVisualIdentityKey"]
+        if r["Name"] in wanted and r["Name"] not in paths and k is not None and k < len(vis) and vis[k]:
+            paths[r["Name"]] = vis[k]
+    if game and any(not icons.art_file(p) for p in paths.values()):
+        icons.convert(game, set(paths.values()))
+    return {n: icons.art_file(paths.get(n, "")) for n in wanted}
+
+
+def farm_art(result: dict, game: Path | None = None) -> dict:
+    """The farming options' drops with their pictures ("img")."""
+    names = {d["name"] for o in result.get("options", []) for d in o["drops"]}
+    art = item_art(names, game)
+    for o in result.get("options", []):
+        for d in o["drops"]:
+            d["img"] = art.get(d["name"], "")
+    return result
+
+
 def guide(game: Path | None = None) -> dict:
     from . import icons
     data = load(game) or build(game)

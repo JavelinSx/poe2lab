@@ -561,17 +561,34 @@ STRATEGIES = [
      "profit": {"ru": "Автор самоцветов: ~10 div вложений → 100+ div.", "en": "The jewel author: ~10 div in → 100+ div."}},
 ]
 
+# a strategy's picture: an item of the game that stands for it (English name; poe2lab.endgame.item_art)
+ART = {'ritual': 'Ritual Tablet',
+       'nameless': 'Head of the King',
+       'fractures': 'Fracturing Orb',
+       'circles': 'Overseer Tablet',
+       'delirium': 'Simulacrum',
+       'expedition': 'Expedition Logbook',
+       'strongboxes': 'Omen of Secret Compartments',
+       'breach_t1': 'Lavish Wombgift',
+       'abyss': 'Omen of Light',
+       'atlas_route': 'Waystone (Tier 15)',
+       'craft_tablets': 'Irradiated Tablet',
+       'craft_desecrate': 'Omen of Putrefaction',
+       'craft_jewels': 'Sapphire'}
+
 LEVELS = {1: {"ru": "дёшево", "en": "cheap"}, 2: {"ru": "средне", "en": "middling"}, 3: {"ru": "дорого", "en": "expensive"}}
 BUILDS = {1: {"ru": "любой билд", "en": "any build"}, 2: {"ru": "крепкий билд", "en": "a sturdy build"},
           3: {"ru": "очень сильный билд", "en": "a very strong build"}}
 
 
-def strategies(lang: str = "ru") -> list[dict]:
-    """The strategies with their texts in `lang` (English where it has none)."""
+def strategies(lang: str = "ru", art: dict[str, str] | None = None) -> list[dict]:
+    """The strategies with their texts in `lang` (English where it has none) and their pictures (name -> file)."""
+    art = art or {}
     pick = lambda t: t.get(lang, t["en"]) if isinstance(t, dict) else t  # noqa: E731
     out = []
     for s in STRATEGIES:
-        out.append({"id": s["id"], "icon": s["icon"], "option": s["option"], "sources": s["sources"],
+        out.append({"id": s["id"], "icon": s["icon"], "img": art.get(ART.get(s["id"], ""), ""),
+                    "option": s["option"], "sources": s["sources"],
                     "budget": s["budget"], "build": s["build"],
                     "budgetText": pick(LEVELS[s["budget"]]), "buildText": pick(BUILDS[s["build"]]),
                     **{k: pick(s[k]) for k in ("name", "goal", "why", "where", "steps", "tips", "profit")},
