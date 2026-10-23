@@ -5,6 +5,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from poe2lab import starters
 from poe2lab.analysis import leveling
 from poe2lab.profile import open_build
 from poe2lab.web import server
@@ -21,7 +22,8 @@ def monk():
     return open_build("monk")
 
 
-def test_a_class_levels_with_the_skills_of_its_attributes(titan, monk):
+def test_a_class_levels_with_the_skills_of_its_attributes(titan, monk, monkeypatch):
+    monkeypatch.setattr(starters, "load", lambda: [])  # the program's own ways: no players' guides
     w = leveling.ways(monk[0])
     ids = [x["id"] for x in w["ways"]]
     assert w["attributes"] == ["dexterity", "intelligence"] and ids[0] == "build"
@@ -34,6 +36,23 @@ def test_a_class_levels_with_the_skills_of_its_attributes(titan, monk):
     wt = leveling.ways(titan[0])
     assert wt["attributes"] == ["strength"]
     assert "mace:physical" in [x["id"] for x in wt["ways"]] and not any(x["weapon"] == "talisman" for x in wt["ways"][1:])
+
+
+def test_players_guides_come_first(monk, monkeypatch):
+    """A levelling guide of the class leads (the build's ascendancy before the others); a video's finished build
+    gets the skills of the way like it before its own first skill drops."""
+    guide = {"id": "maxroll:g:0", "source": "maxroll", "title": "Glacial Cascade Monk", "class": "Monk",
+             "ascendancies": [], "mainSkill": "Glacial Cascade", "votes": 3, "tips": ["a tip"],
+             "skills": [{"name": "Glacial Cascade", "level": 2, "tier": 1}]}
+    video = {"id": "video:11", "source": "video", "title": "Monk video", "class": "Monk",
+             "ascendancies": [monk[0].info()["ascendancy"]], "mainSkill": "Whirling Assault", "votes": 1, "tips": [],
+             "skills": [{"name": "Whirling Assault", "level": 42, "tier": 1}]}
+    other = guide | {"id": "maxroll:x:0", "class": "Warrior"}
+    monkeypatch.setattr(starters, "load", lambda: [guide, video, other])
+    ids = [x["id"] for x in leveling.ways(monk[0])["ways"]]
+    assert ids[:3] == ["starter:video:11", "starter:maxroll:g:0", "build"] and "starter:maxroll:x:0" not in ids
+    way = leveling.ways(monk[0])["ways"][0]
+    assert way["starter"]["sameAscendancy"] and way["skills"][0]["level"] < 42 and way["skills"][-1]["name"] == "Whirling Assault"
 
 
 def test_the_switch_waits_for_what_carries_the_build(titan):
@@ -83,7 +102,7 @@ def client(tmp_path, monkeypatch):
 def test_the_answers_are_kept_in_the_build_profile(client, tmp_path):
     H = {"X-Poe2lab": "1"}
     first = client.get("/api/leveling").json()
-    assert first["answers"] is None and first["roadmap"] is None and first["ways"]["ways"][0]["id"] == "build"
+    assert first["answers"] is None and first["roadmap"] is None and first["ways"]["ways"][0]["id"].startswith(("starter:", "build"))
     r = client.post("/api/leveling", json={"way": "mace:physical", "trade": False, "pace": "fast", "novice": True},
                     headers=H).json()
     assert r["answers"]["way"] == "mace:physical" and r["roadmap"]["switch"]["trade"] is False

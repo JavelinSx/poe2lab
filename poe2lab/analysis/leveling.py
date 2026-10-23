@@ -6,7 +6,7 @@ uniques PoB measures the build losing most without, and what the main skill stan
 skills that make what it spends (charges, rage), and the Spirit all of them reserve."""
 import re
 
-from .. import newbuild
+from .. import newbuild, starters
 from .combat import made_by_lines
 from .gradients import metric_changes
 from .skills import UNCUT_SUPPORT_AREA, available_level, mechanics_of
@@ -22,6 +22,7 @@ NOT_LEVELLING = {"Buff", "Persistent", "Herald", "Warcry", "Travel", "Movement",
 EARLY_LEVEL = 7  # a way of levelling has a skill from this level at the latest
 SECOND_LEVEL = 23  # ... and a second one by this level
 MAX_WAYS = 6
+MAX_STARTERS = 4  # players' guides for the class first (poe2lab.starters), then the build's own skills and the rest
 CORE_SUPPORT = 10.0  # % of the main skill's damage a support carries to be part of the switch
 CORE_ITEM = 15.0  # % of the build's damage (or, for defence uniques, EHP) a unique carries to count
 NO_ITEM_SLOTS = ("Jewel", "Flask", "Charm")  # not what the switch waits for
@@ -118,8 +119,35 @@ def ways(engine, catalog: list[dict] | None = None) -> dict:
                     "sameWeapon": bool(main_way) and weapon == main_way[0]})
     out.sort(key=lambda w: (not w["likeBuild"], not w["sameWeapon"], w["from"], -len(w["skills"])))
     own = _build_way(engine, by_name, main, main_way)
+    guided = [w for w in (_starter_way(st, by_name, main, main_way, info["ascendancy"], out)
+                          for st in starters.for_class(info["class"], info["ascendancy"])) if w]
+    guided.sort(key=lambda w: (not w["starter"]["sameAscendancy"], not w["likeBuild"], not w["sameWeapon"],
+                               -w["starter"]["votes"]))
     return {"class": info["class"], "ascendancy": info["ascendancy"], "level": info["level"],
-            "attributes": sorted(primary), "mainSkill": main, "ways": ([own] if own else []) + out[:MAX_WAYS]}
+            "attributes": sorted(primary), "mainSkill": main,
+            "ways": guided[:MAX_STARTERS] + ([own] if own else []) + out[:MAX_WAYS]}
+
+
+def _starter_way(st: dict, by_name: dict, main: str | None, main_way, ascendancy: str | None,
+                 others: list[dict]) -> dict | None:
+    """A players' guide as a way of levelling (poe2lab.starters): its skills from the levels it takes them at, and
+    before its first one drops, the skills of the way most like it."""
+    skills = [{"name": x["name"], "tier": x.get("tier") or 0, "level": x["level"]} for x in st["skills"] if x["name"] in by_name]
+    if not skills:
+        return None
+    lead = by_name.get(st["mainSkill"]) or by_name[skills[-1]["name"]]
+    weapon, element = way_of(lead) or way_of(by_name[skills[0]["name"]]) or (None, None)
+    like = st["mainSkill"] == main or (bool(main_way) and (weapon, element) == main_way)
+    way = {"id": "starter:" + st["id"], "weapon": weapon, "element": element, "skills": skills,
+           "from": skills[0]["level"], "likeBuild": like, "sameWeapon": bool(main_way) and weapon == main_way[0],
+           "starter": {"title": st["title"], "source": st["source"], "url": st.get("url", ""),
+                       "profile": st.get("profile", ""), "mainSkill": st["mainSkill"], "votes": st.get("votes", 1),
+                       "ascendancies": st["ascendancies"], "sameAscendancy": ascendancy in st["ascendancies"],
+                       "tips": st.get("tips", []), "patch": st.get("patch", "")}}
+    if st["source"] == "video":  # a finished build: what to kill with before its skills drop
+        way = _until_build(way, [w for w in others if w["weapon"] == weapon] or others, early=1)
+        way["skills"] = way["skills"][:10]
+    return way
 
 
 def _build_way(engine, by_name: dict, main: str | None, main_way) -> dict | None:
@@ -142,12 +170,13 @@ def _build_way(engine, by_name: dict, main: str | None, main_way) -> dict | None
             "skills": skills[:6], "from": min(s["level"] for s in skills), "likeBuild": True, "sameWeapon": True}
 
 
-def _until_build(own: dict, all_ways: list[dict]) -> dict:
-    """The build's own skills, and before the first of them drops the skills of the way most like the build."""
+def _until_build(own: dict, all_ways: list[dict], early: int = EARLY_LEVEL) -> dict:
+    """A way's own skills (the build's, a video's), and before the first of them drops the skills of the way most like
+    it."""
     first = min(s["level"] for s in own["skills"])
-    if first <= EARLY_LEVEL:
+    if first <= early:
         return own
-    others = [w for w in all_ways if w["id"] != "build"]
+    others = [w for w in all_ways if w["id"] != "build" and not w.get("starter")]
     near = next((w for w in others if w["likeBuild"]), None) or next((w for w in others if w["sameWeapon"]), None) \
         or (others[0] if others else None)
     if near is None:

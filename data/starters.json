@@ -1,0 +1,3045 @@
+[
+ {
+  "id": "maxroll:boneshatter-titan-leveling-guide:0",
+  "source": "maxroll",
+  "title": "Boneshatter Titan Build Guide",
+  "profile": "Variant 1",
+  "url": "https://maxroll.gg/poe2/build-guides/boneshatter-titan-leveling-guide",
+  "class": "Warrior",
+  "ascendancies": [
+   "Titan"
+  ],
+  "mainSkill": "Boneshatter",
+  "skills": [
+   {
+    "name": "Boneshatter",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Rolling Slam",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Perfect Strike",
+    "level": 1,
+    "tier": 5
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Forge Hammer",
+    "level": 16,
+    "tier": 9
+   },
+   {
+    "name": "Hammer of the Gods",
+    "level": 33,
+    "tier": 13
+   },
+   {
+    "name": "Earthshatter",
+    "level": 65,
+    "tier": 7
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Boneshatter"
+     ],
+     [
+      "Rolling Slam"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Perfect Strike"
+     ],
+     [
+      "Herald of Ash"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Boneshatter"
+     ],
+     [
+      "Rolling Slam"
+     ],
+     [
+      "Forge Hammer"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Leap Slam"
+     ],
+     [
+      "Herald of Ash"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3+",
+    "gems": [
+     [
+      "Boneshatter"
+     ],
+     [
+      "Forge Hammer"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Leap Slam"
+     ],
+     [
+      "Herald of Ash"
+     ],
+     [
+      "Scavenged Plating"
+     ],
+     [
+      "Hammer of the Gods"
+     ],
+     [
+      "Seismic Cry"
+     ]
+    ]
+   },
+   {
+    "level": 65,
+    "name": "Early Maps (Pick any 5l)",
+    "gems": [
+     [
+      "Boneshatter"
+     ],
+     [
+      "Herald of Ash"
+     ],
+     [
+      "Leap Slam"
+     ],
+     [
+      "Scavenged Plating"
+     ],
+     [
+      "Hammer of the Gods"
+     ],
+     [
+      "Seismic Cry"
+     ],
+     [
+      "Earthshatter"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Босс: шипы Earthshatter → взрывать Seismic Cry до сильного оглушения → Seismic Cry и Infernal Cry → переключиться на две булавы → Hammer of the Gods. Без кличей молот наносит лишь малую часть урона. Сильное оглушение молотом славы не даёт — ждать окончания его волн, потом снова взрывать шипы.",
+   "Урон молнией к атакам на кольцах или перчатках — Hammer of the Gods накладывает большой шок; Trampletoe с достаточным уроном даёт цепочки взрывов."
+  ],
+  "patch": "0.5",
+  "votes": 2
+ },
+ {
+  "id": "maxroll:cold-snap-frostbolt-stormweaver-leveling-guide:0",
+  "source": "maxroll",
+  "title": "Ice Nova Snap Stormweaver (кач)",
+  "profile": "Variant 1",
+  "url": "https://maxroll.gg/poe2/build-guides/cold-snap-frostbolt-stormweaver-leveling-guide",
+  "class": "Sorceress",
+  "ascendancies": [
+   "Stormweaver"
+  ],
+  "mainSkill": "Ice Nova",
+  "skills": [
+   {
+    "name": "Spark",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Flame Wall",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Ice Nova",
+    "level": 3,
+    "tier": 1
+   },
+   {
+    "name": "Frost Darts",
+    "level": 3,
+    "tier": 3
+   },
+   {
+    "name": "Frost Wall",
+    "level": 33,
+    "tier": 9
+   },
+   {
+    "name": "Comet",
+    "level": 65,
+    "tier": 11
+   },
+   {
+    "name": "Living Bomb",
+    "level": 65,
+    "tier": 3
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "Start",
+    "gems": [
+     [
+      "Spark"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 Swap",
+    "gems": [
+     [
+      "Ice Nova"
+     ],
+     [
+      "Frost Darts"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Flame Wall"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Ice Nova"
+     ],
+     [
+      "Frost Darts"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Arctic Armour"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Ice Nova"
+     ],
+     [
+      "Frost Darts"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Arctic Armour"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Ice Nova"
+     ],
+     [
+      "Frost Darts"
+     ],
+     [
+      "Frost Wall"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Siphon Elements"
+     ],
+     [
+      "Arctic Armour"
+     ]
+    ]
+   },
+   {
+    "level": 65,
+    "name": "Maps 5 Link",
+    "gems": [
+     [
+      "Ice Nova"
+     ],
+     [
+      "Frost Darts"
+     ],
+     [
+      "Frost Wall"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Cast on Elemental Ailment",
+      "Comet",
+      "Living Bomb"
+     ],
+     [
+      "Siphon Elements"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Shattered Crystal снижает здоровье ледяных кристаллов; убрать, когда одна Ice Nova и без него их взрывает."
+  ],
+  "patch": "0.5.5",
+  "votes": 3
+ },
+ {
+  "id": "maxroll:essence-drain-lich-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Essence Drain Lich (кач)",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/essence-drain-lich-leveling-build-guide",
+  "class": "Witch",
+  "ascendancies": [
+   "Lich"
+  ],
+  "mainSkill": "Essence Drain",
+  "skills": [
+   {
+    "name": "Skeletal Sniper Minion",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Flame Wall",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Unearth",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Contagion",
+    "level": 3,
+    "tier": 1
+   },
+   {
+    "name": "Essence Drain",
+    "level": 6,
+    "tier": 3
+   }
+  ],
+  "steps": [
+   {
+    "level": 2,
+    "name": "Clearfell",
+    "gems": [
+     [
+      "Skeletal Sniper Minion"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Unearth"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Defeat Devourer",
+    "gems": [
+     [
+      "Contagion"
+     ],
+     [
+      "Skeletal Sniper Minion"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Unearth"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 to 5",
+    "gems": [
+     [
+      "Contagion"
+     ],
+     [
+      "Skeletal Sniper Minion"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Unearth"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6 to 14",
+    "gems": [
+     [
+      "Contagion"
+     ],
+     [
+      "Essence Drain"
+     ],
+     [
+      "Skeletal Sniper Minion"
+     ],
+     [
+      "Flame Wall"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Essence Drain"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Withering Presence"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Essence Drain"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Withering Presence"
+     ],
+     [
+      "Temporal Chains"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Essence Drain"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Despair"
+     ],
+     [
+      "Dark Effigy"
+     ],
+     [
+      "Blasphemy",
+      "Temporal Chains"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Essence Drain"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Despair"
+     ],
+     [
+      "Dark Effigy"
+     ],
+     [
+      "Blasphemy",
+      "Temporal Chains"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act 5 / End of Campaign",
+    "gems": [
+     [
+      "Essence Drain"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Despair"
+     ],
+     [
+      "Dark Effigy"
+     ],
+     [
+      "Blasphemy",
+      "Temporal Chains"
+     ],
+     [
+      "Withering Presence"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Optional Late Campaign",
+    "gems": [
+     [
+      "Essence Drain"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Despair"
+     ],
+     [
+      "Dark Effigy"
+     ],
+     [
+      "Blasphemy",
+      "Temporal Chains"
+     ],
+     [
+      "Withering Presence"
+     ],
+     [
+      "Convalescence"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Eldritch Empowerment даёт 30% больше урона, пока работает условие по энергощиту — чем больше энергощита и быстрее перезарядка (Melding, Dampening Shield, задержка перезарядки), тем чаще бонус; поэтому снаряжение на энергощит важно и для урона.",
+   "Whispers of Doom нужен, чтобы держать два проклятия: Despair вручную и Temporal Chains через Blasphemy."
+  ],
+  "patch": "0.5",
+  "votes": 6
+ },
+ {
+  "id": "maxroll:explosive-grenade-gas-grenade-huntress-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Havoc Explosive Grenade Gas Grenade Huntress Leveling Build Guide",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/explosive-grenade-gas-grenade-huntress-leveling-build-guide",
+  "class": "Huntress",
+  "ascendancies": [],
+  "mainSkill": "Explosive Grenade",
+  "skills": [
+   {
+    "name": "Explosive Grenade",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Contagion",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Flash Grenade",
+    "level": 6,
+    "tier": 3
+   },
+   {
+    "name": "Oil Grenade",
+    "level": 33,
+    "tier": 9
+   }
+  ],
+  "steps": [
+   {
+    "level": 2,
+    "name": "Clearfell",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 2,
+    "name": "Areagne (Grelwood)",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 to 5",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6 to 13",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Wind Dancer"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Wind Dancer"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Mortar Cannon",
+      "Explosive Grenade"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act 5 / End of Campaign",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Mortar Cannon",
+      "Explosive Grenade"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   }
+  ],
+  "tips": [],
+  "patch": "",
+  "votes": 7
+ },
+ {
+  "id": "maxroll:explosive-grenade-gas-grenade-mercenary-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Explosive Grenade Gas Grenade Leveling (Mercenary; Huntress и Ranger — тот же гайд)",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/explosive-grenade-gas-grenade-mercenary-leveling-build-guide",
+  "class": "Mercenary",
+  "ascendancies": [],
+  "mainSkill": "Explosive Grenade",
+  "skills": [
+   {
+    "name": "Explosive Grenade",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Contagion",
+    "level": 3,
+    "tier": 1
+   },
+   {
+    "name": "Flash Grenade",
+    "level": 6,
+    "tier": 3
+   },
+   {
+    "name": "Oil Grenade",
+    "level": 33,
+    "tier": 9
+   }
+  ],
+  "steps": [
+   {
+    "level": 2,
+    "name": "Clearfell",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 2,
+    "name": "Areagne (Grelwood)",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Brambleghast (Grelwood)",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 to 5",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6 to 13",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Wind Dancer"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Wind Dancer"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Mortar Cannon",
+      "Explosive Grenade"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act  5 / End of Campaign",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Mortar Cannon",
+      "Explosive Grenade"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Уровни 2–13: Frost Bomb (копит Exposure) → одна Explosive Grenade → Crossbow Shot → снова Frost Bomb для максимума Exposure → все заряды Explosive Grenade.",
+   "С 14 уровня: Frost Bomb при появлении → две Gas Grenade → все Explosive Grenade; с 22 — Elemental Weakness; с 31 — Oil Grenade и Elemental Weakness; с 41 — Mortar Cannon.",
+   "Базы арбалетов: Tense (4), Sturdy (10), Varnished (16), Bombard (33), Cannonade (59), Siege (78); с 33 уровня приоритет — «гранаты выпускают доп. снаряд»; уровень предмета для следующих тиров плоского урона: 8, 16, 33, 46/54+, 60/65+, 81+/82+.",
+   "Ранний урон — плоский стихийный урон к атакам: арбалет, кольца, перчатки (в этом порядке); руны стихий в гнёзда, позже на хорошей физической базе — Iron Rune."
+  ],
+  "patch": "0.5",
+  "votes": 6
+ },
+ {
+  "id": "maxroll:explosive-grenade-gas-grenade-ranger-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Havoc Explosive Grenade Gas Grenade Ranger Leveling Build Guide",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/explosive-grenade-gas-grenade-ranger-leveling-build-guide",
+  "class": "Ranger",
+  "ascendancies": [],
+  "mainSkill": "Explosive Grenade",
+  "skills": [
+   {
+    "name": "Explosive Grenade",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Contagion",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Flash Grenade",
+    "level": 6,
+    "tier": 3
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 6,
+    "tier": 1
+   },
+   {
+    "name": "Oil Grenade",
+    "level": 33,
+    "tier": 9
+   }
+  ],
+  "steps": [
+   {
+    "level": 2,
+    "name": "Clearfell",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 2,
+    "name": "Areagne (Grelwood)",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 to 5",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6 to 13",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Contagion"
+     ],
+     [
+      "Wind Dancer"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Wind Dancer"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Mortar Cannon",
+      "Explosive Grenade"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act 5 / End of Campaign",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Elemental Weakness"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "War Banner"
+     ],
+     [
+      "Mortar Cannon",
+      "Explosive Grenade"
+     ],
+     [
+      "Leap Slam"
+     ]
+    ]
+   }
+  ],
+  "tips": [],
+  "patch": "",
+  "votes": 7
+ },
+ {
+  "id": "maxroll:glacial-cascade-monk-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Glacial Cascade Monk (кач)",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/glacial-cascade-monk-leveling-build-guide",
+  "class": "Monk",
+  "ascendancies": [],
+  "mainSkill": "Glacial Cascade",
+  "skills": [
+   {
+    "name": "Glacial Cascade",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Frozen Locus",
+    "level": 3,
+    "tier": 1
+   }
+  ],
+  "steps": [
+   {
+    "level": 2,
+    "name": "Clearfell",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 2,
+    "name": "Defeat Areagne",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 to 5",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6 to 13",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ]
+    ]
+   },
+   {
+    "level": 22,
+    "name": "Level 22",
+    "gems": [
+     [
+      "Pounce",
+      "Freezing Mark"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act 5 / End of Campaign",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Hollow Palm Technique к 13 уровню — посох не нужен (только если даёт заметно больше урона); урон растёт от уровней камней — Uncut Skill Gems на основные умения; снаряжение на уклонение — больше скорости атаки.",
+   "В начале игры главное — плоский стихийный урон к атакам на посохе, перчатках и кольцах; руны стихий в оружие; позже руны физического урона, когда база посоха выросла."
+  ],
+  "patch": "0.5",
+  "votes": 4
+ },
+ {
+  "id": "maxroll:grenade-mercenary-leveling-guide:0",
+  "source": "maxroll",
+  "title": "Grenade Mercenary Leveling Guide (Tactician, Witchhunter, Gemling)",
+  "profile": "Tactician Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/grenade-mercenary-leveling-guide",
+  "class": "Mercenary",
+  "ascendancies": [
+   "Tactician"
+  ],
+  "mainSkill": "Explosive Grenade",
+  "skills": [
+   {
+    "name": "Explosive Grenade",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Flash Grenade",
+    "level": 1,
+    "tier": 3
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Load Fragmentation Rounds",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Oil Grenade",
+    "level": 15,
+    "tier": 9
+   },
+   {
+    "name": "Cluster Grenade",
+    "level": 15,
+    "tier": 13
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "Level 1 to 14 (Act 1)",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Time of Need"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Load Fragmentation Rounds"
+     ]
+    ]
+   },
+   {
+    "level": 15,
+    "name": "Level 15 to 60",
+    "gems": [
+     [
+      "Explosive Grenade"
+     ],
+     [
+      "Flash Grenade"
+     ],
+     [
+      "Oil Grenade"
+     ],
+     [
+      "Cluster Grenade"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Time of Need"
+     ],
+     [
+      "Attrition"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Stay Light, Use Cover сильно повышает броню, но ограничивает снижение физического урона бронёй 50% — а на «броня применяется к стихийному урону» этот потолок не действует. Glancing Blows делает отклонение удачным, Iron Reflexes снимает минус к уклонению; Leather Bound Gauntlets с Iron Reflexes — броня с перчаток."
+  ],
+  "patch": "0.5",
+  "votes": 6
+ },
+ {
+  "id": "maxroll:lightning-arrow-deadeye-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Lightning Arrow Deadeye (кач)",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/lightning-arrow-deadeye-leveling-build-guide",
+  "class": "Ranger",
+  "ascendancies": [
+   "Deadeye"
+  ],
+  "mainSkill": "Lightning Arrow",
+  "skills": [
+   {
+    "name": "Lightning Arrow",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Lightning Rod",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Freezing Salvo",
+    "level": 1,
+    "tier": 3
+   },
+   {
+    "name": "Tornado Shot",
+    "level": 33,
+    "tier": 11
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Lightning Arrow"
+     ],
+     [
+      "Lightning Rod"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Barrage"
+     ],
+     [
+      "Freezing Salvo"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Lightning Arrow"
+     ],
+     [
+      "Lightning Rod"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Barrage"
+     ],
+     [
+      "Freezing Salvo"
+     ],
+     [
+      "Voltaic Mark"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Lightning Arrow"
+     ],
+     [
+      "Lightning Rod"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Barrage"
+     ],
+     [
+      "Freezing Salvo"
+     ],
+     [
+      "Voltaic Mark"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Tornado Shot"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Lightning Arrow"
+     ],
+     [
+      "Lightning Rod"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Barrage"
+     ],
+     [
+      "Freezing Salvo"
+     ],
+     [
+      "Voltaic Mark"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Tornado Shot"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act 5 / End of Campaign",
+    "gems": [
+     [
+      "Lightning Arrow"
+     ],
+     [
+      "Lightning Rod"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Barrage"
+     ],
+     [
+      "Freezing Salvo"
+     ],
+     [
+      "Voltaic Mark"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Tornado Shot"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Быстрый прокаст: Barrage перед Lightning Rod → Frost Bomb → Barrage и Lightning Arrow в область. Против подвижных врагов — только Barrage перед Lightning Rod.",
+   "С 28 уровня луки с «доп. стрелой» в приоритете; колчан — второй по урону слот: скорость снарядов работает с Feathered Fletching и Master Fletching."
+  ],
+  "patch": "0.5",
+  "votes": 4
+ },
+ {
+  "id": "maxroll:spear-huntress-leveling-guide:0",
+  "source": "maxroll",
+  "title": "Rake Bleed Huntress (кач)",
+  "profile": "Bleed Huntress Leveling",
+  "url": "https://maxroll.gg/poe2/build-guides/spear-huntress-leveling-guide",
+  "class": "Huntress",
+  "ascendancies": [
+   "Amazon"
+  ],
+  "mainSkill": "Spearfield",
+  "skills": [
+   {
+    "name": "Explosive Spear",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Whirling Slash",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Spearfield",
+    "level": 1,
+    "tier": 5
+   },
+   {
+    "name": "Cull the Weak",
+    "level": 1,
+    "tier": 3
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Explosive Spear"
+     ],
+     [
+      "Whirling Slash"
+     ],
+     [
+      "Rake"
+     ],
+     [
+      "Spearfield"
+     ],
+     [
+      "Disengage"
+     ],
+     [
+      "Cull the Weak"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Herald of Blood"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Rake"
+     ],
+     [
+      "Spearfield"
+     ],
+     [
+      "Herald of Blood"
+     ],
+     [
+      "Blood Hunt"
+     ],
+     [
+      "Disengage"
+     ],
+     [
+      "Thunderous Leap"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Rake"
+     ],
+     [
+      "Bloodhound's Mark"
+     ],
+     [
+      "Spearfield"
+     ],
+     [
+      "Blood Hunt"
+     ],
+     [
+      "Herald of Blood"
+     ],
+     [
+      "Disengage"
+     ],
+     [
+      "Thunderous Leap"
+     ]
+    ]
+   }
+  ],
+  "tips": [],
+  "patch": "0.5",
+  "votes": 1
+ },
+ {
+  "id": "maxroll:storm-wave-monk-leveling-build-guide:0",
+  "source": "maxroll",
+  "title": "Havoc Storm Wave Monk Leveling Build Guide",
+  "profile": "Campaign",
+  "url": "https://maxroll.gg/poe2/build-guides/storm-wave-monk-leveling-build-guide",
+  "class": "Monk",
+  "ascendancies": [],
+  "mainSkill": "Storm Wave",
+  "skills": [
+   {
+    "name": "Glacial Cascade",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 2,
+    "tier": 1
+   },
+   {
+    "name": "Frozen Locus",
+    "level": 3,
+    "tier": 1
+   },
+   {
+    "name": "Storm Wave",
+    "level": 22,
+    "tier": 7
+   }
+  ],
+  "steps": [
+   {
+    "level": 2,
+    "name": "Clearfell",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 2,
+    "name": "Defeat Areagne",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 3,
+    "name": "Level 3 to 5",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ]
+    ]
+   },
+   {
+    "level": 6,
+    "name": "Level 6 to 13",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ]
+    ]
+   },
+   {
+    "level": 22,
+    "name": "Level 22 (Storm Wave)",
+    "gems": [
+     [
+      "Pounce",
+      "Freezing Mark"
+     ],
+     [
+      "Storm Wave"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Storm Wave"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Storm Wave"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Storm Wave"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Act 5 / End of Campaign",
+    "gems": [
+     [
+      "Pounce"
+     ],
+     [
+      "Storm Wave"
+     ],
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Herald of Thunder"
+     ],
+     [
+      "Hand of Chayula",
+      "Freezing Mark",
+      "Elemental Weakness"
+     ],
+     [
+      "Wave of Frost"
+     ]
+    ]
+   }
+  ],
+  "tips": [],
+  "patch": "",
+  "votes": 3
+ },
+ {
+  "id": "maxroll:tempest-flurry-invoker-leveling-guide:0",
+  "source": "maxroll",
+  "title": "Ice Strike Invoker Monk (кач)",
+  "profile": "Variant 1",
+  "url": "https://maxroll.gg/poe2/build-guides/tempest-flurry-invoker-leveling-guide",
+  "class": "Monk",
+  "ascendancies": [
+   "Invoker"
+  ],
+  "mainSkill": "Ice Strike",
+  "skills": [
+   {
+    "name": "Glacial Cascade",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Frozen Locus",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Killing Palm",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Falling Thunder",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Contagion",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Ice Strike",
+    "level": 1,
+    "tier": 5
+   },
+   {
+    "name": "Tempest Bell",
+    "level": 1,
+    "tier": 3
+   },
+   {
+    "name": "Shattering Palm",
+    "level": 1,
+    "tier": 11
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "1-14",
+    "gems": [
+     [
+      "Glacial Cascade"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Killing Palm"
+     ],
+     [
+      "Falling Thunder"
+     ],
+     [
+      "Contagion"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Ice Strike",
+    "gems": [
+     [
+      "Ice Strike"
+     ],
+     [
+      "Tempest Bell"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Herald of Ice"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Rank II Supports",
+    "gems": [
+     [
+      "Ice Strike"
+     ],
+     [
+      "Tempest Bell"
+     ],
+     [
+      "Frozen Locus"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Charged Staff"
+     ],
+     [
+      "Combat Frenzy"
+     ],
+     [
+      "Freezing Mark"
+     ]
+    ]
+   },
+   {
+    "level": 1,
+    "name": "Rank III Supports",
+    "gems": [
+     [
+      "Ice Strike"
+     ],
+     [
+      "Charged Staff"
+     ],
+     [
+      "Tempest Bell"
+     ],
+     [
+      "Shattering Palm"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Combat Frenzy"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Freezing Mark"
+     ]
+    ]
+   },
+   {
+    "level": 65,
+    "name": "Early Maps",
+    "gems": [
+     [
+      "Ice Strike"
+     ],
+     [
+      "Charged Staff"
+     ],
+     [
+      "Shattering Palm"
+     ],
+     [
+      "Tempest Bell"
+     ],
+     [
+      "Herald of Ice"
+     ],
+     [
+      "Combat Frenzy"
+     ],
+     [
+      "Wind Dancer"
+     ],
+     [
+      "Ghost Dance"
+     ]
+    ]
+   }
+  ],
+  "tips": [
+   "Босс: 4 очка комбо Ice Strike → Tempest Bell под босса → ещё 4 очка → второй колокол → Ice Strike, пока у обоих колоколов не кончатся удары. Заходить к боссу с зарядами энергии или накопленным Charged Staff.",
+   "+уровень умений атак (только Perfect Essence of Battle) поднимает все атаки, включая Charged Staff и Wind Dancer. Мана в эндгейме — похищение маны с Walker of the Wilds."
+  ],
+  "patch": "0.5.5",
+  "votes": 2
+ },
+ {
+  "id": "maxroll:the-shapeshift-druid-leveling-guide:0",
+  "source": "maxroll",
+  "title": "Shapeshift Druid (кач, Shaman)",
+  "profile": "Shapeshift Druid",
+  "url": "https://maxroll.gg/poe2/build-guides/the-shapeshift-druid-leveling-guide",
+  "class": "Druid",
+  "ascendancies": [
+   "Shaman"
+  ],
+  "mainSkill": "Fury of the Mountain",
+  "skills": [
+   {
+    "name": "Furious Slam",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Volcano",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Flame Wall",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Fury of the Mountain",
+    "level": 16,
+    "tier": 5
+   }
+  ],
+  "steps": [
+   {
+    "level": 1,
+    "name": "Act 1",
+    "gems": [
+     [
+      "Furious Slam"
+     ],
+     [
+      "Volcano"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Frost Bomb"
+     ],
+     [
+      "Savage Fury"
+     ],
+     [
+      "Flame Wall"
+     ]
+    ]
+   },
+   {
+    "level": 16,
+    "name": "Act 2",
+    "gems": [
+     [
+      "Fury of the Mountain"
+     ],
+     [
+      "Furious Slam"
+     ],
+     [
+      "Volcano"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Savage Fury"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Ferocious Roar"
+     ]
+    ]
+   },
+   {
+    "level": 33,
+    "name": "Act 3",
+    "gems": [
+     [
+      "Fury of the Mountain"
+     ],
+     [
+      "Rampage"
+     ],
+     [
+      "Volcano"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Savage Fury"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Ferocious Roar"
+     ]
+    ]
+   },
+   {
+    "level": 46,
+    "name": "Act 4",
+    "gems": [
+     [
+      "Fury of the Mountain"
+     ],
+     [
+      "Rampage"
+     ],
+     [
+      "Volcano"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Savage Fury"
+     ],
+     [
+      "Flame Wall"
+     ],
+     [
+      "Ferocious Roar",
+      "Ancestral Cry"
+     ],
+     [
+      "Walking Calamity"
+     ]
+    ]
+   },
+   {
+    "level": 54,
+    "name": "Interludes",
+    "gems": [
+     [
+      "Fury of the Mountain"
+     ],
+     [
+      "Rampage"
+     ],
+     [
+      "Volcano"
+     ],
+     [
+      "Pounce"
+     ],
+     [
+      "Shockwave Totem"
+     ],
+     [
+      "Savage Fury"
+     ],
+     [
+      "Ferocious Roar",
+      "Ancestral Cry"
+     ],
+     [
+      "Herald of Ash"
+     ],
+     [
+      "Walking Calamity"
+     ]
+    ]
+   }
+  ],
+  "tips": [],
+  "patch": "0.5",
+  "votes": 1
+ },
+ {
+  "id": "video:2",
+  "source": "video",
+  "title": "[Гайд] СЛИШКОМ СИЛЬНЫЙ БИЛД Spirit Walker через Компаньонов PATH OF EXILE 2 (стартовый билд)",
+  "profile": "",
+  "url": "",
+  "class": "Huntress",
+  "ascendancies": [
+   "Spirit Walker"
+  ],
+  "mainSkill": "Skeletal Warrior Minion",
+  "skills": [
+   {
+    "name": "Wolf Pack",
+    "level": 27,
+    "tier": 8
+   },
+   {
+    "name": "Skeletal Reaver Minion",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Skeletal Storm Mage Minion",
+    "level": 42,
+    "tier": 11
+   },
+   {
+    "name": "Skeletal Cleric Minion",
+    "level": 53,
+    "tier": 13
+   }
+  ],
+  "steps": [],
+  "tips": [],
+  "patch": "0.5",
+  "votes": 1
+ },
+ {
+  "id": "video:4",
+  "source": "video",
+  "title": "Лучший Лиг Стартер 0.5 Дедай Айс Шот Полный Гайд",
+  "profile": "",
+  "url": "",
+  "class": "Ranger",
+  "ascendancies": [
+   "Deadeye"
+  ],
+  "mainSkill": "Ice Shot",
+  "skills": [
+   {
+    "name": "Snipe",
+    "level": 7,
+    "tier": 3
+   },
+   {
+    "name": "Ice Shot",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Tornado Shot",
+    "level": 42,
+    "tier": 11
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "Акты 1–2: Молниеносная стрела, Громоотвод, Вестник грома и Морозная бомба. Ледяной выстрел открывается на 31 уровне: заранее держать два камня 7–8 уровня под Прицельный выстрел и Морозную метку; Вестник грома меняют на Вестник льда.",
+   "Валюту копить до 22 уровня и скрафтить хороший лук (хватит до конца 3 акта); на 45 уровне в 4 акте вложить всё в Артиллерийский лук — он до 15-х карт, потом Лук Аннигилятора."
+  ],
+  "patch": "0.5",
+  "votes": 5
+ },
+ {
+  "id": "video:5",
+  "source": "video",
+  "title": "ПЕРВЫЙ ДЕНЬ БИЛДА ФЛЕЙМБЛАСТ, ЭТО СИЛЬНЕЙШИЙ СТАРТ ЛИГИ(POE2)",
+  "profile": "",
+  "url": "",
+  "class": "Mercenary",
+  "ascendancies": [
+   "Gemling Legionnaire"
+  ],
+  "mainSkill": "Flameblast",
+  "skills": [
+   {
+    "name": "Oil Grenade",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Tornado",
+    "level": 42,
+    "tier": 11
+   },
+   {
+    "name": "Flameblast",
+    "level": 53,
+    "tier": 13
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "Переход в билд — на 52 уровне после двух испытаний (нужен узел возвышения); золота на перераспределение хватило впритык."
+  ],
+  "patch": "0.5 (мини-лига)",
+  "votes": 1
+ },
+ {
+  "id": "video:11",
+  "source": "video",
+  "title": "Стартовый Монах Полая форма — сборка 1 дня, до 1 div (Martial Artist, Whirling Assault)",
+  "profile": "",
+  "url": "",
+  "class": "Monk",
+  "ascendancies": [
+   "Martial Artist"
+  ],
+  "mainSkill": "Rend",
+  "skills": [
+   {
+    "name": "Oil Barrage",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Whirling Assault",
+    "level": 42,
+    "tier": 11
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "До 41 уровня: Frozen Locus и взрывать его Glacial Cascade (с Concentrated Area — иначе шип пролетает мимо), потом Ice Strike, с середины акта 2 — Storm Wave (не ближний бой, дешевле по мане). Hollow Palm Technique — рашить в акте 1 (на 16 уровне), снять посох; отказаться на 41 уровне, когда посох даёт больше урона."
+  ],
+  "patch": "0.5.5",
+  "votes": 1
+ },
+ {
+  "id": "video:15",
+  "source": "video",
+  "title": "Хаос Лич — Сильнейший Лиг Стартер для новичков (Essence Drain + Contagion, гайд DEADRABB1T)",
+  "profile": "",
+  "url": "",
+  "class": "Witch",
+  "ascendancies": [
+   "Lich"
+  ],
+  "mainSkill": "Vile Effusion",
+  "skills": [
+   {
+    "name": "Contagion",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Essence Drain",
+    "level": 7,
+    "tier": 3
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "Акты 1–2: на босса Contagion и Essence Drain один раз, потом зарядить Bonestorm до 20 стаков и выпустить; Ravenous Swarm даёт физический бафф для Bonestorm."
+  ],
+  "patch": "0.5.5",
+  "votes": 1
+ },
+ {
+  "id": "video:16",
+  "source": "video",
+  "title": "Ученица Варашты через джинов — Сильнейший Лиг Стартер 0.5.5 (Disciple of Varashta, Kelari + Ruzhan)",
+  "profile": "",
+  "url": "",
+  "class": "Sorceress",
+  "ascendancies": [
+   "Disciple of Varashta"
+  ],
+  "mainSkill": "Ruzhan, the Blazing Sword",
+  "skills": [
+   {
+    "name": "Skeletal Sniper Minion",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Frost Bomb",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Skeletal Arsonist Minion",
+    "level": 7,
+    "tier": 3
+   },
+   {
+    "name": "Skeletal Frost Mage Minion",
+    "level": 15,
+    "tier": 5
+   },
+   {
+    "name": "Skeletal Reaver Minion",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Skeletal Storm Mage Minion",
+    "level": 42,
+    "tier": 11
+   },
+   {
+    "name": "Skeletal Cleric Minion",
+    "level": 53,
+    "tier": 13
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "Босс: зажать ЛКМ (Ruzhan), пока не кончатся 2 заряда, потом ПКМ (Kelari), пока не кончатся 3. Зачистка — ПКМ по пачкам. Слабое место — всего 3 заряда: потратил и окружили — опасно.",
+   "Уровни 1–5 — Spark, затем Contagion + Essence Drain (по гайду спидраннера Guys), с 14 — заряжаемое умение на боссов; после Balbala и первого испытания Сехем — Varashta и Kelari (Kelari's Deception)."
+  ],
+  "patch": "0.5.5",
+  "votes": 1
+ },
+ {
+  "id": "video:18",
+  "source": "video",
+  "title": "The Most Insane SSF League Starter Varashta Complete Campaign Guide (0.5.5), русский перевод",
+  "profile": "",
+  "url": "",
+  "class": "Sorceress",
+  "ascendancies": [
+   "Disciple of Varashta"
+  ],
+  "mainSkill": "Ruzhan, the Blazing Sword",
+  "skills": [
+   {
+    "name": "Skeletal Sniper Minion",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Wolf Pack",
+    "level": 27,
+    "tier": 8
+   },
+   {
+    "name": "Skeletal Reaver Minion",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Skeletal Storm Mage Minion",
+    "level": 42,
+    "tier": 11
+   },
+   {
+    "name": "Skeletal Cleric Minion",
+    "level": 53,
+    "tier": 13
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "Босс: удар облика зверя с меткой (ломает броню) → вернуться в человека (X) → Pain Offering (жертва приспешника, усиливает остальных и приказы) → способность кинжала → заряды Kelari.",
+   "Кампания до 21 уровня — гранаты (у чародейки много стихийного урона на дереве): Explosive Grenade с Multishot и Elemental Armament, Flash Grenade (ослепление), с 14 уровня Gas Grenade. Frost Bomb — Exposure на боссов и насыщение холодом для Spark в самом начале. Копить 7000 золота на перераспределение дерева при переходе."
+  ],
+  "patch": "0.5.5",
+  "votes": 2
+ },
+ {
+  "id": "video:19",
+  "source": "video",
+  "title": "Sir Chili's leveling guide: Disciple of Varashta (Kelari + Navira, холод) — англ.",
+  "profile": "",
+  "url": "",
+  "class": "Sorceress",
+  "ascendancies": [
+   "Disciple of Varashta"
+  ],
+  "mainSkill": "Navira, the Last Mirage",
+  "skills": [
+   {
+    "name": "Skeletal Sniper Minion",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Ice Nova",
+    "level": 1,
+    "tier": 1
+   },
+   {
+    "name": "Skeletal Frost Mage Minion",
+    "level": 15,
+    "tier": 5
+   },
+   {
+    "name": "Wolf Pack",
+    "level": 27,
+    "tier": 8
+   },
+   {
+    "name": "Skeletal Reaver Minion",
+    "level": 32,
+    "tier": 9
+   },
+   {
+    "name": "Skeletal Storm Mage Minion",
+    "level": 42,
+    "tier": 11
+   }
+  ],
+  "steps": [],
+  "tips": [
+   "Акт 1: Frost Bomb даёт насыщение холодом → Ice Nova с ним оставляет охлаждённую землю → снова Frost Bomb → Spark (позже Frost Darts) с насыщением. Frost Bomb с Overabundance I и Spell Cascade — две бомбы, два насыщения (одно на Ice Nova, другое на Frost Darts); Short Fuse II в акте 4 — насыщения намного быстрее."
+  ],
+  "patch": "0.5.5",
+  "votes": 2
+ }
+]

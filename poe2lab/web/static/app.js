@@ -3687,9 +3687,21 @@ function marketCard(m, mk) {
 const LR_WEAPON = { quarterstaff: "🥢", mace: "🔨", bow: "🏹", crossbow: "🎯", spear: "🔱", talisman: "🐺", spell: "✨", minion: "💀" };
 const LR_ELEMENT = { fire: "🔥", cold: "❄️", lightning: "⚡", chaos: "☠️", physical: "⚔️" };
 const LR_MIN_GUIDE = 60;  // a build below this level is not a guide to level up to
-const lrWayTitle = (w) => (w.id === "build" ? t("lrWayBuild")
+// a players' guide (poe2lab.starters): its title; the program's own ways: the weapon and element
+const lrWayTitle = (w) => (w.starter ? w.starter.title.replace(/\s*\[[^\]]*\]/g, "").slice(0, 70) : w.id === "build" ? t("lrWayBuild")
   : `${t("lrWeapon_" + w.weapon)}${w.element ? " · " + t("lrEl_" + w.element) : ""}`);
-const lrWayIcon = (w) => (w.id === "build" ? "⭐" : `${LR_WEAPON[w.weapon] || ""}${w.element ? LR_ELEMENT[w.element] || "" : ""}`);
+const lrWayIcon = (w) => (w.starter ? (w.starter.source === "video" ? "🎬" : "📘") : w.id === "build" ? "⭐"
+  : `${LR_WEAPON[w.weapon] || ""}${w.element ? LR_ELEMENT[w.element] || "" : ""}`);
+// where a guide's way comes from, how many sources speak of its skill, and its author's advice
+const lrStarterChips = (st) => [h("span", { class: "chip tag" }, st.source === "video" ? t("lrStVideo") : t("lrStGuide")),
+  st.votes > 1 ? h("span", { class: "chip ok" }, t("lrStVotes", st.votes)) : null,
+  st.sameAscendancy ? h("span", { class: "chip ok" }, t("lrStAsc")) : null];
+function lrStarterBlock(st) {
+  return h("div", { class: "lr-starter" },
+    h("div", { class: "row lr-starter-head" }, ...lrStarterChips(st),
+      st.url ? h("a", { class: "np-link", href: st.url, target: "_blank", rel: "noopener noreferrer" }, t("lrStOpen")) : null),
+    st.tips.length ? h("ul", { class: "small lr-starter-tips" }, st.tips.map((x) => h("li", {}, x))) : null);
+}
 const lrSkill = (s) => h("span", { class: "lr-skill" + (s.until ? " until" : ""), title: t("lrFromLevel", s.level) }, gemName(s.name),
   h("span", { class: "lr-lvl" }, s.level));
 // a stage's mark on the track and in its card: the act's number, I for the interludes, a star for maps
@@ -3855,7 +3867,8 @@ function drawLeveling(card, d) {
   const until = r.way.skills.filter((s) => !sw.level || s.level < sw.level || r.way.id === "build");
   const before = h("div", { class: "lr-before" }, h("span", { class: "section-title" }, t("lrUntil")),
     h("span", { class: "lr-way" }, lrWayIcon(r.way), " ", lrWayTitle(r.way)),
-    ...auList("lv:before", until.slice(0, 6).map((x) => "gem:" + x.name), until.slice(0, 6).map(lrSkill), ["gem"]));
+    ...auList("lv:before", until.slice(0, 6).map((x) => "gem:" + x.name), until.slice(0, 6).map(lrSkill), ["gem"]),
+    r.way.starter ? lrStarterBlock(r.way.starter) : null);
   // a section of a stage: a small label over its items
   const sec = (key, items, cls = "") => (items.length ? h("div", { class: "lr-sec " + cls },
     h("div", { class: "lr-sec-k" }, t("lrSec_" + key)), h("div", { class: "lr-sec-v" }, ...items)) : null);
@@ -4093,6 +4106,7 @@ function levelingWizard(d, done) {
       h("div", { class: "lr-tiles" }, d.ways.ways.map((w) => tile(a.way === w.id, () => { a.way = w.id; }, lrWayIcon(w), lrWayTitle(w),
         h("span", { class: "lr-tile-skills" }, w.skills.slice(0, 3).map((s) => gemHover(h("span", {}, icon(s.name) || trName(s.name)), s.name))),
         h("span", { class: "small muted" }, t("lrFromLevel", w.from)),
+        w.starter ? h("span", { class: "row lr-tile-chips" }, ...lrStarterChips(w.starter)) : null,
         w.id !== "build" && w.likeBuild ? h("span", { class: "chip ok" }, t("lrLike")) : w.id !== "build" && w.sameWeapon ? h("span", { class: "chip tag" }, t("lrSameWeapon")) : null)))],
     () => [h("h3", {}, t("lrQTrade")), choice("trade", [[true, "🛒", t("lrTrade"), t("lrTradeSub")], [false, "🎒", t("lrSsf"), t("lrSsfSub")]])],
     () => [h("h3", {}, t("lrQPace")), choice("pace", [["fast", "⚡", t("lrFast"), t("lrFastSub")], ["safe", "🛡", t("lrSafe"), t("lrSafeSub")]])],

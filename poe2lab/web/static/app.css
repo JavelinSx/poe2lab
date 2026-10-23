@@ -1665,3 +1665,8 @@ div.eg-q-mod { user-select: none; }
 .eg-craft-btn b { font-size: 16px; color: var(--gold-hi); }
 .eg-craft-btn > span > span { color: var(--muted); font-size: 13px; }
 .eg-art-craft { width: 52px; height: 52px; flex: none; }
+
+/* a players' guide as the way of levelling (poe2lab.starters): where it comes from, its author's advice */
+.lr-starter { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.lr-starter-head, .lr-tile-chips { gap: 4px; flex-wrap: wrap; align-items: center; }
+.lr-starter-tips { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.4; }
