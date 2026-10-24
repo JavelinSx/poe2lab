@@ -1703,3 +1703,7 @@ div.eg-q-mod { user-select: none; }
 .dm-bar-v { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
 .dm-bar-v i { display: block; height: 100%; background: var(--gold); }
 .dm-flight { border-top: 1px dashed var(--line); padding-top: 4px; gap: 4px; }
+
+/* a skill group's weapon set: both, 1, 2 */
+.ws-pick { gap: 4px; margin-left: auto; }
+.ws-pick .chip { padding: 1px 8px; }

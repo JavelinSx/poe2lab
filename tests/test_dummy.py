@@ -58,3 +58,18 @@ def test_mirrors_copy_projectiles_and_the_copies_shatter_more_mirrors():
     st = chain["stats"]["fb"]
     assert st["shattered"] > st["casts"]  # a copy found another mirror
     assert chain["damage"]["fb"]["a"] > plain["damage"]["fb"]["a"]
+
+
+def test_the_gear_of_the_skills_weapon_set_gives_its_per_pierce_bonuses_grown_by_the_bow():
+    line = lambda text: {"line": text}  # noqa: E731
+    items = [
+        {"slot": "Weapon 1", "name": "Staff", "type": "Staff", "explicit": [line("23% increased Cast Speed")]},
+        {"slot": "Weapon 1 Swap", "name": "Widowhail", "type": "Bow",
+         "explicit": [line("292% increased bonuses gained from Equipped Quiver")]},
+        {"slot": "Weapon 2 Swap", "name": "Drillneck", "type": "Quiver", "explicit": [
+            line("Projectiles deal 50% increased Damage with Hits for each time they have Pierced"),
+            line("Projectiles have 38% increased Critical Hit chance for each time they have Pierced")]},
+    ]
+    assert dummy.pierce_gear(items, 1) == {"damage": 0.0, "crit": 0.0, "from": []}
+    got = dummy.pierce_gear(items, 2)
+    assert got["damage"] == 196.0 and got["crit"] == 149.0 and got["from"] == ["Drillneck"]

@@ -196,7 +196,9 @@ function dmFlight(s, p) {
     p.sim !== false ? h("div", { class: "row small" },
       t("dmBaseSpeed"), num("speed", 0.5, t("dmBaseSpeedHint")), h("span", { class: "muted" }, `×${fmt(s.speedMod, 2)}`),
       t("dmRange"), num("range", 1), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
-    p.sim !== false && s.pierceMore ? h("div", { class: "muted small" }, t("dmPierceMore", s.pierceMore)) : null);
+    p.sim !== false && s.pierceMore ? h("div", { class: "muted small" }, t("dmPierceMore", s.pierceMore)) : null,
+    p.sim !== false && s.pierceGear && (s.pierceGear.damage || s.pierceGear.crit)
+      ? h("div", { class: "muted small" }, t("dmPierceGear", fmt(s.pierceGear.damage, 0), fmt(s.pierceGear.crit, 0), s.pierceGear.from.map(trItem).join(", "), s.weaponSet)) : null);
 }
 
 // the panel: each skill's use and what it puts on the dummies in its area, the curses, the mirrors
@@ -218,7 +220,8 @@ function dmPanel(draw) {
       s.returns ? t("dmReturns") : null, s.cooldown ? t("dmCd", fmt(s.cooldown, 2)) : t("dmSpeed", fmt(s.speed, 2)), t("dmPerUse", fmt(s.perUse))].filter(Boolean).join(" · ");
     return h("div", { class: "dm-skill" + (p.on ? "" : " off") },
       h("div", { class: "row" }, h("input", { type: "checkbox", checked: p.on, onchange: (e) => { p.on = e.target.checked; dmChanged(); } }),
-        h("span", { class: "dm-dot", style: `background:${color}` }), gemName(s.name), s.triggered ? h("span", { class: "chip tag small" }, t("dmTriggered")) : null),
+        h("span", { class: "dm-dot", style: `background:${color}` }), gemName(s.name), s.triggered ? h("span", { class: "chip tag small" }, t("dmTriggered")) : null,
+        weaponSetPicker(s.group, s.boundSet, s.fixedSet)),
       h("div", { class: "muted small" }, facts),
       p.on ? h("div", { class: "row small" }, mode, field, unit,
         h("label", { class: "row small", title: t("dmSplitHint") }, h("input", { type: "checkbox", checked: !!p.split, onchange: (e) => { p.split = e.target.checked; dmChanged(false); } }), t("dmSplit"))) : null,

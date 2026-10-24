@@ -3005,7 +3005,8 @@ def save_profile(raw: dict):
         path = _profile_path()
         before = path.read_text(encoding="utf-8") if path.exists() else None
         if before:  # the levelling and quest answers are saved by their own pages
-            raw = {k: v for k, v in json.loads(before).items() if k in ("leveling", "quests", "author", "conditions")} | raw
+            raw = {k: v for k, v in json.loads(before).items()
+                   if k in ("leveling", "quests", "author", "conditions", "weapon_sets")} | raw
         path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             session.load(str(session.path))
@@ -3298,6 +3299,40 @@ def quests_save(req: QuestAnswer, mode: str = "balanced", build: str | None = No
         session.ref = None  # a reference build opens with the profile again
         session.assistant = session.toolbox = None
         return _json(session.cached(("quests", mode), lambda: quest_rewards.rewards(session.engine, session.profile, mode)))
+
+
+# ---------- a skill's weapon set (the game keeps it per skill; the character's data loses it) ----------
+class WeaponSetAnswer(BaseModel):
+    group: int
+    set: int  # 1, 2; 0 - both
+
+
+@app.post("/api/weapon-set")
+def weapon_set_save(req: WeaponSetAnswer, build: str | None = None):
+    """Bind a skill group to a weapon set, as the player did in game: kept in the build profile by the group's skills'
+    names and set in PoB, so the skill is computed with that set's weapons everywhere."""
+    with session.lock:
+        session.require(build)
+        if req.set not in (0, 1, 2):
+            raise HTTPException(400, "набор оружия: 1, 2 или 0 (оба)")
+        g = next((g for g in session.engine.socket_groups() if g["index"] == req.group), None)
+        if g is None or not g["skills"]:
+            raise HTTPException(404, "нет такой группы камней")
+        if g["fixedSet"]:
+            raise HTTPException(400, "умение даёт предмет: его набор — набор предмета")
+        path = _profile_path()
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        sets = raw.get("weapon_sets") or {}
+        for name in g["skills"]:
+            sets[name] = req.set
+        raw["weapon_sets"] = {k: v for k, v in sets.items() if v}
+        path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        session.bp.weapon_sets = raw["weapon_sets"]
+        session.engine.set_group_weapon_set(req.group, req.set)
+        session.cache.clear()  # every number of the skill moves with it
+        session.ref = None
+        session.assistant = session.toolbox = None
+        return _json({"group": req.group, "set": req.set})
 
 
 # ---------- levelling up to the build (poe2lab.analysis.leveling) ----------

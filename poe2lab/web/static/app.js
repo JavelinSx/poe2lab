@@ -154,6 +154,23 @@ function scoreBar(score, max) {
 
 const chip = (cls, text) => h("span", { class: "chip " + cls }, text);
 
+// the weapon set a skill group is bound to in game (both, 1, 2): the character's data loses it, the player sets it
+// once (kept in the build profile) and every number of the skill is then counted with that set's weapons
+function weaponSetPicker(group, current, fixed) {
+  if (fixed) return h("span", { class: "chip small", title: t("wsFixedHint") }, "⚔ ", current ? t("wsSet", current) : t("wsBoth"));
+  return h("span", { class: "row ws-pick", title: t("wsHint") }, h("span", { class: "muted small" }, "⚔"),
+    [0, 1, 2].map((v) => h("button", { class: "chip mt-filter small" + ((current || 0) === v ? " on" : ""),
+      onclick: async (e) => {
+        e.stopPropagation();
+        if ((current || 0) === v) return;
+        try {
+          await api(`/api/weapon-set?${buildQuery()}`, { method: "POST", body: { group, set: v } });
+        } catch (err) { toast(err.message, true); return; }
+        resetCache();
+        switchTab(state.tab);
+      } }, v ? t("wsSet", v) : t("wsBoth"))));
+}
+
 // ---------- state ----------
 const state = { build: null, mode: "balanced", tab: "overview", cache: {}, chat: [] };
 const resetCache = () => { state.cache = {}; schedulePreload(); };
@@ -5434,7 +5451,8 @@ function renderSkillsBuild(r) {
     const card = h("div", { class: "card sk-group" + (g.enabled ? "" : " off") + (g.main ? " wide" : ""), "data-group": g.index },
       h("div", { class: "sk-head" }, h("h3", {}, `${g.index}. `, g.actives.map((a, i) => [i ? " + " : "", gemName(a.name)])),
         g.main ? chip("tag", t("skMain")) : null, g.enabled ? null : chip("warn", t("skDisabled")),
-        g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null, nums),
+        g.slot ? h("span", { class: "muted small" }, slotName(g.slot)) : null, nums,
+        g.actives.length ? weaponSetPicker(g.index, g.weaponSet, g.fixedSet) : null),
       metaBlock(g),
       triggerBlock(g),
       supports.length ? h("div", { class: "sk-pills" }, supports.map((x) => supportPill(x, g))) : null,

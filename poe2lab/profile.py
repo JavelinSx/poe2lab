@@ -52,6 +52,8 @@ class BuildProfile:
     corrections: list[Correction] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     quests: dict = field(default_factory=dict)  # the campaign rewards the player took: PoB config key -> value
+    # the skills the player bound to a weapon set in game: skill name -> 1 or 2 (the character's data loses it)
+    weapon_sets: dict = field(default_factory=dict)
     # filled when applied
     correction_dps_pct: float = 0.0
     path: Path | None = None
@@ -70,7 +72,8 @@ class BuildProfile:
             mana_sustained=raw.get("mana_sustained", False), league=raw.get("league"), target=raw.get("target"),
             planner=raw.get("planner"),
             corrections=[Correction(**c) for c in raw.get("corrections", [])],
-            notes=raw.get("notes", []), quests=raw.get("quests") or {}, path=path,
+            notes=raw.get("notes", []), quests=raw.get("quests") or {}, weapon_sets=raw.get("weapon_sets") or {},
+            path=path,
         )
 
 
@@ -87,6 +90,7 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
         engine.load_xml(text, build.stem)
     else:
         engine.load_code(text)
+    apply_weapon_sets(engine, profile.weapon_sets)
     if group:
         engine.set_main_skill(group, skill or (profile.skill if group == profile.group else 1))
     elif profile_of is not None:
@@ -115,6 +119,20 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
         after = engine.what_if(config=config)["CombinedDPS"]
         profile.correction_dps_pct = (after - before) / before * 100 if before else 0.0
     return engine, profile
+
+
+def apply_weapon_sets(engine: PobEngine, weapon_sets: dict) -> list[int]:
+    """Bind the groups of the skills the player named to their weapon set (a group the player socketed - not one an
+    item grants, whose set is the item's). Returns the groups changed."""
+    changed = []
+    if not weapon_sets:
+        return changed
+    for g in engine.socket_groups():
+        sets = {int(weapon_sets[s]) for s in g["skills"] if s in weapon_sets}
+        if len(sets) == 1 and not g["fixedSet"] and g["weaponSet"] != (ws := sets.pop()):
+            engine.set_group_weapon_set(g["index"], ws)
+            changed.append(g["index"])
+    return changed
 
 
 def describe(profile: BuildProfile, rage: bool = True) -> list[str]:

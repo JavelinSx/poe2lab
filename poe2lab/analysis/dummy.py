@@ -14,6 +14,7 @@ damage over time added while the skill keeps hitting it.
 A rough estimate on purpose: positions, mirror copies and trigger rates are the player's guesses; PoB does every
 number it can."""
 import math
+import re
 from dataclasses import dataclass
 
 # a dummy's kind -> PoB's Configuration (enemyIsBoss; rares by their own condition)
@@ -31,6 +32,32 @@ MIRROR_TOUCH = 0.8  # metres: a projectile this close to a mirror shatters it
 MIRROR_COPIES = 7  # Mirror of Refraction: "Projectiles which shatter Mirrors are copied 7 times"
 FAN_STEP = math.radians(8)  # the angle between the projectiles of one use
 DOT_KEYS = ("TotalDot", "IgniteDPS", "PoisonDPS", "BleedDPS", "BurningGroundDPS", "CausticGroundDPS")
+# gear lines PoB does not read: a projectile's damage and crit for each time it has pierced (Drillneck)
+_PER_PIERCE = re.compile(r"Projectiles (?:deal (\d+)% increased Damage with Hits|have (\d+)% increased Critical Hit "
+                         r"chance) for each time they have Pierced", re.I)
+_QUIVER_BONUS = re.compile(r"(\d+)% increased bonuses gained from Equipped Quiver", re.I)
+
+
+def pierce_gear(items: list[dict], weapon_set: int) -> dict:
+    """What the gear worn with a weapon set gives a projectile for each time it has pierced, as PoB does not read
+    it: {"damage": % increased, "crit": % increased crit chance, "from": item names}. A quiver's lines grow with the
+    bow's "increased bonuses gained from Equipped Quiver" of the same set (Widowhail)."""
+    def worn(slot: str) -> bool:
+        return not slot.startswith("Weapon") or ("Swap" in slot) == (weapon_set == 2)
+
+    lines = lambda it: [m["line"] for k in ("implicit", "explicit", "enchant", "runes") for m in it.get(k) or []]  # noqa: E731
+    on = [it for it in items if worn(it["slot"])]
+    quiver = 1 + sum(int(m.group(1)) for it in on for line in lines(it) if (m := _QUIVER_BONUS.search(line))) / 100
+    out = {"damage": 0.0, "crit": 0.0, "from": []}
+    for it in on:
+        scale = quiver if it.get("type") == "Quiver" else 1.0
+        for line in lines(it):
+            if m := _PER_PIERCE.search(line):
+                out["damage" if m.group(1) else "crit"] += int(m.group(1) or m.group(2)) * scale
+                if it["name"] not in out["from"]:
+                    out["from"].append(it["name"])
+    out["damage"], out["crit"] = round(out["damage"], 1), round(out["crit"], 1)
+    return out
 
 
 def _num(o: dict, key: str) -> float:
@@ -61,6 +88,8 @@ def skills(engine) -> list[dict]:
     character."""
     out = []
     groups = engine.skill_groups()
+    items = engine.equipped_item_details()
+    shown = 2 if engine.second_weapon_set() else 1
     for g in groups:
         if not g["enabled"]:
             continue
@@ -76,8 +105,11 @@ def skills(engine) -> list[dict]:
                     else "meta" if "Meta" in types or a["name"].startswith("Cast on") or a["name"] == "Blasphemy"
                     else "damage" if (total or _num(o, "AverageHit") or any(_num(o, k) for k in DOT_KEYS))
                     and not types & NOT_DAMAGE else "other")
+            ws = g.get("weaponSet") or shown  # the set the skill is used with (both: the one the build shows)
             out.append({
                 "id": f"{g['index']}:{i}", "group": g["index"], "index": i, "name": a["name"], "kind": kind,
+                "weaponSet": ws, "boundSet": g.get("weaponSet") or 0, "fixedSet": bool(g.get("fixedSet")),
+                "pierceGear": pierce_gear(items, ws) if "Projectile" in types else None,
                 "sustained": "Sustained" in types and "Projectile" not in types,  # a storm that stands and strikes
                 "travel": bool(types & {"Travel", "Movement"}),
                 "types": sorted(types), "supports": supports, "inAura": aura and kind == "curse",
@@ -255,8 +287,13 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
              and not by_id[i]["sustained"] and p.get("sim", True)]
     if flown:
         def hit_damage(s, d, pierced):
-            crit = float(places[s["id"]].get("critPerPierce") or 0)
-            mods = (f"{crit * min(pierced, MAX_PIERCE_STEPS):g}% increased Critical Hit Chance",) if crit and pierced else ()
+            # each pierce: the gear's crit and damage (PoB does not read those lines) and the player's own extra crit
+            gear = s.get("pierceGear") or {}
+            crit = float(places[s["id"]].get("critPerPierce") or 0) + gear.get("crit", 0)
+            more = gear.get("damage", 0)
+            n = min(pierced, MAX_PIERCE_STEPS)
+            mods = tuple(x for x in (f"{crit * n:g}% increased Critical Hit Chance" if crit and n else None,
+                                     f"{more * n:g}% increased Damage" if more and n else None) if x)
             per_use, _ = damage(s, d, mods)
             return per_use * (1 + s.get("pierceMore", 0) / 100 if pierced >= 1 else 1)
         run = simulate(flown, dummies, mirrors, mirror_skill, hit_damage)

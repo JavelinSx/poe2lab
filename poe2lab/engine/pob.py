@@ -290,7 +290,8 @@ for i, g in ipairs(build.skillsTab.socketGroupList) do
     skills[#skills + 1] = s.activeEffect.grantedEffect.name
   end
   out[#out + 1] = { index = i, label = g.label or "", slot = g.slot or "",
-                    enabled = g.enabled and true or false, skills = skills }
+                    enabled = g.enabled and true or false, skills = skills,
+                    weaponSet = (g.set1 ~= false and g.set2 ~= false) and 0 or (g.set2 and 2 or 1), fixedSet = g.source ~= nil }
 end
 return _poe2lab_json(out)""")
 
@@ -306,6 +307,21 @@ return _poe2lab_json(out)""")
             f"build.mainSocketGroup = {socket_group_index}\n"
             f"build.skillsTab.socketGroupList[{socket_group_index}].mainActiveSkill = {active_skill_index}"
         )
+        self.recalc()
+
+    def set_group_weapon_set(self, socket_group_index: int, weapon_set: int):
+        """Bind a socket group's skills to a weapon set (1 or 2; 0 - both, PoB's default): such a skill is computed
+        with that set's weapons and its passives, whichever set the build shows. The game keeps this binding per
+        skill, but the character's data (GGG's, poe.ninja's) does not carry it: an imported character has all its
+        skills on both sets."""
+        if weapon_set not in (0, 1, 2):
+            raise PobError(f"no weapon set {weapon_set}")
+        n = len(self.socket_groups())
+        if not 1 <= socket_group_index <= n:
+            raise PobError(f"socket group {socket_group_index} out of range 1..{n}")
+        one, two = ("true", "true") if weapon_set == 0 else ("true", "false") if weapon_set == 1 else ("false", "true")
+        self._lua(f"local g = build.skillsTab.socketGroupList[{socket_group_index}]\n"
+                  f"g.set1 = {one}\ng.set2 = {two}")
         self.recalc()
 
     def second_weapon_set(self) -> bool:
@@ -1792,7 +1808,8 @@ for gi, g in ipairs(build.skillsTab.socketGroupList) do
     end
   end
   out[#out + 1] = { index = gi, label = g.label or "", slot = g.slot or "", enabled = g.enabled and true or false,
-    main = gi == build.mainSocketGroup, mainActive = g.mainActiveSkill or 1, actives = actives, gems = gems }
+    main = gi == build.mainSocketGroup, mainActive = g.mainActiveSkill or 1, actives = actives, gems = gems,
+    weaponSet = (g.set1 ~= false and g.set2 ~= false) and 0 or (g.set2 and 2 or 1), fixedSet = g.source ~= nil }
 end
 return _poe2lab_json(out)""")
 
