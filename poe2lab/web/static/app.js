@@ -3457,11 +3457,26 @@ function lootMarket() {
   try { return { ...LOOT_MARKET, ...JSON.parse(localStorage.getItem("poe2lab.lootMarket") || "{}") }; } catch (_) { return { ...LOOT_MARKET }; }
 }
 const lootQuery = (m) => new URLSearchParams(Object.entries(m).map(([k, v]) => [k, String(v)])).toString();
+// the player's changes to their filter's currency, per filter (its path, a local file's name, "text" for pasted):
+// what to show and what to hide on top of it; and the filter the player chose last (per viewer)
+function lootCurrencyAll() {
+  try { return JSON.parse(localStorage.getItem("poe2lab.lootCurrency") || "{}"); } catch (_) { return {}; }
+}
+const lootCurrencyOf = (key) => ({ show: [], hide: [], ...(lootCurrencyAll()[key] || {}) });
+function lootCurrencySet(key, c) {
+  try { const all = lootCurrencyAll(); all[key] = c; localStorage.setItem("poe2lab.lootCurrency", JSON.stringify(all)); } catch (_) { /* storage blocked */ }
+}
+// what goes to the server: "" when nothing is changed
+const lootCurrency = (key) => { const c = lootCurrencyOf(key); return key && (c.show.length || c.hide.length) ? JSON.stringify(c) : ""; };
+function lootChosen() {
+  try { return JSON.parse(localStorage.getItem("poe2lab.lootChosen") || "null"); } catch (_) { return null; }
+}
 
 TABS.loot = async (view) => {
   view.replaceChildren(loading(t("lootLoading")));
   const stage = lootStage();
-  const mk = { ...lootMarket(), stage };
+  const last = lootChosen();
+  const mk = { ...lootMarket(), stage, currency: lootCurrency(last && last.path) };
   const r = await cached(`loot:${state.mode}:${lootQuery(mk)}`, () => api(`/api/lootfilter?mode=${state.mode}&${lootQuery(mk)}&${buildQuery()}`));
   // two filters: the campaign's and the maps'; the player switches between them in the game at maps
   const stageSeg = h("div", { class: "seg loot-stage" }, [["leveling", "run"], ["maps", "map"]].map(([k, ic]) =>
@@ -3493,11 +3508,16 @@ TABS.loot = async (view) => {
   // where the player's filter comes from
   let source = "file";
   // the player's filter: chosen in a Windows dialog opened in the game's filter folder (one filter there: preselected)
-  let chosen = r.localFilters.length === 1 ? r.localFilters[0] : "";
-  let chosenName = chosen;
+  // the last filter chosen, when it is still there (an online copy or a file of the game's folder)
+  const known = (p) => p && ((r.onlineFilters || []).some((f) => f.path === p) || r.localFilters.includes(p));
+  let chosen = known(last && last.path) ? last.path : r.localFilters.length === 1 ? r.localFilters[0] : "";
+  let chosenName = chosen && last && last.path === chosen ? last.name : chosen;
   const chosenBox = h("span", { class: "small" });
-  const drawChosen = () => chosenBox.replaceChildren(chosen ? h("b", {}, chosenName) : h("span", { class: "muted" }, t("lootNoneChosen")));
-  drawChosen();
+  const drawChosen = () => {
+    chosenBox.replaceChildren(chosen ? h("b", {}, chosenName) : h("span", { class: "muted" }, t("lootNoneChosen")));
+    try { localStorage.setItem("poe2lab.lootChosen", JSON.stringify(chosen ? { path: chosen, name: chosenName } : null)); } catch (_) { /* storage blocked */ }
+    drawCurrency();
+  };
   const pick = h("button", { class: "ghost", onclick: async () => {
     pick.disabled = true;
     pick.textContent = t("lootPicking");
@@ -3508,7 +3528,25 @@ TABS.loot = async (view) => {
     pick.disabled = false;
     pick.textContent = t("lootPick");
   } }, t("lootPick"));
-  const text = h("textarea", { rows: 6, placeholder: t("lootPastePh"), spellcheck: "false" });
+  const text = h("textarea", { rows: 6, placeholder: t("lootPastePh"), spellcheck: "false", onchange: () => drawCurrency() });
+  // the currency table: what the chosen filter does with each currency drop, and the player's ticks on top of it
+  const curBox = h("div", { class: "card stack" });
+  const currencyKey = () => (source === "text" ? "text" : source === "file" ? chosen : "");
+  const drawCurrency = async () => {
+    const title = h("h3", {}, I("coins"), " ", t("lootCurTitle"));
+    const key = currencyKey();
+    if (!key || (source === "text" && !text.value.trim())) {
+      curBox.replaceChildren(title, h("p", { class: "muted small" }, t("lootCurNoFilter")));
+      return;
+    }
+    curBox.replaceChildren(title, loading(t("lootCurLoading")));
+    let d;
+    try {
+      d = await api("/api/lootfilter/currency", { method: "POST", body: { source, file: source === "file" ? chosen : null, text: text.value, stage } });
+    } catch (e) { curBox.replaceChildren(title, h("p", { class: "bad small" }, e.message)); return; }
+    if (key !== currencyKey()) return;  // another filter was chosen meanwhile
+    curBox.replaceChildren(currencyTable(d, key, title));
+  };
   const name = h("input", { type: "text", placeholder: t("lootNamePh", t("lootStageShort_" + stage)), style: "width:100%" });
   // the game's copies of online filters (NeverSink, FilterBlade subscriptions), by their names
   const online = (r.onlineFilters || []).length ? h("div", { class: "row small" }, h("span", { class: "muted" }, t("lootOnlineList")),
@@ -3522,6 +3560,7 @@ TABS.loot = async (view) => {
   const showPane = () => {
     seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.k === source));
     paneBox.replaceChildren(panes[source]);
+    drawCurrency();
   };
   showPane();
   const save = h("button", { class: "primary", onclick: async () => {
@@ -3529,7 +3568,7 @@ TABS.loot = async (view) => {
     save.disabled = true;
     try {
       const res = await api("/api/lootfilter/save", { method: "POST", body: { mode: state.mode, source,
-        file: chosen || null, text: text.value, name: name.value.trim() || null, ...mk } });
+        file: chosen || null, text: text.value, name: name.value.trim() || null, ...mk, currency: lootCurrency(currencyKey()) } });
       done.replaceChildren(h("div", { class: "action" }, t("lootSaved", res.name, res.path)));
       toast(t("lootSavedShort", res.name), true);
     } catch (e) { toast(e.message); }
@@ -3544,9 +3583,56 @@ TABS.loot = async (view) => {
   } }, t("copyBlock"));
   const preview = h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lootPreview")),
     h("div", { class: "row", style: "margin:8px 0" }, copy), h("pre", { class: "filter-preview" }, r.block)));
+  drawChosen();
   return h("div", { class: "stack" }, stageSeg, h("div", { class: "sub" }, t("lootIntro_" + stage)), what,
-    leveling ? null : marketCard(r.market, mk), leveling ? null : demandCard(r.demand, mk), onlineFiltersCard(r, mk), build, preview);
+    leveling ? null : marketCard(r.market, mk), leveling ? null : demandCard(r.demand, mk), onlineFiltersCard(r, mk), build, curBox, preview);
 };
+
+// the currency of the chosen filter: each currency with its price and what the filter does with one drop (shown,
+// shown from a stack, hidden); a tick shows it, no tick hides it - the ticks that differ from the filter go on top
+// of it as the player's own rules
+function currencyTable(d, key, title) {
+  const rate = d.exaltedPerDivine || 0;
+  const price = (div) => div >= 1 || !rate ? `${fmt(div, div < 10 ? 1 : 0)} div` : `${fmt(div * rate, 0)} ex`;
+  let ch = lootCurrencyOf(key);
+  let q = "", onlyChanged = false;
+  const shownInFilter = (row) => row.action === "show";
+  const ticked = (row) => (ch.show.includes(row.name) || (shownInFilter(row) && !ch.hide.includes(row.name)));
+  const changed = (row) => ch.show.includes(row.name) || ch.hide.includes(row.name);
+  const state = (row) => row.action === "show" ? h("span", { class: "chip ok" }, I("eye", "ic-s"), " ", t("lootCurShown"))
+    : row.from ? h("span", { class: "chip warn" }, t("lootCurFrom", row.from))
+      : row.action === "minimal" ? h("span", { class: "chip tag" }, t("lootCurMinimal"))
+        : h("span", { class: "chip bad" }, t("lootCurHidden"));
+  const toggle = (row, on) => {
+    ch = { show: ch.show.filter((n) => n !== row.name), hide: ch.hide.filter((n) => n !== row.name) };
+    if (on !== shownInFilter(row)) ch[on ? "show" : "hide"].push(row.name);
+    lootCurrencySet(key, ch);
+    draw();
+  };
+  const body = h("tbody");
+  const summary = h("div", { class: "small muted" });
+  const draw = () => {
+    const rows = d.rows.filter((row) => (!onlyChanged || changed(row))
+      && (!q || [row.name, trName(row.name)].join(" ").toLowerCase().includes(q)));
+    body.replaceChildren(...rows.map((row) => h("tr", { class: changed(row) ? "lc-changed" : "" },
+      h("td", { class: "lc-tick" }, h("input", { type: "checkbox", checked: ticked(row), onchange: (e) => toggle(row, e.target.checked) })),
+      h("td", {}, h("span", { class: "named" }, icon(row.name), trName(row.name))),
+      h("td", { class: "num" }, price(row.div)),
+      h("td", {}, state(row)),
+      h("td", { class: "small" }, changed(row) ? h("b", { class: ticked(row) ? "good" : "bad" }, ticked(row) ? t("lootCurWillShow") : t("lootCurWillHide")) : h("span", { class: "muted" }, "—")))));
+    summary.textContent = t("lootCurSummary", ch.show.length, ch.hide.length);
+  };
+  const search = h("input", { type: "search", placeholder: t("lootCurSearch"), oninput: (e) => { q = e.target.value.toLowerCase(); draw(); } });
+  const only = h("label", { class: "row small" }, h("input", { type: "checkbox", onchange: (e) => { onlyChanged = e.target.checked; draw(); } }), t("lootCurOnlyChanged"));
+  const reset = h("button", { class: "ghost small", onclick: () => { ch = { show: [], hide: [] }; lootCurrencySet(key, ch); draw(); } }, t("lootCurReset"));
+  draw();
+  return h("div", { class: "stack" }, title, h("div", { class: "sub" }, t("lootCurSub", d.filter, t("lootStageShort_" + d.stage))),
+    h("div", { class: "row" }, search, only, reset), summary,
+    h("div", { class: "lc-wrap" }, h("table", { class: "versus-items lc-table" },
+      h("thead", {}, h("tr", {}, [t("lootCurShow"), t("lootCurName"), t("lootCurPrice"), t("lootCurInFilter"), t("lootCurChange")].map((x, i) => h("th", { class: i === 2 ? "num" : null }, x)))),
+      body)),
+    h("div", { class: "hint" }, t("lootCurHint")));
+}
 
 // the game's copies of the player's online filters: each with its rules and poe2lab's block in it (which build,
 // which part of the game); the block put in, renewed or taken out right in the copy, so the filter chosen in the
@@ -3561,7 +3647,7 @@ function onlineFiltersCard(r, mk) {
     if (!ok) return;
     tiles.querySelectorAll("button").forEach((b) => { b.disabled = true; });
     try {
-      const res = await api("/api/lootfilter/online", { method: "POST", body: { path: f.path, action, mode: state.mode, ...mk } });
+      const res = await api("/api/lootfilter/online", { method: "POST", body: { path: f.path, action, mode: state.mode, ...mk, currency: lootCurrency(f.path) } });
       r.onlineFilters = res.onlineFilters;
       toast(t(action === "add" ? "lootOnDone" : "lootOnRemoved", f.name), true);
     } catch (e) { toast(e.message); }

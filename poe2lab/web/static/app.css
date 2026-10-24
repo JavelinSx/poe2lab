@@ -1670,3 +1670,8 @@ div.eg-q-mod { user-select: none; }
 .lr-starter { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .lr-starter-head, .lr-tile-chips { gap: 4px; flex-wrap: wrap; align-items: center; }
 .lr-starter-tips { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.4; }
+
+/* the loot filter's currency table: the filter's own choice and the player's ticks on top */
+.lc-wrap { max-height: 520px; overflow: auto; }
+.lc-table td.lc-tick { width: 36px; text-align: center; }
+.lc-table tr.lc-changed td { background: var(--gold-bg); }

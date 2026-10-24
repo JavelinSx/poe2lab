@@ -161,6 +161,9 @@ STYLES = {
     "top_rare": ["SetFontSize 38", "SetBorderColor 80 220 200 255", "MinimapIcon 2 Cyan Circle"],
     # levelling: a weapon to compare
     "weapon": ["SetFontSize 38", "SetBorderColor 220 220 220 255", "MinimapIcon 2 White Triangle"],
+    # a currency the player chose to see
+    "currency": ["SetFontSize 40", "SetTextColor 255 230 160 255", "SetBorderColor 255 230 160 255",
+                 "SetBackgroundColor 40 30 10 230", "PlayEffect White Temp", "MinimapIcon 2 White Circle"],
 }
 
 
@@ -553,3 +556,108 @@ def local_filters() -> list[str]:
 
 def safe_name(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', " ", name).strip() or "poe2lab"
+
+
+# ---------- currency: what the player's own filter does with each currency drop, and the player's changes ----------
+# A filter is read the way the game reads it: the blocks from the top, the first one whose every condition the item
+# meets decides (a block with "Continue" decides unless a later one matches too); an item no block matches is shown.
+# A currency drop is an item of class "Stackable Currency", rarity Normal, of the area's level; filters often show
+# a currency only from a stack size, so each is tried at several sizes.
+CURRENCY_CLASS = "Stackable Currency"
+CURRENCY_STACKS = (1, 2, 3, 4, 5, 8, 10, 15, 20, 40)
+STAGE_AREA = {"leveling": 40, "maps": 79, "all": 79}  # the area level a stage's drops are tried at
+RARITIES = ["Normal", "Magic", "Rare", "Unique"]
+_TOKENS = re.compile(r'"([^"]*)"|(\S+)')
+_OPERATOR = re.compile(r"^(==|!=|>=|<=|=|>|<|!)$")
+
+
+def parse_filter(text: str) -> list[dict]:
+    """A filter's blocks: {"action": "Show" | "Hide" | "Minimal", "conds": [(key, operator, [values])],
+    "continue": bool}; the styling lines are left out."""
+    blocks, cur = [], None
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        words = [a if a is not None and a != "" or b is None else b for a, b in _TOKENS.findall(line)]
+        head = words[0]
+        if head in ("Show", "Hide", "Minimal"):
+            cur = {"action": head, "conds": [], "continue": False}
+            blocks.append(cur)
+        elif cur is None:
+            continue
+        elif head == "Continue":
+            cur["continue"] = True
+        elif head[0].isupper() and not head.startswith(("Set", "Play", "Minimap", "Custom", "Disable", "Enable")):
+            rest = words[1:]
+            op = rest.pop(0) if rest and _OPERATOR.match(rest[0]) else ""
+            cur["conds"].append((head, op, rest))
+    return blocks
+
+
+def _compare(have, op: str, want) -> bool:
+    return {"": have == want, "=": have == want, "==": have == want, "!=": have != want, "!": have != want,
+            ">=": have >= want, "<=": have <= want, ">": have > want, "<": have < want}[op]
+
+
+def _meets(cond: tuple, item: dict) -> bool:
+    key, op, values = cond
+    if key in ("Class", "BaseType"):
+        name = item[key]
+        hit = any(name == v for v in values) if op in ("==", "!=") else any(v.lower() in name.lower() for v in values)
+        return not hit if op in ("!=", "!") else hit
+    if key == "Rarity":
+        have = RARITIES.index(item["Rarity"])
+        if op in ("", "=", "==") and len(values) >= 1 and not values[0].isdigit():
+            return item["Rarity"] in values
+        return _compare(have, op or "==", RARITIES.index(values[0])) if values and values[0] in RARITIES else False
+    if key not in item:
+        return False  # a condition no currency drop meets (sockets, mods, influence...)
+    have = item[key]
+    if isinstance(have, bool):
+        return (values[0].lower() == "true") == have if values else False
+    try:
+        nums = [int(v) for v in values]
+    except ValueError:
+        return False
+    return any(_compare(have, op or "==", n) for n in nums) if op in ("", "=", "==") else _compare(have, op, nums[0])
+
+
+def decide(blocks: list[dict], item: dict) -> str:
+    """What the filter does with the item: "Show", "Hide", "Minimal", or "Show" when no block matches."""
+    action = None
+    for b in blocks:
+        if all(_meets(c, item) for c in b["conds"]):
+            action = b["action"]
+            if not b["continue"]:
+                return action
+    return action or "Show"
+
+
+def currency_states(text: str, names: list[str], stage: str = "maps") -> dict[str, dict]:
+    """Per currency: what the filter does with one dropped at the stage's area level ("show" | "hide" |
+    "minimal"), and from what stack size it is shown when a single one is not ("from")."""
+    blocks = parse_filter(text)
+    area = STAGE_AREA.get(stage, 79)
+    out = {}
+    for name in names:
+        item = {"Class": CURRENCY_CLASS, "BaseType": name, "Rarity": "Normal", "AreaLevel": area, "ItemLevel": area,
+                "Quality": 0, "Sockets": 0, "Corrupted": False, "Mirrored": False, "Identified": True}
+        acts = {n: decide(blocks, item | {"StackSize": n}) for n in CURRENCY_STACKS}
+        one = acts[1]
+        shown_from = next((n for n in CURRENCY_STACKS if acts[n] == "Show"), None)
+        out[name] = {"action": one.lower(), "from": shown_from if one != "Show" else None}
+    return out
+
+
+def currency_blocks(show: list[str], hide: list[str], valid: set | None = None) -> list[str]:
+    """The player's changes to their filter's currency, on top of it: what to show (and how), what to hide."""
+    known = lambda names: sorted(n for n in names if valid is None or n in valid)  # noqa: E731
+    out = []
+    if known(hide):
+        out += ["\n".join([f"Hide # poe2lab: валюта — скрыть (твой выбор)", f'\tClass == "{CURRENCY_CLASS}"',
+                           f"\tBaseType == {_quote(known(hide))}"]), ""]
+    if known(show):
+        out += [_block("валюта — показать (твой выбор)", [f'Class == "{CURRENCY_CLASS}"',
+                                                            f"BaseType == {_quote(known(show))}"], "currency"), ""]
+    return out

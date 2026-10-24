@@ -286,3 +286,48 @@ def test_the_bases_the_top_characters_wear(monkeypatch):
     blocks, used = lf.top_base_blocks(top["bases"], valid={"Gold Ring", "Ancestral Tiara"}, item_level=82, least=2)
     assert [b["base"] for b in used] == ["Gold Ring"] and 'BaseType == "Gold Ring"' in blocks[0]
     assert "Identified False" in blocks[2] and "ItemLevel >= 82" in blocks[2]
+
+
+CURRENCY_FILTER = """
+# a filter as FilterBlade writes it: conditions and styles mixed, comments after #
+Show
+Class == "Stackable Currency"
+SetFontSize 45
+StackSize >= 2
+BaseType == "Regal Orb" "Orb of Alchemy"
+
+Show # campaign only
+\tClass == "Stackable Currency"
+\tBaseType == "Orb of Augmentation"
+\tAreaLevel <= 64
+
+Hide
+\tClass == "Stackable Currency"
+\tBaseType == "Regal Orb" "Orb of Augmentation" "Orb of Alchemy"
+
+Show
+\tClass "Currency"
+\tBaseType "Chaos"
+\tContinue
+
+Minimal
+\tBaseType == "Scroll of Wisdom"
+"""
+
+
+def test_what_a_filter_does_with_each_currency():
+    names = ["Regal Orb", "Orb of Augmentation", "Chaos Orb", "Scroll of Wisdom", "Divine Orb"]
+    maps = lf.currency_states(CURRENCY_FILTER, names, "maps")
+    assert maps["Regal Orb"] == {"action": "hide", "from": 2}  # shown from a stack of two
+    assert maps["Orb of Augmentation"] == {"action": "hide", "from": None}  # the campaign's block is past
+    assert maps["Chaos Orb"]["action"] == "show"  # "Continue": nothing later matches it
+    assert maps["Scroll of Wisdom"]["action"] == "minimal" and maps["Divine Orb"]["action"] == "show"  # no block: shown
+    assert lf.currency_states(CURRENCY_FILTER, names, "leveling")["Orb of Augmentation"]["action"] == "show"
+
+
+def test_the_players_currency_choice_on_top():
+    blocks = lf.currency_blocks(["Regal Orb", "Not An Item"], ["Chaos Orb"], {"Regal Orb", "Chaos Orb"})
+    text = "\n".join(blocks)
+    assert text.index("Hide # poe2lab") < text.index("Show # poe2lab")
+    assert 'BaseType == "Chaos Orb"' in text and 'BaseType == "Regal Orb"' in text and "Not An Item" not in text
+    assert lf.currency_blocks([], []) == []

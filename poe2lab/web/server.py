@@ -2470,16 +2470,29 @@ class MarketChoice(BaseModel):
     demand_ilvl: int = lootfilter.DEMAND_ILVL
     demand_min: int = lootfilter.TOP_MIN  # how many of the top characters wear a base for it to go in
     stage: str = "all"  # "leveling" | "maps" | "all" (lootfilter.STAGES)
+    # the player's changes to their filter's currency, as JSON {"show": [names], "hide": [names]}
+    currency: str = ""
+
+
+def _currency_choice(choice: "MarketChoice | None") -> tuple[list[str], list[str]]:
+    if not choice or not choice.currency:
+        return [], []
+    try:
+        data = json.loads(choice.currency)
+    except ValueError:
+        raise HTTPException(400, "выбор валюты не разобран")
+    return [str(n) for n in data.get("show") or []], [str(n) for n in data.get("hide") or []]
 
 
 @app.get("/api/lootfilter")
 def loot_filter(mode: str = "balanced", build: str | None = None, market: bool = True, top: float = 1.0,
                 top_unit: str = "div", low: float = 50.0, low_unit: str = "ex", demand: bool = True,
-                demand_ilvl: int = lootfilter.DEMAND_ILVL, demand_min: int = lootfilter.TOP_MIN, stage: str = "all"):
+                demand_ilvl: int = lootfilter.DEMAND_ILVL, demand_min: int = lootfilter.TOP_MIN, stage: str = "all",
+                currency: str = ""):
     if mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {mode!r}")
     choice = MarketChoice(market=market, top=top, top_unit=top_unit, low=low, low_unit=low_unit, demand=demand,
-                          demand_ilvl=demand_ilvl, demand_min=demand_min, stage=stage)
+                          demand_ilvl=demand_ilvl, demand_min=demand_min, stage=stage, currency=currency)
     with session.lock:
         session.require(build)
         return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()), "build": session.path.stem,
@@ -2506,8 +2519,14 @@ def _loot(mode: str, choice: MarketChoice | None = None) -> dict:
     elif stage == "maps" and choice.demand:
         demand = _demand(choice)
         extra, out["demand"] = demand.pop("blocks"), demand
+    # the player's currency choices go first among the extras: a filter stops at the first block an item meets
+    show, hide = _currency_choice(choice)
+    currency = lootfilter.currency_blocks(show, hide, gamedata.base_type_names() or None)
+    if stage == "leveling":
+        extra = currency + extra
+    market_blocks = currency + (market["blocks"] if market else []) if stage != "leveling" else None
     return out | {"rules": rules, "stage": stage,
-                  "block": lootfilter.render(rules, session.path.stem, market["blocks"] if market else None, stage, extra),
+                  "block": lootfilter.render(rules, session.path.stem, market_blocks, stage, extra),
                   "market": {k: v for k, v in market.items() if k != "blocks"} if market else None}
 
 
@@ -2612,6 +2631,53 @@ def loot_filter_pick():
     return {"path": str(path), "name": online["name"] if online else path.name}
 
 
+def _filter_source(source: str, file: str | None, text: str | None) -> tuple[str, Path | None, str]:
+    """The player's filter as text, its file (None for pasted text) and its name: a file chosen in the dialog, the
+    game's copy of an online filter, one of the game's folder by name, or pasted text."""
+    if source == "text":
+        if "Show" not in (text or "") and "Hide" not in (text or ""):
+            raise HTTPException(400, "вставленный текст не похож на лут-фильтр (нет блоков Show/Hide)")
+        return text or "", None, "мой фильтр"
+    picked = session.picked_filter
+    online = {f["path"]: f["name"] for f in lootfilter.online_filters()}
+    if picked is not None and file == str(picked):
+        src = picked
+    elif file in online:
+        src = Path(file)
+    else:
+        src = lootfilter.filters_dir() / Path(file or "").name
+    if not src.is_file():
+        raise HTTPException(400, f"нет файла фильтра {src}")
+    label = online.get(str(src)) or src.stem
+    return src.read_text(encoding="utf-8-sig", errors="replace"), src, label
+
+
+class CurrencyQuery(BaseModel):
+    source: str = "file"
+    file: str | None = None
+    text: str | None = None
+    stage: str = "maps"
+
+
+@app.post("/api/lootfilter/currency")
+def loot_filter_currency(req: CurrencyQuery):
+    """The currency table: each currency poe.ninja prices, with what the player's filter does with one that drops
+    (shown, hidden, shown only from a stack size) at the part of the game chosen."""
+    if req.stage not in lootfilter.STAGES:
+        raise HTTPException(400, f"неизвестная часть игры {req.stage!r}")
+    text, _, label = _filter_source(req.source, req.file, req.text)
+    valid = gamedata.base_type_names()
+    prices = session.prices()
+    data = session.cached(("market", prices.league), lambda: ninja.market(prices.league)) if prices else {"items": {}}
+    names = sorted(n for n, x in data["items"].items() if x.get("kind") == "Currency" and (not valid or n in valid))
+    states = lootfilter.currency_states(text, names, req.stage)
+    rows = [{"name": n, "div": data["items"][n]["div"]} | states[n] for n in names]
+    rows.sort(key=lambda r: -r["div"])
+    return {"filter": label, "stage": req.stage, "rows": rows,
+            "exaltedPerDivine": data.get("exaltedPerDivine") or (prices.exalted_per_divine if prices else 0),
+            "league": prices.league if prices else None}
+
+
 @app.post("/api/lootfilter/save")
 def loot_filter_save(req: LootFilterSave):
     """Write "the player's filter + the build block" as a new filter in the game's folder; the player's own file
@@ -2622,34 +2688,16 @@ def loot_filter_save(req: LootFilterSave):
             raise HTTPException(400, f"неизвестная цель {req.mode!r}")
         block = _loot(req.mode, req)["block"]
         folder = lootfilter.filters_dir()
-        base = ""
-        if req.source == "file":
-            picked = session.picked_filter
-            # the file chosen in the dialog (anywhere), the game's copy of an online filter, or one of the game's
-            # folder by name
-            online = {f["path"]: f["name"] for f in lootfilter.online_filters()}
-            if picked is not None and req.file == str(picked):
-                src = picked
-            elif req.file in online:
-                src = Path(req.file)
-            else:
-                src = folder / Path(req.file or "").name
-            if not src.is_file():
-                raise HTTPException(400, f"нет файла фильтра {src}")
-            base = src.read_text(encoding="utf-8-sig", errors="replace")
-            label = online.get(str(src)) or (online.get(str(picked)) if src == picked else None) or src.stem
+        base, src = "", None
+        if req.source in ("file", "text"):
+            base, src, label = _filter_source(req.source, req.file, req.text)
             default = f"{label} + poe2lab {session.path.stem}"
-        elif req.source == "text":
-            base = req.text or ""
-            if "Show" not in base and "Hide" not in base:
-                raise HTTPException(400, "вставленный текст не похож на лут-фильтр (нет блоков Show/Hide)")
-            default = f"мой фильтр + poe2lab {session.path.stem}"
         else:
             default = f"poe2lab {session.path.stem}"
         default += {"leveling": " (прокачка)", "maps": " (карты)"}.get(req.stage, "")
         name = lootfilter.safe_name(req.name or default)
         target = folder / f"{name}.filter"
-        if req.source == "file" and target.resolve() == src.resolve():
+        if src is not None and target.resolve() == src.resolve():
             raise HTTPException(400, "имя совпадает с исходным фильтром — выберите другое, исходный файл не меняется")
         folder.mkdir(parents=True, exist_ok=True)
         target.write_text(lootfilter.merge(block, base) if base else block, encoding="utf-8")
