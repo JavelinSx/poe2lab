@@ -30,6 +30,7 @@ from ..analysis.tree import optimize as optimize_tree
 from ..analysis.tree import take_package
 from ..analysis import conds, jewels as jewel_effects, leveling, quests as quest_rewards, unmodeled
 from ..analysis.conditions import audit as audit_conditions
+from ..analysis import dummy
 from ..analysis.slots import AFFIX_LIMIT, craft_path, plan_all, plan_slot
 from ..analysis.sockets import adds_stats, plan_sockets, refusal as rune_refusal
 from ..analysis.threats import IMMUNE_HIT, MapProfile, survivable_hits
@@ -3514,6 +3515,34 @@ def endgame_income(lang: str = "ru"):
         art = endgame.item_art(farmguide.income_items(), gamedata.game_dir())
     return {"league": league, "exaltedPerDivine": book.exalted_per_divine, "art": art,
             "strategies": farmguide.income(price, lang if lang in ("ru", "en") else "ru")}
+
+
+# ---- the dummy: the build's damage per second on dummies laid out by hand, all its skills at once ----
+
+@app.get("/api/dummy/skills")
+def dummy_skills(build: str | None = None):
+    """The build's skills as the dummy uses them (poe2lab.analysis.dummy.skills)."""
+    with session.lock:
+        session.require(build)
+        with dummy.keep_main(session.engine):
+            return _json({"skills": session.cached("dummy-skills", lambda: dummy.skills(session.engine)),
+                          "kinds": list(dummy.KINDS), "states": list(dummy.STATES)})
+
+
+class DummyScenario(BaseModel):
+    scenario: dict
+
+
+@app.post("/api/dummy/calc")
+def dummy_calc(req: DummyScenario, build: str | None = None):
+    """The build's damage per second on the scenario's dummies (poe2lab.analysis.dummy.calc)."""
+    if len(req.scenario.get("dummies") or []) > 60:
+        raise HTTPException(400, "не больше 60 манекенов")
+    with session.lock:
+        session.require(build)
+        with dummy.keep_main(session.engine):
+            catalogue = session.cached("dummy-skills", lambda: dummy.skills(session.engine))
+            return _json(dummy.calc(session.engine, req.scenario, catalogue))
 
 
 @app.get("/api/glossary")

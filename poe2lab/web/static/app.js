@@ -202,7 +202,7 @@ $("#lang").addEventListener("click", async (e) => {
   else if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty();
 });
 
-const TAB_ORDER = ["overview", "skills", "gear", "tree", "loot", "profile", "assistant"];
+const TAB_ORDER = ["overview", "skills", "gear", "tree", "dummy", "loot", "profile", "assistant"];
 // tabs that were folded into others: an old address still lands where their content is now
 const MOVED_TABS = { compare: "gear", mechanics: "profile", damage: "skills" };
 
@@ -227,7 +227,7 @@ async function loadLeagues() {
 
 // ---------- the start page: two ways - take a build apart, or make one and explain it ----------
 // each tile: an icon, a title, one short line and what is behind it folded under "more" (i18n ws<kind>_<key>)
-const WS_TABS = [["overview", "compass"], ["skills", "gem"], ["gear", "helm"], ["tree", "tree"], ["loot", "funnel"],
+const WS_TABS = [["overview", "compass"], ["skills", "gem"], ["gear", "helm"], ["tree", "tree"], ["dummy", "target"], ["loot", "funnel"],
   ["profile", "id"], ["assistant", "chat"]];
 const WS_VIEW_MORE = [["mine", "person"], ["notes", "pencil"]];
 const WS_MAKE_FROM = [["scratch", "spark", "#new-build"], ["ladder", "crown", "#new-build"], ["game", "download", "#add-build"]];

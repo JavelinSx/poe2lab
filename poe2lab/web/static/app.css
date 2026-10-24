@@ -1675,3 +1675,30 @@ div.eg-q-mod { user-select: none; }
 .lc-wrap { max-height: 520px; overflow: auto; }
 .lc-table td.lc-tick { width: 36px; text-align: center; }
 .lc-table tr.lc-changed td { background: var(--gold-bg); }
+
+/* the dummy: a field in metres beside the skills' links, the damage under them */
+.dm-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 14px; align-items: start; }
+@container main (max-width: 1000px) { .dm-main { grid-template-columns: minmax(0, 1fr); } }
+.dm-field { width: 100%; height: auto; background: var(--panel); border-radius: 8px; touch-action: none; user-select: none; }
+.dm-grid { stroke: var(--line); stroke-width: 0.5; opacity: .5; }
+.dm-grid5 { stroke: var(--line-2); stroke-width: 1; opacity: .8; }
+.dm-player { fill: var(--gold); stroke: #000; stroke-width: 1.5; }
+.dm-dummy { stroke: #000; stroke-width: 1; opacity: .95; }
+.dm-area { fill-opacity: .12; stroke-width: 1.5; stroke-opacity: .8; }
+.dm-ray { stroke-width: 2; stroke-dasharray: 6 4; opacity: .8; }
+.dm-pin { stroke: #000; stroke-width: 1.5; }
+.dm-curse { fill: #a04ad9; fill-opacity: .08; stroke: #c38bff; stroke-dasharray: 4 4; }
+.dm-curse-pin { fill: #c38bff; stroke: #000; }
+.dm-mirror { fill: #bfe8ff; stroke: #000; stroke-width: 1; }
+.dm-panel { max-height: 720px; overflow: auto; }
+.dm-skill { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.dm-skill.off { opacity: .55; }
+.dm-skill input[type=number] { width: 70px; }
+.dm-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dm-kpis { gap: 12px; flex-wrap: wrap; }
+.dm-kpi { display: flex; flex-direction: column; padding: 8px 14px; border-radius: 8px; background: var(--gold-bg); }
+.dm-kpi b { font-size: 24px; color: var(--gold-hi); }
+.dm-kpi span { color: var(--muted); font-size: 12px; }
+.dm-bar { display: grid; grid-template-columns: minmax(140px, 220px) 1fr auto auto; gap: 10px; align-items: center; }
+.dm-bar-v { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.dm-bar-v i { display: block; height: 100%; background: var(--gold); }
