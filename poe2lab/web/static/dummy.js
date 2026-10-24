@@ -81,10 +81,19 @@ async function dmCalc() {
   } catch (e) { DM.res = { error: e.message }; }
   const box = document.querySelector(".dm-result");
   if (box) box.replaceWith(dmResult());
+  dmDrawCrystals();
   document.querySelectorAll(".dm-dummy").forEach((el) => {
     const d = DM.res && DM.res.dummies ? DM.res.dummies.find((x) => x.id === el.dataset.id) : null;
     el.querySelector("title").textContent = d ? t("dmDummyTip", fmt(d.dps), d.states.map((x) => t("dmSt_" + x)).join(", ") || "—") : "";
   });
+}
+
+// the crystals one use of each ice-crystal skill puts (the server lays them out from the gems)
+function dmDrawCrystals() {
+  const g = document.querySelector(".dm-crystals"), m = DM.fieldMap;
+  if (!g || !m) return;
+  const spots = (DM.res && DM.res.crystalSpots) || {};
+  g.replaceChildren(...Object.values(spots).flat().map(([x, y]) => m.el("circle", { cx: m.X(x), cy: m.Y(y), r: 3, class: "dm-crystal" })));
 }
 
 // how wide a dummy is: the player's, else its kind's (a pinnacle boss is a big target)
@@ -121,6 +130,7 @@ function dmField(draw) {
   const NS = "http://www.w3.org/2000/svg";
   const el = (tag, attrs, ...kids) => { const e = document.createElementNS(NS, tag); for (const [a, v] of Object.entries(attrs)) e.setAttribute(a, v); kids.forEach((c) => c && e.append(c)); return e; };
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, class: "dm-field" });
+  DM.fieldMap = { X, Y, el };
   for (let m = Math.ceil(DM_FIELD.x0); m <= DM_FIELD.x1; m++) svg.append(el("line", { x1: X(m), y1: 0, x2: X(m), y2: H, class: m % 5 ? "dm-grid" : "dm-grid5" }));
   for (let m = Math.ceil(DM_FIELD.y0); m <= DM_FIELD.y1; m++) svg.append(el("line", { x1: 0, y1: Y(m), x2: W, y2: Y(m), class: m % 5 ? "dm-grid" : "dm-grid5" }));
   // drag: the point follows the pointer (in metres); the field is drawn anew and the damage counted on release
@@ -176,6 +186,8 @@ function dmField(draw) {
     drag(pin, () => p, (x, y) => { p.x = x; p.y = y; });
     svg.append(pin);
   });
+  // the ice crystals of one use of each crystal skill (where the last count put them)
+  svg.append(el("g", { class: "dm-crystals" }));
   // mirrors
   sc.mirrors.forEach((m, i) => {
     const d = el("rect", { x: X(m.x) - 6, y: Y(m.y) - 6, width: 12, height: 12, transform: `rotate(45 ${X(m.x)} ${Y(m.y)})`, class: "dm-mirror" },
@@ -201,6 +213,8 @@ function dmFlight(s, p) {
     onchange: (e) => { p[key] = +e.target.value; dmChanged(false); } });
   return h("div", { class: "dm-flight stack" },
     h("label", { class: "row small" }, h("input", { type: "checkbox", checked: p.sim !== false, onchange: (e) => { p.sim = e.target.checked; dmChanged(); } }), t("dmSim")),
+    p.sim !== false && DM.cat.some((x) => x.crystal) ? h("label", { class: "row small", title: t("dmCrystalPierceHint") },
+      h("input", { type: "checkbox", checked: p.crystalPierce !== false, onchange: (e) => { p.crystalPierce = e.target.checked; dmChanged(false); } }), t("dmCrystalPierce")) : null,
     p.sim !== false && DM.cat.some((x) => x.kind === "mirror") ? h("label", { class: "row small", title: t("dmMirrorPierceHint") },
       h("input", { type: "checkbox", checked: p.mirrorPierce !== false, onchange: (e) => { p.mirrorPierce = e.target.checked; dmChanged(false); } }), t("dmMirrorPierce")) : null,
     p.sim !== false ? h("div", { class: "row small" },
@@ -241,6 +255,8 @@ function dmPanel(draw) {
         h("span", { class: "dm-dot", style: `background:${color}` }), gemName(s.name), s.triggered ? h("span", { class: "chip tag small" }, t("dmTriggered")) : null,
         weaponSetPicker(s.group, s.boundSet, s.fixedSet)),
       h("div", { class: "muted small" }, facts),
+      s.crystal ? h("div", { class: "muted small", title: t("dmCrystalHint") }, t("dmCrystals", s.crystal.perUse, fmt(s.crystal.life),
+        fmt(s.crystal.explosionRadius, 1), fmt(s.crystal.duration, 1))) : null,
       p.on ? h("div", { class: "row small" }, mode, field, unit,
         h("label", { class: "row small", title: t("dmSplitHint") }, h("input", { type: "checkbox", checked: !!p.split, onchange: (e) => { p.split = e.target.checked; dmChanged(false); } }), t("dmSplit"))) : null,
       p.on ? states : null,
@@ -279,9 +295,11 @@ function dmResult() {
     h("div", { class: "row dm-kpis" }, h("div", { class: "dm-kpi" }, h("b", {}, fmt(r.total)), h("span", {}, t("dmTotal", r.dummies.length))),
       h("div", { class: "dm-kpi" }, h("b", {}, fmt(r.best)), h("span", {}, t("dmBest"))),
       r.mirrorShare !== null && r.mirrorShare !== undefined ? h("div", { class: "dm-kpi" }, h("b", {}, `${fmt(r.mirrorShare * 100)}%`), h("span", {}, t("dmMirrorShare"))) : null),
-    h("div", { class: "stack" }, r.skills.map((s) => h("div", { class: "dm-bar" }, h("span", { class: "dm-bar-n" }, gemName(s.name)),
+    h("div", { class: "stack" }, r.skills.map((s) => h("div", { class: "dm-bar" }, h("span", { class: "dm-bar-n" }, gemName(s.name), s.explosions ? ` — ${t("dmExplosions")}` : ""),
       h("span", { class: "dm-bar-v" }, h("i", { style: `width:${Math.max(1, s.dps / top * 100)}%` })),
       h("b", {}, fmt(s.dps)), h("span", { class: "muted small" }, t("dmUses", fmt(s.uses, 2), s.hit),
-        s.sim ? h("div", { class: "small" }, t("dmSimStats", fmt(s.sim.shattered, 1), fmt(s.sim.copiesPerCast, 1), fmt(s.sim.hitsPerCast, 1), fmt(s.sim.avgPierced, 1), s.sim.maxPierced, Math.max(0, ...(s.sim.inAir || [0])))) : null)))),
+        s.sim ? h("div", { class: "small" }, t("dmSimStats", fmt(s.sim.shattered, 1), fmt(s.sim.copiesPerCast, 1), fmt(s.sim.hitsPerCast, 1), fmt(s.sim.avgPierced, 1), s.sim.maxPierced, Math.max(0, ...(s.sim.inAir || [0])))) : null,
+        s.sim && s.sim.crystalsPierced ? h("div", { class: "small" }, t("dmCrystalsPierced", fmt(s.sim.crystalsPierced, 1))) : null,
+        s.crystals ? h("div", { class: "small" }, t("dmCrystalStats", s.crystals.perUse, fmt(s.crystals.broken, 1), s.crystals.alive)) : null)))),
     h("div", { class: "hint" }, t("dmHonest")));
 }

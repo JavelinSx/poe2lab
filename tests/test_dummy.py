@@ -1,3 +1,4 @@
+import math
 """The dummy (poe2lab.analysis.dummy): which dummy a skill hits by its area or its projectiles' way, the mirrors'
 copies, how often a skill is used."""
 from poe2lab.analysis import dummy
@@ -109,3 +110,28 @@ def test_a_big_boss_is_hit_by_projectiles_passing_beside_it():
     small = dummy.Dummy("b", 9, 1.8, "normal", 0.6)
     assert dummy.hits_per_use(BOLT, {"x": 10, "y": 0}, [line], [])["b"] == 1
     assert dummy.hits_per_use(BOLT, {"x": 10, "y": 0}, [small], [])["b"] == 0
+
+
+def test_a_wall_along_its_fissures_and_cascades_and_pillars_around_you():
+    wall = {"wall": 2.1, "alongFissure": True, "fissures": 1, "cascades": 1}
+    spots = dummy.crystal_spots(wall, 10, 0)
+    assert len(spots) == 3 * 2 * 4  # cascades either side, two fissures, a crystal every 0.7 m of 2.1 m
+    assert min(x for x, _ in spots) >= dummy.WALL_FROM - 0.01  # from the character outwards
+    across = dummy.crystal_spots({"wall": 2.1}, 10, 0)
+    assert {x for x, _ in across} == {10.0} and len(across) == 4
+    pillars = dummy.crystal_spots({"pillars": 9, "spread": 4.0}, 10, 0)
+    assert len(pillars) == 9 and all(math.hypot(x, y) <= 4.0 + 1e-6 for x, y in pillars)
+
+
+def test_a_projectile_through_crystals_pierces_them_and_breaks_them_into_explosions(monkeypatch):
+    monkeypatch.setattr(dummy, "SIM_WARMUP", 0.0)
+    monkeypatch.setattr(dummy, "SIM_TIME", 1.0)
+    seen = []
+    bolt = BOLT_SIM | {"returns": False, "pierce": 100, "duration": 0}
+    wall = {"id": "fw", "projectile": False, "speed": 0, "cooldown": 100.0,
+            "crystal": {"wall": 1.4, "alongFissure": True, "life": 1.0, "explosionRadius": 1.0, "duration": 10.0}}
+    run = dummy.simulate([(bolt, {"mode": "cooldown", "x": 10, "y": 0, "speed": 20, "range": 12})], [Dummy("a", 6, 0)],
+                         [], None, lambda s, d, pierced: seen.append((d.id, pierced)) or 2.0,
+                         [(wall, {"mode": "cooldown", "x": 10, "y": 0})], lambda s, d: 5.0)
+    assert ("a", 3) in seen  # three crystals on the way: three pierces before the dummy
+    assert run["crystalStats"]["fw"]["broken"] == 3 and run["explosions"]["fw"]["a"] == 0  # 1 m: too far from it

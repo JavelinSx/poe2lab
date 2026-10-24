@@ -145,6 +145,49 @@ def _lines(it: dict) -> list[str]:
     return [m["line"] for k in ("implicit", "explicit", "enchant", "runes") for m in it.get(k) or []]
 
 
+# Ice crystals (Frost Wall, Grim Pillars): objects the projectiles fly through - a pierce each - and break; a broken
+# crystal explodes on the dummies around it. Their sizes are not in PoB: these are the dummy's.
+CRYSTAL_RADIUS = 0.35  # metres: how wide a crystal is
+CRYSTAL_SPACING = 0.7  # metres between the crystals of a wall
+FISSURE_SPREAD = math.radians(12)  # the angle between a slam's fissures (a wall along a fissure follows it)
+CASCADE_STEP = 2.0  # metres a cascade is put to either side of the targeted area
+WALL_FROM = 1.0  # metres from the character a wall along a fissure starts
+
+
+def crystal_spots(c: dict, tx: float, ty: float, use: int = 0) -> list[tuple[float, float]]:
+    """Where one use of an ice-crystal skill puts its crystals. A wall: across the aim at its target point, or with
+    "along a fissure" (Ahn's Citadel) from the character along each fissure (Kaom's Madness: more of them, fanned) -
+    a crystal every CRYSTAL_SPACING of its length; pillars: around the character within the skill's radius, turned
+    each use. Spell Cascade puts the same to either side."""
+    base = math.atan2(ty, tx) if (tx or ty) else 0.0
+    px, py = -math.sin(base), math.cos(base)  # across the aim
+    sides = int(c.get("cascades") or 0)
+    shifts = [k * CASCADE_STEP for k in range(-sides, sides + 1)]
+    out = []
+    if c.get("wall"):
+        length, lines = c["wall"], 1 + int(c.get("fissures") or 0)
+        n = max(1, int(length / CRYSTAL_SPACING) + 1)
+        for sh in shifts:
+            for f in range(lines):
+                ang = base + (f - (lines - 1) / 2) * FISSURE_SPREAD
+                dx, dy = math.cos(ang), math.sin(ang)
+                for k in range(n):
+                    if c.get("alongFissure"):
+                        along = WALL_FROM + k * length / max(n - 1, 1)
+                        out.append((sh * px + dx * along, sh * py + dy * along))
+                    else:  # across the aim at the target point
+                        off = -length / 2 + k * length / max(n - 1, 1)
+                        out.append((tx + sh * px - dy * off, ty + sh * py + dx * off))
+    elif c.get("pillars"):
+        r = c.get("spread") or 4.0
+        for sh in shifts:
+            for i in range(int(c["pillars"])):
+                a = 2 * math.pi * i / c["pillars"] + use * 0.7
+                d = r * (0.35 + 0.65 * ((i * 0.618 + use * 0.31) % 1))
+                out.append((sh * px + d * math.cos(a), sh * py + d * math.sin(a)))
+    return [(round(x, 2), round(y, 2)) for x, y in out]
+
+
 def _num(o: dict, key: str) -> float:
     v = o.get(key)
     return float(v) if isinstance(v, (int, float)) else 0.0
@@ -214,15 +257,41 @@ def skills(engine, statdesc_dir=None) -> list[dict]:
                 "triggered": "Triggered" in types or (kind != "meta" and any(x["name"].startswith("Cast on") for x in g["actives"])),
                 "speedMod": _num(o, "ProjectileSpeedMod") or 1.0,
             })
+            if "IceCrystal" in types and kind == "damage":
+                out[-1]["crystal"] = c = _crystals(engine, g, i, a["name"], supports, o)
+                c["perUse"] = len(crystal_spots(c, 9.0, 0.0))
             if kind == "mirror":  # how many copies a shattered mirror makes, how many mirrors at once
                 out[-1]["copies"] = int(round(_num(o, "ProjectileCount"))) or MIRROR_COPIES
                 out[-1]["limit"] = int(_gem_stat(engine, g, a["name"], "base_mirror_of_refraction_limit")) or MIRROR_LIMIT
     return out
 
 
+def _crystals(engine, g: dict, i: int, name: str, supports, o: dict) -> dict:
+    """An ice-crystal skill's crystals from its gem and supports: their life (PoB), how many and where (a wall's length,
+    fissures, cascades; pillars and their limit), and the explosion a broken one makes (its own stat set, if any)."""
+    stat = lambda st: _gem_stat(engine, g, name, st)  # noqa: E731
+    sup = lambda st: sum(_gem_stat(engine, g, x, st) for x in supports)  # noqa: E731
+    sets = engine._stat_set(g["index"], name, None)
+    explosion = next((st["index"] for st in sets if "xplosion" in st["label"]), 1)
+    radius = _num(o, "AreaOfEffectRadiusMetres")
+    if explosion != 1:
+        with engine.shown_stat_set(g["index"], name, explosion):
+            engine.set_main_skill(g["index"], i)
+            radius = _num(engine.what_if(), "AreaOfEffectRadiusMetres") or radius
+        engine.set_main_skill(g["index"], i)
+    wall = stat("wall_maximum_length") / 10 * (1 + sup("wall_maximum_length_+%") / 100)
+    return {"life": _num(o, "IceCrystalLife"), "explosionSet": explosion, "explosionRadius": radius or 1.0,
+            "duration": _num(o, "Duration"), "wall": round(wall, 2),
+            "alongFissure": bool(sup("wall_is_created_along_a_fissure_instead")),
+            "fissures": int(sup("base_number_of_additional_fissures")),
+            "cascades": int(sup("support_spell_cascade_number_of_cascades_per_side")),
+            "pillars": int(stat("grim_pillars_number_of_pillars_to_create")),
+            "limit": int(stat("base_number_of_grim_pillars_allowed")), "spread": _num(o, "AreaOfEffectRadiusMetres")}
+
+
 def _gem_stat(engine, group: dict, name: str, stat: str) -> float:
     """A stat of the build's own gem (its level and quality counted): what the gem says, whether PoB uses it or not."""
-    gem = next((x for x in group["gems"] if x["name"] == name and not x["support"]), None)
+    gem = next((x for x in sorted(group["gems"], key=lambda x: x["support"]) if x["name"] == name), None)
     if not gem:
         return 0.0
     v = engine._json(f"""
@@ -247,6 +316,9 @@ class Dummy:
     y: float
     kind: str = "normal"
     r: float = DUMMY_RADIUS  # metres: how wide it is
+
+
+CRYSTAL = Dummy("_crystal", 0.0, 0.0)  # what a projectile's hit on an ice crystal is counted against
 
 
 def _dist(ax, ay, bx, by) -> float:
@@ -349,6 +421,7 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
             if n:
                 states[i] |= {x for x in p["states"] if x in STATES}
     curses: dict[str, set] = {d.id: set() for d in dummies}
+    states[CRYSTAL.id], curses[CRYSTAL.id] = set(), set()
     curse_gems = []
     for s in catalogue:
         if s["kind"] != "curse":
@@ -371,8 +444,13 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
         if key not in cache:
             cfg = {"enemyLevel": level, **KINDS[d.kind], **{STATES[x]: True for x in states[d.id]}}
             off = [(c["group"], c["index"]) for c in curse_gems if c["id"] not in curses[d.id]]
-            engine.set_main_skill(s["group"], s["index"])
-            o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(mods))
+            if s.get("statSet"):  # a crystal's explosion: the skill's own stat set for it
+                with engine.shown_stat_set(s["group"], s["name"], s["statSet"]):
+                    engine.set_main_skill(s["group"], s["index"])
+                    o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(mods))
+            else:
+                engine.set_main_skill(s["group"], s["index"])
+                o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(mods))
             speed = _num(o, "Speed")
             cache[key] = (_num(o, "TotalDPS") / speed if speed else _num(o, "AverageHit"),
                           sum(_num(o, k) for k in DOT_KEYS))
@@ -400,7 +478,22 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
             hi = min(p for p in PIERCE_POINTS if p > n)
             a, b = at(s, d, lo), at(s, d, hi)
             return a + (b - a) * (n - lo) / (hi - lo)
-        run = simulate(flown, dummies, mirrors, mirror_skill, hit_damage)
+        # the ice crystals the projectiles fly through: their skills used as set, broken by the projectiles
+        crystal_skills = [(by_id[i], p) for i, p in places.items() if by_id[i].get("crystal")]
+
+        def explode(s, d):
+            return damage({**s, "id": s["id"] + ":x", "statSet": s["crystal"]["explosionSet"]}, d)[0]
+        run = simulate(flown, dummies, mirrors, mirror_skill, hit_damage, crystal_skills, explode)
+        for s, p in crystal_skills:
+            got, st = run["explosions"][s["id"]], run["crystalStats"][s["id"]]
+            on = {i: round(v / run["time"]) for i, v in got.items() if v}
+            for i, v in got.items():
+                per_dummy[i] += v / run["time"]
+            rows.append({"id": s["id"] + ":x", "name": s["name"], "explosions": True,
+                         "uses": round(st["uses"] / run["time"], 3), "dps": round(sum(got.values()) / run["time"]),
+                         "dummies": on, "hit": len(on),
+                         "crystals": {"perUse": st["perUse"], "broken": round(st["broken"] / run["time"], 1),
+                                      "alive": st["alive"], "life": round(s["crystal"]["life"])}})
         for s, p in flown:
             st, on, total = run["stats"][s["id"]], {}, 0.0
             for d in dummies:
@@ -419,8 +512,11 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
                                                                 # how far the pierces grow: what the per-pierce lines scale with
                                                                 "avgPierced": round(st["pierced"] / st["hits"], 1) if st["hits"] else 0,
                                                                 "maxPierced": st["maxPierced"],
+                                                                "crystalsPierced": round(st["crystals"] / casts, 1),
                                                                 "inAir": st.get("inAir", [])}})
     flown_ids = {s["id"] for s, _ in flown}
+    if flown:
+        flown_ids |= {i for i in places if by_id[i].get("crystal") and by_id[i]["crystal"].get("wall")}
     uses_through_mirrors = sum(uses_per_second(by_id[i], p) for i, p in places.items()
                                if by_id[i]["projectile"] and by_id[i]["kind"] == "damage" and i not in flown_ids)
     share = min(1.0, mirror_rate / uses_through_mirrors) if uses_through_mirrors and mirror_rate else (1.0 if not mirror_rate else 0.0)
@@ -446,7 +542,9 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
         rows.append({"id": sid, "name": s["name"], "uses": round(ups, 3), "dps": round(total), "dummies": on,
                      "hit": sum(1 for n in hits.values() if n)})
     rows.sort(key=lambda r: -r["dps"])
-    return {"total": round(sum(per_dummy.values())), "skills": rows,
+    crystal_spots_shown = {i: crystal_spots(by_id[i]["crystal"], float(p.get("x", 0)), float(p.get("y", 0)))
+                           for i, p in places.items() if by_id[i].get("crystal")}
+    return {"total": round(sum(per_dummy.values())), "skills": rows, "crystalSpots": crystal_spots_shown,
             "dummies": [{"id": d.id, "kind": d.kind, "dps": round(per_dummy[d.id]), "states": sorted(states[d.id]),
                          "curses": sorted(curses[d.id])} for d in dummies],
             "best": round(max(per_dummy.values(), default=0)),
@@ -483,7 +581,7 @@ PIERCE_POINTS = (*range(0, 11), 12, 14, 16, 18, 20, 25, 30, 40, 50, 65, 80, 100)
 
 
 def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tuple[float, float]], mirror: dict | None,
-             hit_damage) -> dict:
+             hit_damage, crystal_skills: list[tuple[dict, dict]] = (), explode=None) -> dict:
     """The projectile skills flown for SIM_TIME seconds, counted after SIM_WARMUP (the swarm grown). sim: (skill, its placement) pairs; spots: where mirrors
     appear (in turn, at the Mirror of Refraction's rate, up to its limit, each lasting its duration; the spots are
     all filled at the start - the fight is in its steady state); hit_damage(skill, dummy, pierced) -> one hit's
@@ -503,11 +601,19 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
             live[i] = lifetime
     next_spot, next_mirror = (min(limit, len(spots)) % len(spots)) if spots else 0, interval
     damage = {s["id"]: {d.id: 0.0 for d in dummies} for s, _ in sim}
-    stats = {s["id"]: {"casts": 0, "shattered": 0, "copies": 0, "hits": 0, "pierced": 0, "maxPierced": 0}
+    stats = {s["id"]: {"casts": 0, "shattered": 0, "copies": 0, "hits": 0, "pierced": 0, "maxPierced": 0, "crystals": 0}
              for s, _ in sim}
     shots = []  # live projectiles
     next_cast = {s["id"]: 0.0 for s, _ in sim}
     by_id = {s["id"]: (s, p) for s, p in sim}
+    # ice crystals: each use of their skills puts them (crystal_spots); a projectile flying through one pierces it and
+    # hits it, a broken one explodes on the dummies around it (explode(skill, dummy) -> the hit)
+    crystals: list[dict] = []
+    crystal_by = {s["id"]: (s, p) for s, p in crystal_skills}
+    next_crystal = {sid: 0.0 for sid in crystal_by}
+    explosions = {sid: {d.id: 0.0 for d in dummies} for sid in crystal_by}
+    cstats = {sid: {"uses": 0, "broken": 0, "alive": 0, "perUse": 0} for sid in crystal_by}
+    serial = 0
     t = 0.0
     while t < SIM_TIME:
         # mirrors: the old ones go, a new one appears at the next free spot at the mirrors' rate
@@ -522,6 +628,27 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
                         live[i] = t + lifetime
                         next_spot = (i + 1) % len(spots)
                         break
+        # ice crystals: the old ones go, each skill puts new ones at its rate
+        crystals = [c for c in crystals if c["end"] > t and c["life"] > 0]
+        for sid, (s, p) in crystal_by.items():
+            ups = uses_per_second(s, p)
+            if ups <= 0 or t < next_crystal[sid]:
+                continue
+            next_crystal[sid] = t + 1 / ups
+            spec = s["crystal"]
+            new = crystal_spots(spec, float(p.get("x", 0)), float(p.get("y", 0)), cstats[sid]["uses"])
+            cstats[sid]["uses"] += 1
+            cstats[sid]["perUse"] = len(new)
+            for x, y in new:
+                serial += 1
+                crystals.append({"id": f"c{serial}", "sid": sid, "x": x, "y": y, "life": spec["life"],
+                                 "end": t + (spec["duration"] or 8.0)})
+            if spec.get("limit"):  # Grim Pillars: the oldest go past the limit
+                own = [c for c in crystals if c["sid"] == sid]
+                drop = {c["id"] for c in own[:max(0, len(own) - spec["limit"])]}
+                crystals = [c for c in crystals if c["id"] not in drop]
+        for sid in cstats:
+            cstats[sid]["alive"] = max(cstats[sid]["alive"], sum(1 for c in crystals if c["sid"] == sid))
         # casts
         for sid, (s, p) in by_id.items():
             ups = uses_per_second(s, p)
@@ -561,9 +688,34 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
                 along, off = _along(x0, y0, sh["a"], mx, my)
                 if 0 <= along <= step and off <= MIRROR_TOUCH:
                     ahead.append((along, "m", i))
+            for c in crystals:
+                if c["id"] in sh["hit"] or c["life"] <= 0:
+                    continue
+                along, off = _along(x0, y0, sh["a"], c["x"], c["y"])
+                if 0 <= along <= step and off <= CRYSTAL_RADIUS + width:
+                    ahead.append((along, "c", c))
             ahead.sort(key=lambda x: x[0])
             stopped = False
             for along, what, obj in ahead:
+                if what == "c":
+                    if obj["life"] <= 0:
+                        continue
+                    sh["hit"].add(obj["id"])
+                    obj["life"] -= hit_damage(s, CRYSTAL, sh["pierced"])
+                    stats[sh["sid"]]["crystals"] += 1
+                    if obj["life"] <= 0 and explode:  # broken: it explodes on the dummies around it
+                        cs, _ = crystal_by[obj["sid"]]
+                        cstats[obj["sid"]]["broken"] += 1
+                        reach_x = cs["crystal"]["explosionRadius"]
+                        for d in dummies:
+                            if _dist(d.x, d.y, obj["x"], obj["y"]) <= reach_x + d.r:
+                                explosions[obj["sid"]][d.id] += explode(cs, d)
+                    if sh["pierced"] >= s["pierce"] and not sh["back"]:
+                        stopped = True
+                        break
+                    if p.get("crystalPierce", True):
+                        sh["pierced"] = min(sh["pierced"] + 1, MAX_PIERCE_STEPS)
+                    continue
                 if what == "d":
                     damage[sh["sid"]][obj.id] += hit_damage(s, obj, sh["pierced"])
                     st = stats[sh["sid"]]
@@ -604,12 +756,16 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
         t += SIM_TICK
         if t - SIM_TICK < SIM_WARMUP <= t:  # the swarm has grown: count from here
             damage = {sid: {d.id: 0.0 for d in dummies} for sid in damage}
+            explosions = {sid: {d.id: 0.0 for d in dummies} for sid in explosions}
             for st in stats.values():
-                st.update(casts=0, shattered=0, copies=0, hits=0, pierced=0, maxPierced=0)
+                st.update(casts=0, shattered=0, copies=0, hits=0, pierced=0, maxPierced=0, crystals=0)
+            for st in cstats.values():
+                st.update(uses=0, broken=0)
         # how many are in the air: the swarm the mirrors grow, second by second
         second = min(int(t), int(SIM_TIME) - 1)
         for sid in stats:
             n = sum(1 for sh in shots if sh["sid"] == sid)
             peaks = stats[sid].setdefault("inAir", [0] * int(SIM_TIME))
             peaks[second] = max(peaks[second], n)
-    return {"damage": damage, "stats": stats, "time": SIM_TIME - SIM_WARMUP}
+    return {"damage": damage, "stats": stats, "time": SIM_TIME - SIM_WARMUP, "explosions": explosions,
+            "crystalStats": cstats}

@@ -1708,3 +1708,4 @@ div.eg-q-mod { user-select: none; }
 .ws-pick { gap: 4px; margin-left: auto; }
 .ws-pick .chip { padding: 1px 8px; }
 .dm-beyond { gap: 2px; border-top: 1px dashed var(--line); padding-top: 4px; }
+.dm-crystal { fill: #9fdcff; fill-opacity: .7; stroke: #2a6f99; stroke-width: .5; pointer-events: none; }
