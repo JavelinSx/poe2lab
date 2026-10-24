@@ -30,6 +30,8 @@ STATES = {"shock": "conditionEnemyShocked", "freeze": "conditionEnemyFrozen", "c
           "lightningExposure": "conditionEnemyLightningExposure", "electrocute": "conditionEnemyElectrocuted"}
 NOT_DAMAGE = {"Buff", "Persistent", "Aura", "Herald", "Warcry"}  # a damaging movement skill (a warp) still counts
 DUMMY_RADIUS = 0.6  # metres: how wide a dummy is for a projectile to touch it
+# how wide each kind is by default (a pinnacle boss is a big target; the player sets it on the field)
+KIND_RADIUS = {"normal": 0.6, "rare": 0.8, "boss": 2.0, "pinnacle": 2.5, "uber": 2.5}
 PROJECTILE_RADIUS = 0.3  # metres: how wide a flown projectile is (the game's sizes are not in PoB: the player sets it)
 PROJECTILE_RANGE = 12.0  # metres a projectile flies before it is gone (or comes back)
 MIRROR_TOUCH = 0.8  # metres: a projectile this close to a mirror shatters it
@@ -244,6 +246,7 @@ class Dummy:
     x: float
     y: float
     kind: str = "normal"
+    r: float = DUMMY_RADIUS  # metres: how wide it is
 
 
 def _dist(ax, ay, bx, by) -> float:
@@ -260,7 +263,7 @@ def _along(px, py, ang, x, y) -> tuple[float, float]:
 def _ray_hits(px, py, ang, dummies: list[Dummy], pierce: int, reach: float) -> list[str]:
     """The dummies a projectile from (px, py) at angle ang hits: the first and as many after it as it pierces."""
     on = sorted(((t, d.id) for d in dummies for t, off in [_along(px, py, ang, d.x, d.y)]
-                 if 0 < t <= reach and off <= DUMMY_RADIUS), key=lambda x: x[0])
+                 if 0 < t <= reach and off <= d.r), key=lambda x: x[0])
     return [i for _, i in on[:1 + max(pierce, 0)]]
 
 
@@ -274,7 +277,7 @@ def hits_per_use(skill: dict, place: dict, dummies: list[Dummy], mirrors: list[t
     if not skill["projectile"]:
         r = skill["radius"] or skill["radius2"] or 1.0
         for d in dummies:
-            if _dist(d.x, d.y, tx, ty) <= r + DUMMY_RADIUS:
+            if _dist(d.x, d.y, tx, ty) <= r + d.r:
                 hits[d.id] += 1
         return hits
     base = math.atan2(ty, tx) if (tx or ty) else 0.0
@@ -321,8 +324,11 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
     "mirrors": [{"x", "y"}], "always": [STATES keys every dummy has]}."""
     catalogue = catalogue if catalogue is not None else skills(engine)
     by_id = {s["id"]: s for s in catalogue}
-    dummies = [Dummy(str(d["id"]), float(d["x"]), float(d["y"]), d.get("kind", "normal") if d.get("kind") in KINDS else "normal")
-               for d in scenario.get("dummies") or []]
+    dummies = []
+    for d in scenario.get("dummies") or []:
+        kind = d.get("kind") if d.get("kind") in KINDS else "normal"
+        r = float(d.get("r") or KIND_RADIUS[kind])
+        dummies.append(Dummy(str(d["id"]), float(d["x"]), float(d["y"]), kind, max(0.2, min(r, 10.0))))
     mirrors = [(float(m["x"]), float(m["y"])) for m in scenario.get("mirrors") or []]
     level = int(scenario.get("level") or 83)
     places = {k: v for k, v in (scenario.get("skills") or {}).items() if k in by_id and v.get("on", True)}
@@ -330,6 +336,8 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
     # mirrors: they appear at the Mirror of Refraction's rate; the uses that pass one share them
     mirror_skill = next((s for s in catalogue if s["kind"] == "mirror"), None)
     mirror_rate = 1 / mirror_skill["cooldown"] if mirror_skill and mirror_skill["cooldown"] else 0.0
+    if mirror_skill and scenario.get("mirrorCopies"):  # what the player sees come out of one mirror
+        mirror_skill = {**mirror_skill, "copies": max(1, min(int(scenario["mirrorCopies"]), 20))}
 
     # each dummy's state: the ailments the skills put on it, the curses whose zone it is in
     states: dict[str, set] = {d.id: set(scenario.get("always") or []) for d in dummies}
@@ -352,7 +360,7 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
         cx, cy = (0.0, 0.0) if s["inAura"] else (float(p.get("x", 6)), float(p.get("y", 0)))
         r = s["radius"] or 2.0
         for d in dummies:
-            if _dist(d.x, d.y, cx, cy) <= r + DUMMY_RADIUS:
+            if _dist(d.x, d.y, cx, cy) <= r + d.r:
                 curses[d.id].add(s["id"])
 
     # PoB once per skill and dummy state (dummies alike share it)
@@ -487,7 +495,7 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
     {"casts", "shattered", "copies", "hits"}}, "time"}."""
     interval = mirror["cooldown"] if mirror and mirror["cooldown"] else 0.0
     limit = (mirror or {}).get("limit") or MIRROR_LIMIT
-    copies = (mirror or {}).get("copies") or MIRROR_COPIES
+    copies = max(1, int((mirror or {}).get("copies") or MIRROR_COPIES))
     lifetime = mirror["duration"] if mirror and mirror["duration"] else 8.0
     live: dict[int, float] = {}  # spot index -> when the mirror there disappears
     if interval:
@@ -534,7 +542,7 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
         alive = []
         for sh in shots:
             s, p = by_id[sh["sid"]]
-            touch = DUMMY_RADIUS + float(p.get("width", PROJECTILE_RADIUS))
+            width = float(p.get("width", PROJECTILE_RADIUS))
             step = min(sh["v"] * SIM_TICK, sh["left"])
             x0, y0 = sh["x"], sh["y"]
             if sh["back"]:  # flying back to the character
@@ -546,7 +554,7 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
                 if d.id in sh["hit"]:
                     continue
                 along, off = _along(x0, y0, sh["a"], d.x, d.y)
-                if 0 <= along <= step and off <= touch:
+                if 0 <= along <= step and off <= d.r + width:
                     ahead.append((along, "d", d))
             for i in list(live):
                 mx, my = spots[i]
@@ -568,13 +576,18 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
                         break
                     sh["pierced"] = min(sh["pierced"] + 1, MAX_PIERCE_STEPS)
                 elif obj in live and len(shots) + len(alive) < MAX_PROJECTILES:
+                    # one goes in, `copies` like it come out all around (one on its way), each living anew; passing
+                    # the mirror is a pierce when the player says so
                     del live[obj]
                     mx, my = spots[obj]
                     stats[sh["sid"]]["shattered"] += 1
+                    pierced = min(sh["pierced"] + (1 if p.get("mirrorPierce", True) else 0), MAX_PIERCE_STEPS)
                     for c in range(copies):
-                        alive.append({**sh, "x": mx, "y": my, "a": sh["a"] + 2 * math.pi * (c + 1) / copies,
-                                      "left": sh["reach"], "back": False, "hit": set()})
+                        alive.append({**sh, "x": mx, "y": my, "a": sh["a"] + 2 * math.pi * c / copies,
+                                      "left": sh["reach"], "back": False, "hit": set(), "pierced": pierced})
                     stats[sh["sid"]]["copies"] += copies
+                    stopped = True
+                    break
             if stopped:
                 continue
             sh["x"], sh["y"], sh["left"] = x0 + dx * step, y0 + dy * step, sh["left"] - step

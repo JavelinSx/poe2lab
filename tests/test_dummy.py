@@ -89,3 +89,23 @@ def test_each_skill_gets_its_own_gems_lines_and_its_weapon_sets_gear_the_quiver_
         "20% more Projectile Damage"]
     shot = dummy.beyond_pob(gaps, {"index": 11}, "Bow Shot", [], items, 2, {"Attack", "Projectile"}, lambda line: True)
     assert shot["returnAfter"] == 3 and not shot["notCounted"]
+
+
+def test_a_mirror_lets_out_its_count_in_place_of_the_projectile_each_a_pierce_on(monkeypatch):
+    monkeypatch.setattr(dummy, "SIM_WARMUP", 0.0)
+    monkeypatch.setattr(dummy, "SIM_TIME", 1.0)
+    seen = []
+    bolt = BOLT_SIM | {"returns": False, "pierce": 100, "duration": 0}
+    run = dummy.simulate([(bolt, {"mode": "cooldown", "x": 10, "y": 0, "speed": 20, "range": 12})], [Dummy("a", 6, 0)],
+                         [(3, 0)], {"cooldown": 100.0, "duration": 100.0, "copies": 5, "limit": 1},
+                         lambda s, d, pierced: seen.append(pierced) or 1.0)
+    st = run["stats"]["fb"]
+    assert st["shattered"] == 1 and st["copies"] == 5
+    assert seen == [1]  # the original is gone; the copy on its way reaches the dummy a pierce on
+
+
+def test_a_big_boss_is_hit_by_projectiles_passing_beside_it():
+    line = dummy.Dummy("b", 9, 1.8, "pinnacle", 2.5)
+    small = dummy.Dummy("b", 9, 1.8, "normal", 0.6)
+    assert dummy.hits_per_use(BOLT, {"x": 10, "y": 0}, [line], [])["b"] == 1
+    assert dummy.hits_per_use(BOLT, {"x": 10, "y": 0}, [small], [])["b"] == 0

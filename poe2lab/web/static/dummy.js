@@ -87,11 +87,15 @@ async function dmCalc() {
   });
 }
 
+// how wide a dummy is: the player's, else its kind's (a pinnacle boss is a big target)
+const DM_KIND_RADIUS = { normal: 0.6, rare: 0.8, boss: 2.0, pinnacle: 2.5, uber: 2.5 };
+const dmRadius = (d) => d.r || DM_KIND_RADIUS[d.kind] || 0.6;
+
 // presets, the dummies' kind, the enemy's level
 function dmHead(draw) {
   const sc = DM.sc;
   const preset = (label, fn) => h("button", { class: "chip mt-filter", onclick: () => { sc.dummies = fn(); dmChanged(); } }, label);
-  const kind = h("select", { onchange: (e) => { sc.dummies.forEach((d) => { d.kind = e.target.value; }); dmChanged(); } },
+  const kind = h("select", { onchange: (e) => { sc.dummies.forEach((d) => { d.kind = e.target.value; delete d.r; }); dmChanged(); } },
     ["normal", "rare", "boss", "pinnacle", "uber"].map((k) => h("option", { value: k, selected: sc.dummies.every((d) => d.kind === k) }, t("dmKind_" + k))));
   const level = h("input", { type: "number", min: 1, max: 100, value: sc.level, style: "width:64px",
     onchange: (e) => { sc.level = Math.max(1, Math.min(100, +e.target.value || 83)); dmChanged(false); } });
@@ -101,7 +105,11 @@ function dmHead(draw) {
   return h("div", { class: "card stack" }, h("div", { class: "row" }, h("h3", {}, I("target"), " ", t("dmTitle")),
     preset(t("dmOne"), () => dmPreset("pinnacle", 1)), preset(t("dmPack", 20), () => dmPreset("normal", 20)),
     preset(t("dmPackRare"), () => dmPreset("normal", 20, "rare")),
-    h("label", { class: "row small" }, t("dmKind"), kind), h("label", { class: "row small" }, t("dmLevel"), level)),
+    h("label", { class: "row small" }, t("dmKind"), kind),
+    h("label", { class: "row small", title: t("dmRadiusHint") }, t("dmRadius"), h("input", { type: "number", min: 0.2, max: 10, step: 0.1,
+      value: sc.dummies.length ? dmRadius(sc.dummies[0]) : 0.6, style: "width:60px",
+      onchange: (e) => { const r = Math.max(0.2, Math.min(10, +e.target.value || 0.6)); sc.dummies.forEach((d) => { d.r = r; }); dmChanged(); } })),
+    h("label", { class: "row small" }, t("dmLevel"), level)),
     h("div", { class: "sub" }, t("dmSub")), always);
 }
 
@@ -178,7 +186,7 @@ function dmField(draw) {
   });
   // the dummies
   sc.dummies.forEach((d) => {
-    const c = el("circle", { cx: X(d.x), cy: Y(d.y), r: 0.6 * k, fill: DM_KIND_COLOR[d.kind] || "#999", class: "dm-dummy", "data-id": d.id }, el("title", {}, ""));
+    const c = el("circle", { cx: X(d.x), cy: Y(d.y), r: dmRadius(d) * k, fill: DM_KIND_COLOR[d.kind] || "#999", class: "dm-dummy", "data-id": d.id }, el("title", {}, ""));
     drag(c, () => d, (x, y) => { d.x = x; d.y = y; });
     svg.append(c);
   });
@@ -193,6 +201,8 @@ function dmFlight(s, p) {
     onchange: (e) => { p[key] = +e.target.value; dmChanged(false); } });
   return h("div", { class: "dm-flight stack" },
     h("label", { class: "row small" }, h("input", { type: "checkbox", checked: p.sim !== false, onchange: (e) => { p.sim = e.target.checked; dmChanged(); } }), t("dmSim")),
+    p.sim !== false && DM.cat.some((x) => x.kind === "mirror") ? h("label", { class: "row small", title: t("dmMirrorPierceHint") },
+      h("input", { type: "checkbox", checked: p.mirrorPierce !== false, onchange: (e) => { p.mirrorPierce = e.target.checked; dmChanged(false); } }), t("dmMirrorPierce")) : null,
     p.sim !== false ? h("div", { class: "row small" },
       t("dmBaseSpeed"), num("speed", 0.5, t("dmBaseSpeedHint")), h("span", { class: "muted" }, `×${fmt(s.speedMod, 2)}`),
       ...(s.duration > 0 ? [h("span", { class: "muted", title: t("dmLifeHint") }, t("dmLife", fmt(s.duration, 2)))] : [t("dmRange"), num("range", 1)]), t("dmWidth"), num("width", 0.1, t("dmWidthHint")), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
@@ -246,6 +256,10 @@ function dmPanel(draw) {
   const mirror = DM.cat.find((s) => s.kind === "mirror");
   const mirrors = mirror ? h("div", { class: "dm-skill" }, h("div", { class: "row" }, gemName(mirror.name),
     h("span", { class: "muted small" }, t("dmMirrorRate", fmt(mirror.cooldown, 2), sc.mirrors.length))),
+  h("label", { class: "row small", title: t("dmMirrorCopiesHint", mirror.copies) }, t("dmMirrorCopies"),
+    h("input", { type: "number", min: 1, max: 20, value: sc.mirrorCopies || mirror.copies, style: "width:56px",
+      onchange: (e) => { sc.mirrorCopies = Math.max(1, Math.min(20, +e.target.value || mirror.copies)); dmChanged(false); } }),
+    h("span", { class: "muted" }, t("dmMirrorCopiesGem", mirror.copies))),
   h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => { sc.mirrors.push({ x: 4 + sc.mirrors.length, y: 0.2 * (sc.mirrors.length % 2 ? -1 : 1) }); dmChanged(); } }, "+ ", t("dmAddMirror")),
     h("button", { class: "ghost small", onclick: () => { sc.mirrors = dmMirrorRing(); dmChanged(); } }, t("dmMirrorRing")),
     sc.mirrors.length ? h("button", { class: "ghost small", onclick: () => { sc.mirrors = []; dmChanged(); } }, t("dmNoMirrors")) : null),
