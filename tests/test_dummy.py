@@ -34,3 +34,27 @@ def test_how_often_a_skill_is_used():
     assert dummy.uses_per_second(s, {"mode": "interval", "interval": 4}) == 0.25
     assert dummy.uses_per_second(s, {"mode": "rate", "rate": 3}) == 3.0
     assert dummy.uses_per_second(s, {"mode": "sustain"}) == 2.0
+
+
+BOLT_SIM = BOLT | {"id": "fb", "pierce": 100, "returns": True, "speedMod": 1.0, "pierceMore": 20, "projectiles": 1,
+                   "speed": 1.0, "cooldown": 1.0}
+MIRROR = {"cooldown": 0.5, "duration": 8.0}
+
+
+def test_flown_projectiles_pierce_return_and_hit_harder_after_a_pierce():
+    seen = []
+    run = dummy.simulate([(BOLT_SIM, {"mode": "cooldown", "x": 10, "y": 0, "speed": 20})], [Dummy("a", 4, 0), Dummy("b", 6, 0)],
+                         [], None, lambda s, d, pierced: seen.append(pierced) or 1.0)
+    st = run["stats"]["fb"]
+    assert st["casts"] == 10 and st["shattered"] == 0
+    assert 0 in seen and 1 in seen  # the first dummy unpierced, the next ones after a pierce
+    assert run["damage"]["fb"]["a"] >= 19  # there and back, ten casts
+
+
+def test_mirrors_copy_projectiles_and_the_copies_shatter_more_mirrors():
+    args = ([(BOLT_SIM, {"mode": "cooldown", "x": 10, "y": 0, "speed": 20})], [Dummy("a", 9, 0)])
+    plain = dummy.simulate(*args, [], MIRROR, lambda s, d, p: 1.0)
+    chain = dummy.simulate(*args, [(3, 0), (3 + 6 * 0.62, 6 * 0.78), (0, 3), (-3, 0)], MIRROR, lambda s, d, p: 1.0)
+    st = chain["stats"]["fb"]
+    assert st["shattered"] > st["casts"]  # a copy found another mirror
+    assert chain["damage"]["fb"]["a"] > plain["damage"]["fb"]["a"]

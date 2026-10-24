@@ -30,12 +30,18 @@ function dmDefault(cat) {
   const spam = dmg.filter((s) => !s.cooldown && !s.triggered && !s.travel && !s.sustained).sort((a, b) => b.dps - a.dps)[0];
   const skills = {};
   dmg.forEach((s) => {
-    skills[s.id] = { on: true, x: 9, y: 0, states: [], split: !!s.sustained,
+    skills[s.id] = { on: true, x: 9, y: 0, states: [], split: !!s.sustained, sim: true, speed: 4, range: 12, critPerPierce: 0,
       mode: s.triggered ? "rate" : s.sustained ? "sustain" : s.cooldown ? "cooldown" : "spam", share: s === spam ? 100 : 0, rate: 1, interval: 4 };
   });
   const curses = {};
   cat.filter((s) => s.kind === "curse").forEach((s) => { curses[s.id] = { on: true, x: 9, y: 0 }; });
-  return { level: 83, dummies: dmPreset("normal", 20), skills, curses, mirrors: [], always: [] };
+  // the mirrors' spots: in your Presence (4 m) around you, as many as can be at once
+  const mirrors = cat.some((s) => s.kind === "mirror") ? dmMirrorRing() : [];
+  return { level: 83, dummies: dmPreset("normal", 20), skills, curses, mirrors, always: [] };
+}
+function dmMirrorRing() {
+  // one on the way to the dummies (you aim through it in the game), the others around you
+  return [0, 1, 2, 3].map((i) => ({ x: +(3 * Math.cos(i * Math.PI / 2)).toFixed(2), y: +(3 * Math.sin(i * Math.PI / 2)).toFixed(2) }));
 }
 
 TABS.dummy = async (view) => {
@@ -180,6 +186,19 @@ function dmField(draw) {
   return h("div", { class: "card dm-field-card" }, svg, h("div", { class: "hint" }, t("dmFieldHint")));
 }
 
+// a projectile skill flown tick by tick: its speed and range (PoB knows only the speed's modifier), the crit chance
+// a pierce adds (from gear), and the gem's "more damage after piercing"
+function dmFlight(s, p) {
+  const num = (key, step, title) => h("input", { type: "number", min: 0, step, value: p[key] ?? "", title, style: "width:60px",
+    onchange: (e) => { p[key] = +e.target.value; dmChanged(false); } });
+  return h("div", { class: "dm-flight stack" },
+    h("label", { class: "row small" }, h("input", { type: "checkbox", checked: p.sim !== false, onchange: (e) => { p.sim = e.target.checked; dmChanged(); } }), t("dmSim")),
+    p.sim !== false ? h("div", { class: "row small" },
+      t("dmBaseSpeed"), num("speed", 0.5, t("dmBaseSpeedHint")), h("span", { class: "muted" }, `×${fmt(s.speedMod, 2)}`),
+      t("dmRange"), num("range", 1), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
+    p.sim !== false && s.pierceMore ? h("div", { class: "muted small" }, t("dmPierceMore", s.pierceMore)) : null);
+}
+
 // the panel: each skill's use and what it puts on the dummies in its area, the curses, the mirrors
 function dmPanel(draw) {
   const sc = DM.sc;
@@ -203,7 +222,8 @@ function dmPanel(draw) {
       h("div", { class: "muted small" }, facts),
       p.on ? h("div", { class: "row small" }, mode, field, unit,
         h("label", { class: "row small", title: t("dmSplitHint") }, h("input", { type: "checkbox", checked: !!p.split, onchange: (e) => { p.split = e.target.checked; dmChanged(false); } }), t("dmSplit"))) : null,
-      p.on ? states : null);
+      p.on ? states : null,
+      p.on && s.projectile && !s.sustained ? dmFlight(s, p) : null);
   };
   const curses = DM.cat.filter((s) => s.kind === "curse").map((s) => {
     const p = sc.curses[s.id];
@@ -215,6 +235,7 @@ function dmPanel(draw) {
   const mirrors = mirror ? h("div", { class: "dm-skill" }, h("div", { class: "row" }, gemName(mirror.name),
     h("span", { class: "muted small" }, t("dmMirrorRate", fmt(mirror.cooldown, 2), sc.mirrors.length))),
   h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => { sc.mirrors.push({ x: 4 + sc.mirrors.length, y: 0.2 * (sc.mirrors.length % 2 ? -1 : 1) }); dmChanged(); } }, "+ ", t("dmAddMirror")),
+    h("button", { class: "ghost small", onclick: () => { sc.mirrors = dmMirrorRing(); dmChanged(); } }, t("dmMirrorRing")),
     sc.mirrors.length ? h("button", { class: "ghost small", onclick: () => { sc.mirrors = []; dmChanged(); } }, t("dmNoMirrors")) : null),
   h("div", { class: "hint" }, t("dmMirrorHint"))) : null;
   const reset = h("button", { class: "ghost small", onclick: () => { DM.sc = dmDefault(DM.cat); dmChanged(); } }, t("dmReset"));
@@ -234,6 +255,7 @@ function dmResult() {
       r.mirrorShare !== null && r.mirrorShare !== undefined ? h("div", { class: "dm-kpi" }, h("b", {}, `${fmt(r.mirrorShare * 100)}%`), h("span", {}, t("dmMirrorShare"))) : null),
     h("div", { class: "stack" }, r.skills.map((s) => h("div", { class: "dm-bar" }, h("span", { class: "dm-bar-n" }, gemName(s.name)),
       h("span", { class: "dm-bar-v" }, h("i", { style: `width:${Math.max(1, s.dps / top * 100)}%` })),
-      h("b", {}, fmt(s.dps)), h("span", { class: "muted small" }, t("dmUses", fmt(s.uses, 2), s.hit))))),
+      h("b", {}, fmt(s.dps)), h("span", { class: "muted small" }, t("dmUses", fmt(s.uses, 2), s.hit),
+        s.sim ? h("div", { class: "small" }, t("dmSimStats", fmt(s.sim.shattered, 1), fmt(s.sim.copiesPerCast, 1), fmt(s.sim.hitsPerCast, 1))) : null)))),
     h("div", { class: "hint" }, t("dmHonest")));
 }
