@@ -334,11 +334,30 @@ def leveling_blocks(way_weapon: str | None, own_classes: set, plan_bases: list[s
 STAGE_TITLES = {"leveling": " — прокачка до 65", "maps": " — карты 65+", "all": ""}
 
 
+# the rarities of gear the player can switch off; the gear hidden then (jewels, flasks, charms, waystones and
+# tablets stay as the player's filter has them)
+RARITY_KINDS = ("Normal", "Magic", "Rare")
+GEAR_CLASSES = sorted(set(TYPE_CLASS.values()) | {"Quarterstaves", "Staves", "Wands"})
+_RARITY_LINE = re.compile(r"^(\s*Rarity)((?:\s+(?:Normal|Magic|Rare|Unique))+)[ \t]*$", re.M)
+
+
+def limit_rarities(block: str, allowed) -> str | None:
+    """A Show block kept to the gear rarities allowed: its Rarity line cut down to them (uniques stay); None when
+    nothing of it is left. A block with no Rarity line (currency, the market's stackables) is kept as it is."""
+    m = _RARITY_LINE.search(block)
+    if not m:
+        return block
+    keep = [r for r in m.group(2).split() if r == "Unique" or r in allowed]
+    return block[:m.start()] + m.group(1) + " " + " ".join(keep) + block[m.end():] if keep else None
+
+
 def render(rules: list[SlotRule], build: str, market: list[str] | None = None, stage: str = "all",
-           extra: list[str] | None = None) -> str:
+           extra: list[str] | None = None, rarities=RARITY_KINDS) -> str:
     """The filter block: most specific first (a filter stops at the first matching block). `stage`: "leveling" -
     the campaign's rules and `extra` (leveling_blocks); "maps" - the build's items at their tiers, its uniques, the
-    market and `extra` (demand_blocks) after it; "all" - both parts in one filter."""
+    market and `extra` (demand_blocks) after it; "all" - both parts in one filter. `rarities`: the gear rarities the
+    player wants to see - the rules of the others are cut out and that gear is hidden at the end, whatever the
+    player's filter below would do with it."""
     title = STAGE_TITLES[stage]
     blocks = [BEGIN, f"# Билд: {build}{title}. Собрано poe2lab: вещи под этот билд поверх твоего фильтра.", ""]
     for kind, need, style in (("голда", 3, "gold"), ("хорошая вещь", 2, "good")) if stage != "leveling" else ():
@@ -390,6 +409,12 @@ def render(rules: list[SlotRule], build: str, market: list[str] | None = None, s
         blocks += market or []
     if stage == "maps":
         blocks += extra or []
+    off = [r for r in RARITY_KINDS if r not in rarities]
+    if off:
+        blocks = [b for b in (limit_rarities(b, rarities) if b.startswith("Show # poe2lab") else b for b in blocks)
+                  if b is not None]
+        blocks += ["\n".join([f"Hide # poe2lab: снаряжение этой редкости скрыто (твой выбор)",
+                              f"\tRarity {' '.join(off)}", f"\tClass == {_quote(GEAR_CLASSES)}"]), ""]
     blocks.append(END)
     return "\n".join(blocks) + "\n"
 

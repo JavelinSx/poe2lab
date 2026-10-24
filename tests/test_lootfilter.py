@@ -331,3 +331,19 @@ def test_the_players_currency_choice_on_top():
     assert text.index("Hide # poe2lab") < text.index("Show # poe2lab")
     assert 'BaseType == "Chaos Orb"' in text and 'BaseType == "Regal Orb"' in text and "Not An Item" not in text
     assert lf.currency_blocks([], []) == []
+
+
+def test_gear_rarities_switched_off(rules):
+    """Magic and rare switched off: no rule for them is left (a "Normal Magic" craft base becomes white), that gear is
+    hidden after everything else; uniques and the market stay. All three on: the block is as before."""
+    market = ["Show # poe2lab: рынок", "\tRarity Unique", ""]
+    demand = ["Show # poe2lab: база топ-игроков — редкая неопознанная\n\tRarity Rare", ""]
+    full = lf.render(rules, "titan", market, "maps", demand)
+    white = lf.render(rules, "titan", market, "maps", demand, ("Normal",))
+    assert "Hide # poe2lab" not in full and "HasExplicitMod" in full
+    assert "HasExplicitMod" not in white and "редкая неопознанная" not in white and "Rarity Normal Magic" not in white
+    assert "база под крафт" in white and "Rarity Unique" in white
+    hide = white.index("Hide # poe2lab")
+    assert hide > white.index("рынок") and "Rarity Magic Rare" in white[hide:] and '"Boots"' in white[hide:]
+    assert lf.limit_rarities("Show # x\n\tRarity Normal Magic\n\tBaseType == \"Ring\"", {"Magic"}).count("Rarity Magic\n") == 1
+    assert lf.limit_rarities("Show # x\n\tBaseType == \"Chaos Orb\"", set()) is not None

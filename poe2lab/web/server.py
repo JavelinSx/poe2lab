@@ -2472,6 +2472,16 @@ class MarketChoice(BaseModel):
     stage: str = "all"  # "leveling" | "maps" | "all" (lootfilter.STAGES)
     # the player's changes to their filter's currency, as JSON {"show": [names], "hide": [names]}
     currency: str = ""
+    rarities: str = "normal,magic,rare"  # the gear rarities to see (lootfilter.render)
+
+
+def _rarities(choice: "MarketChoice | None") -> tuple[str, ...]:
+    if not choice:
+        return lootfilter.RARITY_KINDS
+    picked = {r.strip().capitalize() for r in choice.rarities.split(",") if r.strip()}
+    if picked - set(lootfilter.RARITY_KINDS):
+        raise HTTPException(400, f"неизвестная редкость: {', '.join(sorted(picked - set(lootfilter.RARITY_KINDS)))}")
+    return tuple(r for r in lootfilter.RARITY_KINDS if r in picked)
 
 
 def _currency_choice(choice: "MarketChoice | None") -> tuple[list[str], list[str]]:
@@ -2488,11 +2498,12 @@ def _currency_choice(choice: "MarketChoice | None") -> tuple[list[str], list[str
 def loot_filter(mode: str = "balanced", build: str | None = None, market: bool = True, top: float = 1.0,
                 top_unit: str = "div", low: float = 50.0, low_unit: str = "ex", demand: bool = True,
                 demand_ilvl: int = lootfilter.DEMAND_ILVL, demand_min: int = lootfilter.TOP_MIN, stage: str = "all",
-                currency: str = ""):
+                currency: str = "", rarities: str = "normal,magic,rare"):
     if mode not in MODES:
         raise HTTPException(400, f"неизвестная цель {mode!r}")
     choice = MarketChoice(market=market, top=top, top_unit=top_unit, low=low, low_unit=low_unit, demand=demand,
-                          demand_ilvl=demand_ilvl, demand_min=demand_min, stage=stage, currency=currency)
+                          demand_ilvl=demand_ilvl, demand_min=demand_min, stage=stage, currency=currency,
+                          rarities=rarities)
     with session.lock:
         session.require(build)
         return _json(_loot(mode, choice) | {"dir": str(lootfilter.filters_dir()), "build": session.path.stem,
@@ -2526,7 +2537,7 @@ def _loot(mode: str, choice: MarketChoice | None = None) -> dict:
         extra = currency + extra
     market_blocks = currency + (market["blocks"] if market else []) if stage != "leveling" else None
     return out | {"rules": rules, "stage": stage,
-                  "block": lootfilter.render(rules, session.path.stem, market_blocks, stage, extra),
+                  "block": lootfilter.render(rules, session.path.stem, market_blocks, stage, extra, _rarities(choice)),
                   "market": {k: v for k, v in market.items() if k != "blocks"} if market else None}
 
 

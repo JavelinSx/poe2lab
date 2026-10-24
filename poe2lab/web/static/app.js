@@ -3446,7 +3446,8 @@ async function jewelEditor(socket, opts = {}) {
 
 // ---------- loot filter ----------
 // the loot filter's market block: on or off, and the two price bars, each in exalted or divine orbs (per viewer)
-const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex", demand: true, demand_ilvl: 82, demand_min: 2 };
+const LOOT_MARKET = { market: true, top: 1, top_unit: "div", low: 50, low_unit: "ex", demand: true, demand_ilvl: 82, demand_min: 2,
+  rarities: "normal,magic,rare" };
 // the part of the game the filter is for: the campaign (below area level 65) or maps; a character still in the
 // campaign starts on the campaign's, anything else on the maps'; the player's last pick is remembered
 function lootStage() {
@@ -3584,7 +3585,19 @@ TABS.loot = async (view) => {
   const preview = h("div", { class: "card" }, h("details", {}, h("summary", {}, t("lootPreview")),
     h("div", { class: "row", style: "margin:8px 0" }, copy), h("pre", { class: "filter-preview" }, r.block)));
   drawChosen();
-  return h("div", { class: "stack" }, stageSeg, h("div", { class: "sub" }, t("lootIntro_" + stage)), what,
+  // the gear rarities the filter shows: one switched off is left out of the rules and hidden
+  const on = new Set(String(mk.rarities || "").split(",").filter(Boolean));
+  const rarity = h("div", { class: "row loot-rarity", title: t("lootRarityHint") }, h("span", { class: "muted small" }, t("lootRarity")),
+    [["normal", "⚪"], ["magic", "🔵"], ["rare", "🟡"]].map(([k, ic]) => h("button", { class: "chip mt-filter" + (on.has(k) ? " on" : ""),
+      onclick: () => {
+        if (on.has(k)) on.delete(k); else on.add(k);
+        try { localStorage.setItem("poe2lab.lootMarket", JSON.stringify({ ...lootMarket(), rarities: ["normal", "magic", "rare"].filter((x) => on.has(x)).join(",") })); } catch (_) { /* storage blocked */ }
+        switchTab("loot");
+      } }, ic, " ", t("lootRarity_" + k))));
+  const hidden = ["normal", "magic", "rare"].filter((k) => !on.has(k));
+  return h("div", { class: "stack" }, h("div", { class: "row" }, stageSeg, rarity),
+    hidden.length ? h("div", { class: "action" }, t("lootRarityOff", hidden.map((k) => t("lootRarity_" + k).toLowerCase()).join(", "))) : null,
+    h("div", { class: "sub" }, t("lootIntro_" + stage)), what,
     leveling ? null : marketCard(r.market, mk), leveling ? null : demandCard(r.demand, mk), onlineFiltersCard(r, mk), build, curBox, preview);
 };
 
