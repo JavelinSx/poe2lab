@@ -1714,9 +1714,14 @@ build.calcsTab:BuildOutput()""")
                             for slot, text in items.items())
         self._lua(f"""
 local itemsTab = build.itemsTab
-_poe2lab_swap = {{ saved = {{}}, temp = {{}}, sets = {{}}, main = build.mainSocketGroup }}
--- a weapon the skills cannot use makes PoB move socket groups to the other weapon set; remember the assignment
-for i, g in ipairs(build.skillsTab.socketGroupList) do _poe2lab_swap.sets[i] = {{ g.set1, g.set2 }} end
+_poe2lab_swap = {{ saved = {{}}, temp = {{}}, sets = {{}}, order = {{}}, main = build.mainSocketGroup }}
+-- a weapon the skills cannot use makes PoB move socket groups to the other weapon set, and taking off an item that
+-- grants a skill re-creates its group at the end of the list: remember each group's sets and the order, by the group
+-- itself (an item's group by its source), not by its place
+for i, g in ipairs(build.skillsTab.socketGroupList) do
+  _poe2lab_swap.sets[g] = {{ g.set1, g.set2 }}
+  _poe2lab_swap.order[i] = {{ group = g, source = g.source, slot = g.slot }}
+end
 for slotName, text in pairs({{ {entries} }}) do
   local slot = itemsTab.slots[slotName]
   if slot then
@@ -1732,7 +1737,16 @@ for slotName, text in pairs({{ {entries} }}) do
   end
 end
 itemsTab:PopulateSlots()
-build.calcsTab:BuildOutput()""")
+build.calcsTab:BuildOutput()
+-- the main skill is the same group while swapped, wherever the list moved it
+local mainGroup = _poe2lab_swap.order[_poe2lab_swap.main] and _poe2lab_swap.order[_poe2lab_swap.main].group
+for i, g in ipairs(build.skillsTab.socketGroupList) do
+  if g == mainGroup and i ~= build.mainSocketGroup then
+    build.mainSocketGroup = i
+    build.calcsTab:BuildOutput()
+    break
+  end
+end""")
         try:
             yield self
         finally:
@@ -1740,10 +1754,27 @@ build.calcsTab:BuildOutput()""")
 local itemsTab = build.itemsTab
 for slotName, id in pairs(_poe2lab_swap.saved) do itemsTab.slots[slotName]:SetSelItemId(id) end
 for _, item in ipairs(_poe2lab_swap.temp) do itemsTab:DeleteItem(item, true) end
-for i, g in ipairs(build.skillsTab.socketGroupList) do
-  local saved = _poe2lab_swap.sets[i]
+itemsTab:PopulateSlots()
+build.calcsTab:BuildOutput()
+local list = build.skillsTab.socketGroupList
+for _, g in ipairs(list) do
+  local saved = _poe2lab_swap.sets[g]
   if saved then g.set1, g.set2 = saved[1], saved[2] end
 end
+-- the groups back in their places: the same group, or the item's group re-created from the same source
+local present, used, ordered = {}, {}, {}
+for _, g in ipairs(list) do present[g] = true end
+for _, o in ipairs(_poe2lab_swap.order) do
+  local g = present[o.group] and o.group or nil
+  if not g and o.source then
+    for _, x in ipairs(list) do
+      if not used[x] and not _poe2lab_swap.sets[x] and x.source == o.source and x.slot == o.slot then g = x break end
+    end
+  end
+  if g and not used[g] then used[g] = true ordered[#ordered + 1] = g end
+end
+for _, g in ipairs(list) do if not used[g] then ordered[#ordered + 1] = g end end
+for i = 1, #ordered do list[i] = ordered[i] end
 build.skillsTab.weaponSetValidityCache = {}
 build.mainSocketGroup = _poe2lab_swap.main
 _poe2lab_swap = nil

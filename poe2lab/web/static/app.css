@@ -1707,3 +1707,4 @@ div.eg-q-mod { user-select: none; }
 /* a skill group's weapon set: both, 1, 2 */
 .ws-pick { gap: 4px; margin-left: auto; }
 .ws-pick .chip { padding: 1px 8px; }
+.dm-beyond { gap: 2px; border-top: 1px dashed var(--line); padding-top: 4px; }

@@ -3560,7 +3560,7 @@ def dummy_skills(build: str | None = None):
     with session.lock:
         session.require(build)
         with dummy.keep_main(session.engine):
-            return _json({"skills": session.cached("dummy-skills", lambda: dummy.skills(session.engine)),
+            return _json({"skills": session.cached("dummy-skills", lambda: dummy.skills(session.engine, _game_texts("ru"))),
                           "kinds": list(dummy.KINDS), "states": list(dummy.STATES)})
 
 
@@ -3576,7 +3576,7 @@ def dummy_calc(req: DummyScenario, build: str | None = None):
     with session.lock:
         session.require(build)
         with dummy.keep_main(session.engine):
-            catalogue = session.cached("dummy-skills", lambda: dummy.skills(session.engine))
+            catalogue = session.cached("dummy-skills", lambda: dummy.skills(session.engine, _game_texts("ru")))
             return _json(dummy.calc(session.engine, req.scenario, catalogue))
 
 

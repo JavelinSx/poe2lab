@@ -30,7 +30,7 @@ function dmDefault(cat) {
   const spam = dmg.filter((s) => !s.cooldown && !s.triggered && !s.travel && !s.sustained).sort((a, b) => b.dps - a.dps)[0];
   const skills = {};
   dmg.forEach((s) => {
-    skills[s.id] = { on: true, x: 9, y: 0, states: [], split: !!s.sustained, sim: true, speed: 4, range: 12, critPerPierce: 0,
+    skills[s.id] = { on: true, x: 9, y: 0, states: [], split: !!s.sustained, sim: true, speed: 4, range: 12, width: 0.3, critPerPierce: 0,
       mode: s.triggered ? "rate" : s.sustained ? "sustain" : s.cooldown ? "cooldown" : "spam", share: s === spam ? 100 : 0, rate: 1, interval: 4 };
   });
   const curses = {};
@@ -195,10 +195,18 @@ function dmFlight(s, p) {
     h("label", { class: "row small" }, h("input", { type: "checkbox", checked: p.sim !== false, onchange: (e) => { p.sim = e.target.checked; dmChanged(); } }), t("dmSim")),
     p.sim !== false ? h("div", { class: "row small" },
       t("dmBaseSpeed"), num("speed", 0.5, t("dmBaseSpeedHint")), h("span", { class: "muted" }, `×${fmt(s.speedMod, 2)}`),
-      t("dmRange"), num("range", 1), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
-    p.sim !== false && s.pierceMore ? h("div", { class: "muted small" }, t("dmPierceMore", s.pierceMore)) : null,
-    p.sim !== false && s.pierceGear && (s.pierceGear.damage || s.pierceGear.crit)
-      ? h("div", { class: "muted small" }, t("dmPierceGear", fmt(s.pierceGear.damage, 0), fmt(s.pierceGear.crit, 0), s.pierceGear.from.map(trItem).join(", "), s.weaponSet)) : null);
+      ...(s.duration > 0 ? [h("span", { class: "muted", title: t("dmLifeHint") }, t("dmLife", fmt(s.duration, 2)))] : [t("dmRange"), num("range", 1)]), t("dmWidth"), num("width", 0.1, t("dmWidthHint")), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
+    p.sim !== false && (s.flight || []).length ? h("div", { class: "stack dm-beyond" }, h("div", { class: "muted small" }, t("dmFlightCounted")),
+      s.flight.map((f) => h("div", { class: "small" }, h("b", {}, t("dmWhen_" + f.when)), " ", f.local || f.text,
+        h("span", { class: "muted" }, ` — ${f.item ? trItem(f.from) : trName(f.from)}${f.scale !== 1 ? ` ×${fmt(f.scale, 2)} → ${f.line}` : ""}`)))) : null);
+}
+
+// what PoB leaves out of the skill (its gems' stats, its weapon set's gear lines) and the dummy cannot count either
+function dmNotCounted(s) {
+  const rows = s.notCounted || [];
+  if (!rows.length) return null;
+  return h("details", { class: "dm-beyond" }, h("summary", { class: "muted small" }, t("dmNotCounted", rows.length)),
+    rows.map((n) => h("div", { class: "small" }, n.local || n.text, h("span", { class: "muted" }, ` — ${n.item ? trItem(n.from) : trName(n.from)}`))));
 }
 
 // the panel: each skill's use and what it puts on the dummies in its area, the curses, the mirrors
@@ -226,7 +234,8 @@ function dmPanel(draw) {
       p.on ? h("div", { class: "row small" }, mode, field, unit,
         h("label", { class: "row small", title: t("dmSplitHint") }, h("input", { type: "checkbox", checked: !!p.split, onchange: (e) => { p.split = e.target.checked; dmChanged(false); } }), t("dmSplit"))) : null,
       p.on ? states : null,
-      p.on && s.projectile && !s.sustained ? dmFlight(s, p) : null);
+      p.on && s.projectile && !s.sustained ? dmFlight(s, p) : null,
+      dmNotCounted(s));
   };
   const curses = DM.cat.filter((s) => s.kind === "curse").map((s) => {
     const p = sc.curses[s.id];
@@ -259,6 +268,6 @@ function dmResult() {
     h("div", { class: "stack" }, r.skills.map((s) => h("div", { class: "dm-bar" }, h("span", { class: "dm-bar-n" }, gemName(s.name)),
       h("span", { class: "dm-bar-v" }, h("i", { style: `width:${Math.max(1, s.dps / top * 100)}%` })),
       h("b", {}, fmt(s.dps)), h("span", { class: "muted small" }, t("dmUses", fmt(s.uses, 2), s.hit),
-        s.sim ? h("div", { class: "small" }, t("dmSimStats", fmt(s.sim.shattered, 1), fmt(s.sim.copiesPerCast, 1), fmt(s.sim.hitsPerCast, 1))) : null)))),
+        s.sim ? h("div", { class: "small" }, t("dmSimStats", fmt(s.sim.shattered, 1), fmt(s.sim.copiesPerCast, 1), fmt(s.sim.hitsPerCast, 1), fmt(s.sim.avgPierced, 1), s.sim.maxPierced, Math.max(0, ...(s.sim.inAir || [0])))) : null)))),
     h("div", { class: "hint" }, t("dmHonest")));
 }

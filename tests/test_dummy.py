@@ -36,7 +36,7 @@ def test_how_often_a_skill_is_used():
     assert dummy.uses_per_second(s, {"mode": "sustain"}) == 2.0
 
 
-BOLT_SIM = BOLT | {"id": "fb", "pierce": 100, "returns": True, "speedMod": 1.0, "pierceMore": 20, "projectiles": 1,
+BOLT_SIM = BOLT | {"id": "fb", "pierce": 100, "returns": True, "speedMod": 1.0, "projectiles": 1,
                    "speed": 1.0, "cooldown": 1.0}
 MIRROR = {"cooldown": 0.5, "duration": 8.0}
 
@@ -60,16 +60,32 @@ def test_mirrors_copy_projectiles_and_the_copies_shatter_more_mirrors():
     assert chain["damage"]["fb"]["a"] > plain["damage"]["fb"]["a"]
 
 
-def test_the_gear_of_the_skills_weapon_set_gives_its_per_pierce_bonuses_grown_by_the_bow():
-    line = lambda text: {"line": text}  # noqa: E731
-    items = [
-        {"slot": "Weapon 1", "name": "Staff", "type": "Staff", "explicit": [line("23% increased Cast Speed")]},
-        {"slot": "Weapon 1 Swap", "name": "Widowhail", "type": "Bow",
-         "explicit": [line("292% increased bonuses gained from Equipped Quiver")]},
-        {"slot": "Weapon 2 Swap", "name": "Drillneck", "type": "Quiver", "explicit": [
-            line("Projectiles deal 50% increased Damage with Hits for each time they have Pierced"),
-            line("Projectiles have 38% increased Critical Hit chance for each time they have Pierced")]},
-    ]
-    assert dummy.pierce_gear(items, 1) == {"damage": 0.0, "crit": 0.0, "from": []}
-    got = dummy.pierce_gear(items, 2)
-    assert got["damage"] == 196.0 and got["crit"] == 149.0 and got["from"] == ["Drillneck"]
+def test_what_pob_leaves_out_is_read_by_when_it_holds_in_the_flight():
+    parses = lambda line: not line.startswith("Projectiles")  # noqa: E731  (PoB reads the rest without who it is about)
+    got = dummy.flight_line("Projectiles deal 50% increased Damage with Hits for each time they have Pierced", parses)
+    assert got == {"when": "perPierce", "line": "50% increased Damage with Hits", "kind": None}
+    assert dummy.flight_line("20% more Projectile Damage after Piercing an Enemy", parses)["when"] == "afterPierce"
+    assert dummy.flight_line("Attack Projectiles Return if they Pierced at least 3 times", parses) == {
+        "when": "returns", "kind": "Attack", "after": 3}
+    assert dummy.flight_line("Projectiles from Supported Skills Return to you", parses)["after"] == 0
+    assert dummy.flight_line("Limit 4 Mirrors of Refraction", parses) is None
+
+
+def test_each_skill_gets_its_own_gems_lines_and_its_weapon_sets_gear_the_quiver_grown_by_the_bow():
+    from poe2lab.knowledge import Gap
+    gaps = [Gap("item", "Drillneck (Weapon 2 Swap)", "x", "Projectiles have 38% increased Critical Hit chance for each "
+                "time they have Pierced", True),
+            Gap("item", "Drillneck (Weapon 2 Swap)", "y", "Attack Projectiles Return if they Pierced at least 3 times", True),
+            Gap("skill", "Frostbolt (группа 3)", "s", "20% more Projectile Damage after Piercing an Enemy", True),
+            Gap("skill", "Spell Cascade (группа 6)", "c", "Supported Skills Cascade to either side", True)]
+    items = {"Weapon 1 Swap": {"type": "Bow", "explicit": [{"line": "292% increased bonuses gained from Equipped Quiver"}]},
+             "Weapon 2 Swap": {"type": "Quiver"}}
+    args = (gaps, {"index": 3}, "Frostbolt", [], items)
+    on_two = dummy.beyond_pob(*args, 2, {"Spell", "Projectile"}, lambda line: True)
+    assert [f["line"] for f in on_two["flight"]] == ["Projectiles have 149% increased Critical Hit chance",
+                                                     "20% more Projectile Damage"]
+    assert on_two["returnAfter"] == 0  # attacks' return, Frostbolt is a spell
+    assert [f["line"] for f in dummy.beyond_pob(*args, 1, {"Spell", "Projectile"}, lambda line: True)["flight"]] == [
+        "20% more Projectile Damage"]
+    shot = dummy.beyond_pob(gaps, {"index": 11}, "Bow Shot", [], items, 2, {"Attack", "Projectile"}, lambda line: True)
+    assert shot["returnAfter"] == 3 and not shot["notCounted"]
