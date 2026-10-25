@@ -154,6 +154,7 @@ CRYSTAL_SPACING = 0.7  # metres between the crystals of a wall
 FISSURE_SPREAD = math.radians(12)  # the angle between a slam's fissures (a wall along a fissure follows it)
 CASCADE_STEP = 2.0  # metres a cascade is put to either side of the targeted area
 WALL_FROM = 1.0  # metres from the character a wall along a fissure starts
+WALL_CRYSTALS_MAX = 30  # crystals of one use of a wall at most, all its fissures and cascades (the player, in game)
 
 
 def crystal_spots(c: dict, tx: float, ty: float, use: int = 0) -> list[tuple[float, float]]:
@@ -168,7 +169,9 @@ def crystal_spots(c: dict, tx: float, ty: float, use: int = 0) -> list[tuple[flo
     out = []
     if c.get("wall"):
         length, lines = c["wall"], 1 + int(c.get("fissures") or 0)
-        n = max(1, int(length / CRYSTAL_SPACING) + 1)
+        # a crystal every CRYSTAL_SPACING, but no more than WALL_CRYSTALS_MAX in one use (the player: even the
+        # biggest wall has 30): with more walls (fissures, cascades) each one's crystals stand further apart
+        n = max(1, min(int(length / CRYSTAL_SPACING) + 1, WALL_CRYSTALS_MAX // (lines * len(shifts))))
         for sh in shifts:
             for f in range(lines):
                 ang = base + (f - (lines - 1) / 2) * FISSURE_SPREAD
