@@ -14,6 +14,7 @@ damage over time added while the skill keeps hitting it.
 A rough estimate on purpose: positions, mirror copies and trigger rates are the player's guesses; PoB does every
 number it can."""
 import math
+import random
 import re
 from dataclasses import dataclass
 
@@ -32,8 +33,9 @@ NOT_DAMAGE = {"Buff", "Persistent", "Aura", "Herald", "Warcry"}  # a damaging mo
 DUMMY_RADIUS = 0.6  # metres: how wide a dummy is for a projectile to touch it
 # how wide each kind is by default (a pinnacle boss is a big target; the player sets it on the field)
 KIND_RADIUS = {"normal": 0.6, "rare": 0.8, "boss": 2.0, "pinnacle": 2.5, "uber": 2.5}
-PROJECTILE_RADIUS = 0.3  # metres: how wide a flown projectile is (the game's sizes are not in PoB: the player sets it)
-PROJECTILE_RANGE = 12.0  # metres a projectile flies before it is gone (or comes back)
+PROJECTILE_RADIUS = 0.5  # metres: how wide a flown projectile is (not in PoB; a Frostbolt touches two monsters side by side)
+PROJECTILE_RANGE = 15.0  # metres a projectile flies before it is gone or comes back (the player: Frostbolt, 15 m)
+MIRROR_SPREAD = 4.0  # metres around the character the mirrors appear in, at random (the player: in the Presence)
 MIRROR_TOUCH = 0.8  # metres: a projectile this close to a mirror shatters it
 MIRROR_COPIES = 7  # Mirror of Refraction: "Projectiles which shatter Mirrors are copied 7 times"
 FAN_STEP = math.radians(8)  # the angle between the projectiles of one use
@@ -474,7 +476,9 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
 
         def explode(s, d):
             return damage({**s, "id": s["id"] + ":x", "statSet": s["crystal"]["explosionSet"]}, d)[0]
-        run = simulate(flown, dummies, mirrors, mirror_skill, hit_damage, crystal_skills, explode)
+        by_hand = scenario.get("mirrorPlace") == "fixed"
+        run = simulate(flown, dummies, mirrors if by_hand else [], mirror_skill, hit_damage, crystal_skills, explode,
+                       random_radius=0.0 if by_hand else MIRROR_SPREAD)
         for s, p in crystal_skills:
             got, st = run["explosions"][s["id"]], run["crystalStats"][s["id"]]
             on = {i: round(v / run["time"]) for i, v in got.items() if v}
@@ -572,7 +576,8 @@ PIERCE_POINTS = (*range(0, 11), 12, 14, 16, 18, 20, 25, 30, 40, 50, 65, 80, 100)
 
 
 def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tuple[float, float]], mirror: dict | None,
-             hit_damage, crystal_skills: list[tuple[dict, dict]] = (), explode=None) -> dict:
+             hit_damage, crystal_skills: list[tuple[dict, dict]] = (), explode=None,
+             random_radius: float = 0.0) -> dict:
     """The projectile skills flown for SIM_TIME seconds, counted after SIM_WARMUP (the swarm grown). sim: (skill, its placement) pairs; spots: where mirrors
     appear (in turn, at the Mirror of Refraction's rate, up to its limit, each lasting its duration; the spots are
     all filled at the start - the fight is in its steady state); hit_damage(skill, dummy, pierced) -> one hit's
@@ -581,12 +586,22 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
     around, the copies keep its pierce count, live their own full time and can shatter other mirrors - and, when it
     returns, flies back to the character at the end of its flight, hitting again. A skill with a duration (Frostbolt:
     4 s) flies for its duration, PoB's; one without it for its range. {"damage": {skill id: {dummy id: total}}, "stats": {skill id:
-    {"casts", "shattered", "copies", "hits"}}, "time"}."""
+    {"casts", "shattered", "copies", "hits"}}, "time"}. `random_radius`: the mirrors appear at random spots within it
+    around the character (the game's way) instead of at `spots`; the same spots every run (a fixed seed).
+    A projectile flies its range (no further than its duration lets it) and, when it returns, comes back to where it
+    started: the character for a cast, the mirror for its copies."""
     interval = mirror["cooldown"] if mirror and mirror["cooldown"] else 0.0
     limit = (mirror or {}).get("limit") or MIRROR_LIMIT
     copies = max(1, int((mirror or {}).get("copies") or MIRROR_COPIES))
     lifetime = mirror["duration"] if mirror and mirror["duration"] else 8.0
     live: dict[int, float] = {}  # spot index -> when the mirror there disappears
+    luck = random.Random(7)
+
+    def random_spot():
+        a, r = luck.uniform(0, 2 * math.pi), random_radius * math.sqrt(luck.random())
+        return (r * math.cos(a), r * math.sin(a))
+    if random_radius and interval:
+        spots = [random_spot() for _ in range(limit)]
     if interval:
         for i in range(min(limit, len(spots))):
             live[i] = lifetime
@@ -612,7 +627,10 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
             del live[i]
         if interval and spots and t >= next_mirror:
             next_mirror += interval
-            if len(live) < limit:
+            if len(live) < limit and random_radius:
+                spots.append(random_spot())
+                live[len(spots) - 1] = t + lifetime
+            elif len(live) < limit:
                 for k in range(len(spots)):
                     i = (next_spot + k) % len(spots)
                     if i not in live:
@@ -651,11 +669,13 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
             base = math.atan2(ty, tx) if (tx or ty) else 0.0
             speed = float(p.get("speed") or BASE_SPEED) * s.get("speedMod", 1.0)
             life = float(s.get("duration") or 0)
-            reach = speed * life if life > 0 else float(p.get("range") or PROJECTILE_RANGE)
+            reach = float(p.get("range") or PROJECTILE_RANGE)
+            if life > 0:
+                reach = min(reach, speed * life)
             for k in range(s["projectiles"]):
                 ang = base + (k - (s["projectiles"] - 1) / 2) * FAN_STEP
-                shots.append({"sid": sid, "x": 0.0, "y": 0.0, "a": ang, "v": speed, "left": reach, "reach": reach,
-                              "pierced": 0, "back": False, "hit": set()})
+                shots.append({"sid": sid, "x": 0.0, "y": 0.0, "ox": 0.0, "oy": 0.0, "a": ang, "v": speed, "left": reach,
+                              "reach": reach, "pierced": 0, "back": False, "hit": set()})
         # flight
         alive = []
         for sh in shots:
@@ -663,8 +683,8 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
             width = float(p.get("width", PROJECTILE_RADIUS))
             step = min(sh["v"] * SIM_TICK, sh["left"])
             x0, y0 = sh["x"], sh["y"]
-            if sh["back"]:  # flying back to the character
-                sh["a"] = math.atan2(-y0, -x0)
+            if sh["back"]:  # flying back to where it started (the character, or its mirror)
+                sh["a"] = math.atan2(sh["oy"] - y0, sh["ox"] - x0)
             dx, dy = math.cos(sh["a"]), math.sin(sh["a"])
             # what lies on this tick's way, nearest first: dummies and live mirrors
             ahead = []
@@ -726,7 +746,7 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
                     stats[sh["sid"]]["shattered"] += 1
                     pierced = min(sh["pierced"] + (1 if p.get("mirrorPierce", True) else 0), MAX_PIERCE_STEPS)
                     for c in range(copies):
-                        alive.append({**sh, "x": mx, "y": my, "a": sh["a"] + 2 * math.pi * c / copies,
+                        alive.append({**sh, "x": mx, "y": my, "ox": mx, "oy": my, "a": sh["a"] + 2 * math.pi * c / copies,
                                       "left": sh["reach"], "back": False, "hit": set(), "pierced": pierced})
                     stats[sh["sid"]]["copies"] += copies
                     stopped = True
@@ -734,12 +754,12 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
             if stopped:
                 continue
             sh["x"], sh["y"], sh["left"] = x0 + dx * step, y0 + dy * step, sh["left"] - step
-            if sh["back"] and math.hypot(sh["x"], sh["y"]) <= 0.5:
-                continue  # back with the character
+            if sh["back"] and math.hypot(sh["x"] - sh["ox"], sh["y"] - sh["oy"]) <= 0.5:
+                continue  # back where it started
             if sh["left"] <= 1e-6:
                 if (s["returns"] or s.get("returnAfter") and sh["pierced"] >= s["returnAfter"]) and not sh["back"]:
                     sh["back"], sh["hit"] = True, set()
-                    sh["left"] = math.hypot(sh["x"], sh["y"]) + 1
+                    sh["left"] = math.hypot(sh["x"] - sh["ox"], sh["y"] - sh["oy"]) + 1
                 else:
                     continue
             alive.append(sh)
@@ -785,14 +805,14 @@ def default_scenario(catalogue: list[dict]) -> dict:
     spam = max((s for s in dmg if not s["cooldown"] and not s["triggered"] and not s["travel"] and not s["sustained"]),
                key=lambda s: s["dps"], default=None)
     sk = {s["id"]: {"on": True, "x": 9, "y": 0, "states": [], "split": bool(s["sustained"]), "sim": True, "speed": 4,
-                    "range": 12, "width": PROJECTILE_RADIUS, "critPerPierce": 0, "rate": 1, "interval": 4,
+                    "range": PROJECTILE_RANGE, "width": PROJECTILE_RADIUS, "critPerPierce": 0, "rate": 1, "interval": 4,
                     "mode": "rate" if s["triggered"] else "sustain" if s["sustained"] else "cooldown" if s["cooldown"]
                     else "spam", "share": 100 if s is spam else 0} for s in dmg}
     curses = {s["id"]: {"on": True, "x": 9, "y": 0} for s in catalogue if s["kind"] == "curse"}
     mirrors = [{"x": round(3 * math.cos(i * math.pi / 2), 2), "y": round(3 * math.sin(i * math.pi / 2), 2)}
                for i in range(4)] if any(s["kind"] == "mirror" for s in catalogue) else []
     return {"level": 83, "dummies": _preset("normal", 20), "skills": sk, "curses": curses, "mirrors": mirrors,
-            "always": []}
+            "mirrorPlace": "random", "always": []}
 
 
 def mix_of(engine, catalogue: list[dict], result: dict, config: dict) -> list[dict]:

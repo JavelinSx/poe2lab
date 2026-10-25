@@ -3818,6 +3818,7 @@ def dummy_skills(build: str | None = None):
             saved = _dummy_scenario()
             return _json({"skills": catalogue, "kinds": list(dummy.KINDS), "states": list(dummy.STATES),
                           "scenario": saved, "defaultScenario": dummy.default_scenario(catalogue),
+                          "mirrorSpread": dummy.MIRROR_SPREAD,
                           "mix": session.bp.damage_mix})
 
 

@@ -36,6 +36,7 @@ TABS.dummy = async (view) => {
   const r = await cached("dummy-skills", () => api(`/api/dummy/skills?${buildQuery()}`));
   DM.cat = r.skills;
   DM.def = r.defaultScenario;
+  DM.mirrorSpread = r.mirrorSpread;
   DM.mix = r.mix || [];
   if (DM.build !== state.build.name || !DM.sc) {
     DM.build = state.build.name;
@@ -190,7 +191,11 @@ function dmField(draw) {
   // the ice crystals of one use of each crystal skill (where the last count put them)
   svg.append(el("g", { class: "dm-crystals" }));
   // mirrors
-  sc.mirrors.forEach((m, i) => {
+  // at random: where they may appear, a circle around you (no spots to drag)
+  if (sc.mirrorPlace !== "fixed" && DM.cat.some((s) => s.kind === "mirror")) {
+    svg.append(el("circle", { cx: X(0), cy: Y(0), r: (DM.mirrorSpread || 4) * k, class: "dm-mirror-zone" }, el("title", {}, t("dmMirrorZone"))));
+  }
+  (sc.mirrorPlace === "fixed" ? sc.mirrors : []).forEach((m, i) => {
     const d = el("rect", { x: X(m.x) - 6, y: Y(m.y) - 6, width: 12, height: 12, transform: `rotate(45 ${X(m.x)} ${Y(m.y)})`, class: "dm-mirror" },
       el("title", {}, t("dmMirror")));
     d.addEventListener("dblclick", () => { sc.mirrors.splice(i, 1); dmChanged(); });
@@ -220,7 +225,7 @@ function dmFlight(s, p) {
       h("input", { type: "checkbox", checked: p.mirrorPierce !== false, onchange: (e) => { p.mirrorPierce = e.target.checked; dmChanged(false); } }), t("dmMirrorPierce")) : null,
     p.sim !== false ? h("div", { class: "row small" },
       t("dmBaseSpeed"), num("speed", 0.5, t("dmBaseSpeedHint")), h("span", { class: "muted" }, `×${fmt(s.speedMod, 2)}`),
-      ...(s.duration > 0 ? [h("span", { class: "muted", title: t("dmLifeHint") }, t("dmLife", fmt(s.duration, 2)))] : [t("dmRange"), num("range", 1)]), t("dmWidth"), num("width", 0.1, t("dmWidthHint")), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
+      t("dmRange"), num("range", 1, t("dmRangeHint")), s.duration > 0 ? h("span", { class: "muted", title: t("dmLifeHint") }, t("dmLife", fmt(s.duration, 2))) : null, t("dmWidth"), num("width", 0.1, t("dmWidthHint")), t("dmCritPierce"), num("critPerPierce", 5, t("dmCritPierceHint"))) : null,
     p.sim !== false && (s.flight || []).length ? h("div", { class: "stack dm-beyond" }, h("div", { class: "muted small" }, t("dmFlightCounted")),
       s.flight.map((f) => h("div", { class: "small" }, h("b", {}, t("dmWhen_" + f.when)), " ", f.local || f.text,
         h("span", { class: "muted" }, ` — ${f.item ? trItem(f.from) : trName(f.from)}${f.scale !== 1 ? ` ×${fmt(f.scale, 2)} → ${f.line}` : ""}`)))) : null);
@@ -277,9 +282,12 @@ function dmPanel(draw) {
     h("input", { type: "number", min: 1, max: 20, value: sc.mirrorCopies || mirror.copies, style: "width:56px",
       onchange: (e) => { sc.mirrorCopies = Math.max(1, Math.min(20, +e.target.value || mirror.copies)); dmChanged(false); } }),
     h("span", { class: "muted" }, t("dmMirrorCopiesGem", mirror.copies))),
-  h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => { sc.mirrors.push({ x: 4 + sc.mirrors.length, y: 0.2 * (sc.mirrors.length % 2 ? -1 : 1) }); dmChanged(); } }, "+ ", t("dmAddMirror")),
+  // where they appear: at random around you (the game's way, the default) or at the spots put by hand
+  h("div", { class: "seg small" }, [["random", t("dmMirrorRandom")], ["fixed", t("dmMirrorFixed")]].map(([k, label]) =>
+    h("button", { class: (sc.mirrorPlace || "random") === k ? "active" : "", onclick: () => { sc.mirrorPlace = k; dmChanged(); } }, label))),
+  sc.mirrorPlace === "fixed" ? h("div", { class: "row" }, h("button", { class: "ghost small", onclick: () => { sc.mirrors.push({ x: 4 + sc.mirrors.length, y: 0.2 * (sc.mirrors.length % 2 ? -1 : 1) }); dmChanged(); } }, "+ ", t("dmAddMirror")),
     h("button", { class: "ghost small", onclick: () => { sc.mirrors = dmMirrorRing(); dmChanged(); } }, t("dmMirrorRing")),
-    sc.mirrors.length ? h("button", { class: "ghost small", onclick: () => { sc.mirrors = []; dmChanged(); } }, t("dmNoMirrors")) : null),
+    sc.mirrors.length ? h("button", { class: "ghost small", onclick: () => { sc.mirrors = []; dmChanged(); } }, t("dmNoMirrors")) : null) : null,
   h("div", { class: "hint" }, t("dmMirrorHint"))) : null;
   const reset = h("button", { class: "ghost small", onclick: () => { DM.sc = dmDefault(DM.cat); dmChanged(); } }, t("dmReset"));
   return h("div", { class: "card stack dm-panel" }, h("div", { class: "row" }, h("h3", {}, t("dmLinks")), reset), ...dmg.map(card),
