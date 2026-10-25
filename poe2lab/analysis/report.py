@@ -23,6 +23,9 @@ MODES = {
     "damage": (1.0, 0.25, 0.1),
     "balanced": (1.0, 1.0, 0.4),
     "defence": (0.25, 1.0, 0.5),
+    # one side only (poe2lab.analysis.linkpick: a levelling tree's points split by the player between the two)
+    "only-damage": (1.0, 0.0, 0.0),
+    "only-defence": (0.0, 1.0, 0.5),
 }
 
 

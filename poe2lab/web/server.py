@@ -3395,6 +3395,35 @@ def constructor_stage_check(req: StageCheck, build: str | None = None):
             raise HTTPException(400, f"не удалось собрать этап: {err}")
 
 
+class LinkPick(BaseModel):
+    level: int
+
+
+_link_picks: dict = {}  # (build, its state, level) -> the pick: a minute of work, the same answer while they hold
+
+
+@app.post("/api/constructor/link-pick")
+def constructor_link_pick(req: LinkPick, build: str | None = None):
+    """Links for a levelling stage picked by PoB (poe2lab.analysis.linkpick): every skill the level gives with every
+    weapon, the best supports, grouped by what the damage is, each theme's 2-3 skills and its first passives. What
+    it needs from the build is taken under the lock; the minute of work runs in engines of its own."""
+    if not 2 <= req.level <= 100:
+        raise HTTPException(400, "уровень от 2 до 100")
+    from ..analysis import linkpick
+    with session.lock:
+        session.require(build)
+        key = (session.path.stem, session._state_of(), req.level)
+        if key in _link_picks:
+            return _json(_link_picks[key])
+        try:
+            ctx = linkpick.inputs(_guide_engine(), req.level)
+        except (PobError, ValueError) as err:
+            raise HTTPException(400, f"не удалось собрать персонажа: {err}")
+    result = linkpick.run(ctx)
+    _link_picks[key] = result
+    return _json(result)
+
+
 class StageCode(BaseModel):
     code: str  # a PoB code or a pobb.in link
 

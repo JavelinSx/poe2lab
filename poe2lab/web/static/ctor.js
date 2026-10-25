@@ -296,6 +296,7 @@ const LV_PARTS = ["links", "weapon", "tree", "gear", "note"];
 const lvId = (stage, part) => `lv:${stage}:${part}`;
 CT.lvStage = "act1";
 CT.lvCheck = {};
+CT.lvPick = {};  // a stage's links picked by PoB (lvPick), by the stage
 CT.undo = [];
 
 // an edit the author can take back
@@ -468,6 +469,50 @@ async function lvCheck(st) {
   } catch (e) { CT.lvCheck[st.key] = { error: e.message }; }
   ctDraw();
 }
+// links picked by PoB for the stage's level: each theme (an element, an ailment, minions) - its weapon, its 2-3
+// skills with their supports, the damage bare / linked / with the tree, the tree's first points; "into the stage"
+// puts the theme's links, weapon and passives in (poe2lab.analysis.linkpick)
+const lvPickLevel = (st) => st.to || st.from;
+function lvPickPanel(st) {
+  const r = CT.lvPick[st.key];
+  if (!r) return null;
+  if (r === "loading") return h("div", { class: "card" }, loading(t("lpWorking", lvPickLevel(st))));
+  if (r.error) return h("div", { class: "card" }, h("p", { class: "muted" }, r.error));
+  const top = Math.max(1, ...r.themes.map((x) => x.score));
+  return h("div", { class: "card stack lv-pick" },
+    h("b", {}, "🎯 ", t("lpTitle", r.level)),
+    h("div", { class: "hint" }, t("lpSub", r.tried, r.points - r.defence, r.defence)),
+    r.themes.length ? r.themes.map((th) => h("div", { class: "lp-theme" },
+      h("div", { class: "row" }, h("b", {}, t("lpTheme_" + th.theme)),
+        h("span", { class: "muted small" }, th.weapon.type ? t("lpWeapon", trItem(th.weapon.base)) : t("lpSpells")),
+        h("span", { class: "lp-bar" }, h("i", { style: `width:${Math.max(2, th.score / top * 100)}%` })),
+        h("button", { class: "ghost small", title: t("lpIntoHint"), onclick: () => lvPickInto(st, th) }, "→ ", t("lpInto"))),
+      th.skills.map((s) => h("div", { class: "lp-link" },
+        h("span", { class: "lp-gems" }, gemName(s.name), s.supports.map((x) => [" + ", gemName(x)])),
+        h("span", { class: "muted small" }, t("lpDps", fmt(s.bare), fmt(s.dps), fmt(s.dpsTree))))),
+      h("div", { class: "small" }, h("span", { class: "muted" }, t("lpTreeDamage")), " ",
+        th.tree.damage.map((n) => trName(n.name)).join(", ") || "—"),
+      h("div", { class: "small" }, h("span", { class: "muted" }, t("lpTreeDefence")), " ",
+        th.tree.defence.map((n) => trName(n.name)).join(", ") || "—"))) : h("p", { class: "muted" }, t("lpNone")));
+}
+async function lvPick(st) {
+  CT.lvPick[st.key] = "loading";
+  ctDraw();
+  try {
+    CT.lvPick[st.key] = await api(`/api/constructor/link-pick?${buildQuery()}`, { method: "POST", body: { level: lvPickLevel(st) } });
+  } catch (e) { CT.lvPick[st.key] = { error: e.message }; }
+  ctDraw();
+}
+// a theme into the stage: its links, its weapon, its passives in the order taken (asked first over what is there)
+async function lvPickInto(st, th) {
+  const has = ["links", "weapon", "tree"].some((part) => { const b = auBlock(lvId(st.key, part)); return (b.links || b.list || []).length; });
+  if (has && !(await confirmInPage(t("lpIntoAsk"), t("lpInto")))) return;
+  ctSet(lvId(st.key, "links"), { links: th.skills.map((s) => [`gem:${s.name}`, ...s.supports.map((x) => `support:${x}`)]) });
+  ctSet(lvId(st.key, "weapon"), { list: th.weapon.base ? [`base:${th.weapon.base}`] : [] });
+  ctSet(lvId(st.key, "tree"), { list: [...th.tree.damage, ...th.tree.defence].map((n) => `passive:${n.id}|${n.name}`) });
+  ctDraw();
+}
+
 // the previous stage's links, weapon and passives into this one (to change from there)
 async function lvCopyPrevious(i, stages) {
   if (!i) return;
@@ -500,10 +545,12 @@ function lvEditor() {
           sw && sw.level && sw.stage === st.key ? h("span", { class: "chip must" }, "🚩 " + t("lrSwitchShort", sw.level)) : null,
           i ? h("button", { class: "ghost small", onclick: () => lvCopyPrevious(i, stages) }, t("lvCopy")) : null,
           h("button", { class: "ghost small", onclick: () => lvCheck(st) }, "🔍 ", t("lvCheck")),
+          h("button", { class: "ghost small", title: t("lpHint"), onclick: () => lvPick(st) }, "🎯 ", t("lpRun")),
           h("button", { class: "ghost small", title: t("ctUndoHint"), onclick: ctUndo }, "↶ ", t("ctUndo"))),
         lv && !lv.roadmap ? h("div", { class: "hint" }, t("lvNoPlan")) : null,
         h("div", { class: "lv-grid" }, lvLinks(st, plan, info), lvWeapon(st, plan), lvTree(st, plan), lvGear(st, plan)),
         lvCheckPanel(st),
+        lvPickPanel(st),
         h("div", { class: "card stack" }, h("b", {}, "✎ ", t("lvNote")), h("div", { class: "hint" }, t("lvNoteHint")),
           auEditor(auBlock(lvId(st.key, "note")).text || "", (v) => auSave(lvId(st.key, "note"), { text: v }), t("auStagePh")))].filter(Boolean));
     }).catch((e) => box.replaceChildren(errorCard(e)));

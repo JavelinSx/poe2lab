@@ -1716,3 +1716,9 @@ div.eg-q-mod { user-select: none; }
 .mix-button { gap: 6px; flex-wrap: wrap; }
 .mix-part { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
 .mix-part img, .mix-part .ic { width: 16px; height: 16px; }
+/* links picked by PoB for a levelling stage */
+.lp-theme { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.lp-link { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.lp-gems { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.lp-bar { flex: 1; min-width: 60px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.lp-bar i { display: block; height: 100%; background: var(--gold); }
