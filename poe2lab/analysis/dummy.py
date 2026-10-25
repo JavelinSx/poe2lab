@@ -193,20 +193,9 @@ def _num(o: dict, key: str) -> float:
     return float(v) if isinstance(v, (int, float)) else 0.0
 
 
-class keep_main:
-    """Puts the build's main skill back after the dummy has made each skill the main one in turn."""
-    def __init__(self, engine):
-        self.engine = engine
-
-    def __enter__(self):
-        info = self.engine.info()
-        self.main = (info.get("mainSocketGroup"), info.get("mainActiveSkill") or 1)
-        return self
-
-    def __exit__(self, *exc):
-        if self.main[0]:
-            self.engine.set_main_skill(*self.main)
-        return False
+def keep_main(engine):
+    """Puts the build's skills back as they were picked after the dummy has made each skill the main one in turn."""
+    return engine.kept_main()
 
 
 def skills(engine, statdesc_dir=None) -> list[dict]:

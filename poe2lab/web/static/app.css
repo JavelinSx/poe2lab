@@ -1709,3 +1709,5 @@ div.eg-q-mod { user-select: none; }
 .ws-pick .chip { padding: 1px 8px; }
 .dm-beyond { gap: 2px; border-top: 1px dashed var(--line); padding-top: 4px; }
 .dm-crystal { fill: #9fdcff; fill-opacity: .7; stroke: #2a6f99; stroke-width: .5; pointer-events: none; }
+/* a starter's step: the gems new at it */
+.lv-socket.new { box-shadow: 0 0 0 2px var(--gold) inset; border-radius: 8px; }

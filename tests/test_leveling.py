@@ -55,6 +55,41 @@ def test_players_guides_come_first(monk, monkeypatch):
     assert way["starter"]["sameAscendancy"] and way["skills"][0]["level"] < 42 and way["skills"][-1]["name"] == "Whirling Assault"
 
 
+def test_a_starters_gems_step_by_step():
+    """A planner's own steps (a step changing nothing left out); a video's link groups as their gems drop; only
+    skills known: each skill as it drops."""
+    planner = {"steps": [{"level": 1, "name": "Clearfell", "gems": [["Frostbolt"]]},
+                         {"level": 2, "name": "Grelwood", "gems": [["Frostbolt"]]},
+                         {"level": 3, "name": "Level 3", "gems": [["Frostbolt", "Arcane Tempo"], []]}]}
+    got = leveling.starter_gems(planner)
+    assert [(s["level"], s["name"]) for s in got] == [(1, "Clearfell"), (3, "Level 3")]
+    assert got[-1]["groups"] == [["Frostbolt", "Arcane Tempo"]]
+    video = {"groups": [[{"name": "Spark", "level": 1}, {"name": "Arcane Tempo", "level": 5}],
+                        [{"name": "Flameblast", "level": 9}]]}
+    assert [(s["level"], s["groups"]) for s in leveling.starter_gems(video)] == [
+        (1, [["Spark"]]), (9, [["Spark", "Arcane Tempo"], ["Flameblast"]])]
+    skills = {"skills": [{"name": "Spark", "level": 1}, {"name": "Flameblast", "level": 9}]}
+    assert [s["groups"] for s in leveling.starter_gems(skills)] == [[["Spark"]], [["Spark"], ["Flameblast"]]]
+
+
+def test_the_skills_levelling_is_the_starters_and_ranks_nothing(client, monkeypatch):
+    """With a starter for the class the gems tab shows its steps and PoB ranks no supports (the slow part)."""
+    guide = {"id": "maxroll:g:0", "source": "maxroll", "title": "A starter", "class": session.engine.info()["class"],
+             "ascendancies": [], "mainSkill": "Boneshatter", "votes": 1, "tips": [], "url": "https://x",
+             "skills": [{"name": "Boneshatter", "level": 1, "tier": 1}],
+             "steps": [{"level": 1, "name": "Clearfell", "gems": [["Boneshatter"]]}]}
+    monkeypatch.setattr(starters, "load", lambda: [guide])
+    h = {"X-Poe2lab": "1"}
+    session.cache.clear()
+    r = client.get(f"/api/skills?view=leveling&build={session.path.stem}", headers=h).json()
+    assert r["starter"]["id"] == "starter:maxroll:g:0" and r["starter"]["steps"][0]["groups"] == [["Boneshatter"]]
+    assert r["plans"] == [] and r["timeline"]
+    monkeypatch.setattr(starters, "load", lambda: [])
+    session.cache.clear()
+    r = client.get(f"/api/skills?view=leveling&build={session.path.stem}", headers=h).json()
+    assert r["starter"] is None and r["plans"]
+
+
 def test_the_switch_waits_for_what_carries_the_build(titan):
     engine, bp = titan
     config = leveling.MapProfile(rage=bp.rage).config()

@@ -28,12 +28,14 @@ let IN_PRELOAD = false, FOREGROUND = 0;
 async function api(path, opts = {}) {
   const mine = !IN_PRELOAD;
   if (mine) FOREGROUND++;
-  try { return await request(path, opts); } finally { if (mine) FOREGROUND--; }
+  // the preloader's GETs may go to the server's spare engines (the build's tabs counted side by side)
+  try { return await request(path, { ...opts, pool: !mine }); } finally { if (mine) FOREGROUND--; }
 }
 async function request(path, opts) {
+  const { pool, ...rest } = opts;
   const res = await fetch(path, {
-    ...opts,
-    headers: { "Content-Type": "application/json", "X-Poe2lab": "1" },
+    ...rest,
+    headers: { "Content-Type": "application/json", "X-Poe2lab": "1", ...(pool && !rest.method ? { "X-Poe2lab-Pool": "1" } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
@@ -1324,7 +1326,15 @@ function preload(blocking) {
   try { last = JSON.parse(localStorage.getItem(preloadKey()) || "null"); } catch (_) { /* storage blocked */ }
   const known = last && last.steps ? last.steps : {};
   // each step's share of the bar: its time the last time (a request worked out already is quick)
-  const weight = steps.map(([tab], i) => Math.max(150, known[`${tab}:${i}`] || 1500));
+  let weight = steps.map(([tab], i) => Math.max(150, known[`${tab}:${i}`] || 1500));
+  // several at once (the server's spare engines): the open tab first, then the longest, so none is left alone at the end
+  if ((b.workers || 0) > 1) {
+    const order = steps.map((st, i) => i).sort((x, y) => (steps[y][0] === state.tab) - (steps[x][0] === state.tab) || weight[y] - weight[x]);
+    const keyOf = steps.map(([tab], i) => `${tab}:${i}`);
+    steps.splice(0, steps.length, ...order.map((i) => steps[i]));
+    weight = order.map((i) => weight[i]);
+    steps.forEach((st, i) => { st.key = keyOf[order[i]]; });
+  }
   const sum = weight.reduce((a, x) => a + x, 0);
   const estimate = last ? Math.round(last.total / 1000) : null;
   let release;
@@ -1363,14 +1373,24 @@ function preload(blocking) {
   }, 500);
   const finish = () => { clearInterval(clock); release(); };
 
+  // with the server's spare engines (workers) several steps run at once and the player's own requests do not wait for
+  // them; without, one at a time, and what the player opened goes before the next step
+  const lanes = Math.max(1, b.workers || 0);
   (async () => {
     const took = {};
-    let done = 0;
-    for (let i = 0; i < steps.length; i++) {
-      // the constructor calculates nothing until asked: the tabs' work waits while it is open; and what the player
-      // opened goes before the next step (the server answers one request at a time)
-      while ((state.page === "ctor" || FOREGROUND > 0) && preload.token === token) await new Promise((r) => setTimeout(r, 300));
-      if (preload.token !== token || state.build !== b) { finish(); return; }  // another build, or a newer run
+    let done = 0, next = 0, stopped = false;
+    const left = Object.fromEntries(PRELOAD_TABS.map((tab) => [tab, steps.filter(([x]) => x === tab).length]));
+    const lane = async () => {
+      while (!stopped && next < steps.length) {
+        // the constructor calculates nothing until asked: the tabs' work waits while it is open
+        while ((state.page === "ctor" || (lanes === 1 && FOREGROUND > 0)) && preload.token === token) await new Promise((r) => setTimeout(r, 300));
+        if (preload.token !== token || state.build !== b) { stopped = true; return; }  // another build, or a newer run
+        const i = next++;
+        if (i >= steps.length) return;
+        await runStep(i);
+      }
+    };
+    const runStep = async (i) => {
       const [tab, run] = steps[i];
       chips[tab].className = "pl-tab work";
       stripText.textContent = t("plStrip", t("tab_" + tab), i + 1, steps.length);
@@ -1383,12 +1403,13 @@ function preload(blocking) {
       let pending;
       try { pending = run(); } finally { IN_PRELOAD = false; }
       try { await pending; } catch (_) { failed = true; }  // the tab shows the error itself (and asks again)
-      took[`${tab}:${i}`] = Math.round(performance.now() - s0);
+      took[steps[i].key || `${tab}:${i}`] = Math.round(performance.now() - s0);  // under the step's own place in the list
       done += weight[i];
       if (failed) chips[tab].classList.add("fail");
-      if (!steps.slice(i + 1).some(([x]) => x === tab)) chips[tab].className = "pl-tab " + (chips[tab].classList.contains("fail") ? "fail" : "done");
-    }
-    if (preload.token !== token) { finish(); return; }
+      if (--left[tab] === 0) chips[tab].className = "pl-tab " + (chips[tab].classList.contains("fail") ? "fail" : "done");
+    };
+    await Promise.all(Array.from({ length: lanes }, lane));
+    if (preload.token !== token || stopped) { finish(); return; }
     try { localStorage.setItem(preloadKey(), JSON.stringify({ total: performance.now() - t0, steps: took })); } catch (_) { /* storage blocked */ }
     strip.classList.add("hidden");
     finish();
@@ -5528,7 +5549,56 @@ function renderUniqueLinks(r, reload) {
 // Levelling, as the game shows gems: pick a level (the character's by default) and see, for each skill, what goes
 // into its support sockets then - the build's own supports once they can be had, a stand-in until then (the best
 // PoB finds that is not used elsewhere: a support gem goes into one skill only) - and what opens next.
+// Levelling with a league starter (a maxroll planner or a starter video, poe2lab.starters): its gems at a level -
+// the step in force with its link groups - and what the next step changes; then the build's own gems as they drop.
+function renderStarterLeveling(r) {
+  const st = r.starter, steps = st.steps;
+  const charLevel = state.build.info.level || 1;
+  const last = steps.length ? steps[steps.length - 1].level : 1;
+  const top = Math.max(60, last, ...r.timeline.map((x) => x.level));
+  let level = Math.min(top, state.levelView && state.levelView.build === state.build.name ? state.levelView.level : Math.min(charLevel, last));
+  const shown = h("span", { class: "lv-level" });
+  const slider = h("input", { type: "range", min: 1, max: top, value: level, oninput: () => set(Number(slider.value)) });
+  const body = h("div", { class: "stack" });
+  const ahead = h("div", {});
+  const gem = (name, cls) => gemHover(h("div", { class: "lv-socket " + cls }, icon(name) || h("div", { class: "lv-hole" }),
+    h("div", { class: "lv-sock-name" }, trName(name))), name);
+  const set = (lv) => {
+    level = lv;
+    state.levelView = { build: state.build.name, level };
+    shown.textContent = level;
+    const i = Math.max(0, steps.findLastIndex((s) => s.level <= level));
+    const step = steps[i], next = steps[i + 1];
+    const had = new Set(i ? steps[i - 1].groups.flat() : []);
+    body.replaceChildren(
+      h("div", { class: "row" }, h("b", {}, t("lvStStep", step.level)), step.name ? h("span", { class: "muted" }, step.name) : null,
+        step.before ? h("span", { class: "muted small" }, t("lvStBefore")) : null, level > last ? chip("tag", t("lvStPast")) : null),
+      ...step.groups.map((g) => h("div", { class: "lv-skill" }, h("div", { class: "lv-sockets" },
+        g.map((name, k) => gem(name, (k ? "fill" : "own") + (had.has(name) ? "" : " new")))))));
+    const fresh = next ? next.groups.flat().filter((x) => !new Set(step.groups.flat()).has(x)) : [];
+    ahead.replaceChildren(next ? h("div", { class: "stack" }, h("b", {}, t("lvStNext", next.level, next.name || "")),
+      fresh.length ? h("div", { class: "lv-next" }, fresh.map((x) => gemHover(h("div", { class: "named pk-node" }, icon(x), trName(x)), x)))
+        : h("span", { class: "muted small" }, t("lvStRelink"))) : h("p", { class: "muted" }, t("lvStLast")));
+  };
+  set(level);
+  const builds = r.timeline.filter((x) => x.level > 1).slice(0, 8);
+  return [
+    h("div", { class: "card stack" },
+      h("h3", {}, t("lvStTitle")),
+      h("div", { class: "row" }, chip("tag", t("lvStSource_" + st.source)),
+        st.url ? h("a", { href: st.url, target: "_blank", rel: "noopener" }, st.title) : h("b", {}, st.title),
+        st.profile ? h("span", { class: "muted small" }, st.profile) : null),
+      h("div", { class: "hint" }, st.chosen ? t("lvStChosen") : t("lvStAuto")),
+      h("div", { class: "lv-head" }, h("span", { class: "muted" }, t("lvLevel")), shown, slider),
+      body),
+    h("div", { class: "card" }, ahead),
+    builds.length ? h("div", { class: "card stack" }, h("h3", {}, t("lvBuildGems")), h("div", { class: "lv-next" }, builds.map((x) => h("div", { class: "lv-mile" },
+      h("b", {}, t("lvAt", x.level)), x.gems.map((g) => gemHover(h("div", { class: "named pk-node" }, icon(g.name), trName(g.name)), g.name)))))) : null,
+  ];
+}
+
 function renderSkillsLeveling(r) {
+  if (r.starter) return renderStarterLeveling(r);
   for (const p of r.plans) for (const s of p.stages) for (const o of s.options) {
     if (o.color && !GEM_INFO[o.name]) GEM_INFO[o.name] = { color: o.color, support: true };
   }

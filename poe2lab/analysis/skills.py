@@ -518,7 +518,8 @@ def better_supports(engine, config, level: int | None = None) -> list[dict]:
                               "weakest": weakest["name"], "weakestWorth": floor,
                               "weakestEhp": worth[weakest["name"]].get("ehp", 0.0), "better": []}
     taken = set()  # a gem (and its family) to the skill it gives most
-    for net, gi, c in sorted(found, key=lambda x: (-round(x[0], 1), -(x[2]["tier"] or 0))):  # the higher tier on a tie
+    # the higher tier on a tie, then by name (the same answer whichever order PoB lists the gems in)
+    for net, gi, c in sorted(found, key=lambda x: (-round(x[0], 1), -(x[2]["tier"] or 0), x[2]["name"])):
         fam = c["family"] or c["name"]
         if fam in taken or len(skills[gi]["better"]) >= BETTER_TOP:
             continue
@@ -711,10 +712,12 @@ def build_view(engine, config: dict, mechanics_raw: dict | None = None, uniques:
             "mechanics": {m.key: {"name": m.name, "explain": m.explain} for m in MECHANICS}}
 
 
-def leveling_view(engine, config: dict, groups: list[dict] | None = None, levels: dict[str, int] | None = None) -> dict:
+def leveling_view(engine, config: dict, groups: list[dict] | None = None, levels: dict[str, int] | None = None,
+                  rank: bool = True) -> dict:
     """When each gem of the build can be had, and for each damaging skill the supports to use at each stage of
     levelling - the build's own when available, otherwise the best alternatives PoB finds (several, to choose).
-    `levels`: the level a guide gives for a gem (its planner file), by gem name: used instead of when the gem drops."""
+    `levels`: the level a guide gives for a gem (its planner file), by gem name: used instead of when the gem drops.
+    `rank`: False - no supports ranked (the player levels with a league starter's gems instead): the timeline only."""
     groups = groups or engine.skill_groups()
     levels = levels or {}
     timeline = {}
@@ -731,6 +734,8 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None, levels
                                                     "guide": gem["name"] in levels})
                 if g["actives"][0]["name"] not in entry["skills"]:
                     entry["skills"].append(g["actives"][0]["name"])
+        if not rank:
+            continue
         m = _measure_group(engine, config, g)
         if m["how"] == "main":
             continue  # a buff or utility group: its supports are listed in the timeline, nothing to rank
@@ -743,7 +748,7 @@ def leveling_view(engine, config: dict, groups: list[dict] | None = None, levels
             got = gains.get(c["id"])
             if got and got[key] > base * 1.005:
                 ranked.append(c | {"dps": (got[key] / base - 1) * 100, "available": UNCUT_SUPPORT_AREA.get(c["tier"])})
-        ranked.sort(key=lambda c: -c["dps"])
+        ranked.sort(key=lambda c: (-round(c["dps"], 3), c["name"]))  # by name on a tie: the same every time
         own = [x for x in g["gems"] if x["support"]]
         stages = []
         for level in SUPPORT_STAGES:

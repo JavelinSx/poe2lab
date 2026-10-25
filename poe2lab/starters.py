@@ -171,9 +171,25 @@ def _videos(engine, by_name: dict) -> list[dict]:
                     seen.add(gem["name"])
                     skills.append({"name": gem["name"], "level": lv, "tier": cat["tier"]})
         skills.sort(key=lambda s: s["level"])
+        # its link groups, a skill first then its supports, each gem with the level it drops at (the steps are made
+        # of them: poe2lab.analysis.leveling.starter_gems)
+        groups = []
+        for g in engine.skill_groups():
+            if not g["enabled"]:
+                continue
+            gems = [x for x in g["gems"] if x["enabled"]]
+            head = next((x for x in gems if not x["support"] and by_name.get(x["name"])
+                         and _levels_with(by_name[x["name"]])), None)
+            if head is None or available_level(head) is None:
+                continue
+            group = [{"name": head["name"], "level": available_level(head)}]
+            group += [{"name": x["name"], "level": max(available_level(x) or 1, group[0]["level"])}
+                      for x in gems if x["support"]]
+            groups.append(group)
+        groups.sort(key=lambda g: (g[0]["level"], g[0]["name"]))
         out.append({"id": f"video:{claims['build']}", "source": "video", "title": claims["title"], "profile": "",
                     "url": "", "class": info["class"], "ascendancies": [a for a in [info.get("ascendancy")] if a],
-                    "mainSkill": engine.main_skill() or "", "skills": skills, "steps": [],
+                    "mainSkill": engine.main_skill() or "", "skills": skills, "steps": [], "groups": groups,
                     "tips": [c["says"] for c in claims["claims"] if c.get("kind") in TIP_KINDS][:MAX_TIPS],
                     "patch": claims.get("patch", "")})
     return out

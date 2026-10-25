@@ -1,6 +1,9 @@
 """Local web interface: one loaded build, heavy analyses cached, everything served as JSON to a static page."""
+import contextvars
 import hashlib
 import json
+import os
+import queue
 import re
 import threading
 import uuid
@@ -51,7 +54,7 @@ from .. import (atlas, author, buildplanner, constructor, crafting, endgame, far
                glossary,
                icons, itemcraft,
                itemtext, jewelcraft, journal, library, lootfilter, maxroll, mcpconnect, newbuild, pobapp, quality,
-               resultcache)
+               resultcache, starters)
 from ..i18n import _get as _trade_data
 from ..i18n import dictionary as translation_dictionary
 from ..i18n import pob_line, stat_templates
@@ -62,6 +65,94 @@ from ..profile import CORRECTION_BLOCK, BuildProfile, describe as describe_profi
 
 STATIC = Path(__file__).resolve().parent / "static"
 SLOTS_ORDER = ["Weapon 1", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt"]
+
+
+# The tabs' analyses in parallel: spare engines with the open build (the snapshot of the session's one, a few
+# hundred MB each) answer the preloader's requests - each in its own thread, PoB's Lua running without Python's lock -
+# while the session's engine stays free for what the player clicks. A request marked by the page (X-Poe2lab-Pool)
+# takes a free spare engine for its whole run: `session.engine`, `session.lock` and `session.ref` are that engine's
+# then, so the analyses' code is the same. POE2LAB_WORKERS: how many (0 - none, everything on the one engine).
+WORKERS = int(os.environ.get("POE2LAB_WORKERS", min(4, max(0, (os.cpu_count() or 2) // 2 - 1))))
+_pooled = contextvars.ContextVar("poe2lab_pooled", default=False)  # the request may run on a spare engine
+_slot = contextvars.ContextVar("poe2lab_slot", default=None)  # the spare engine the request runs on
+_request_frames = contextvars.ContextVar("poe2lab_frames", default=None)  # Session._frames of this request
+
+
+class _Spare:
+    """A spare engine: the open build as of `rev` (Session.rev), its own reference build."""
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.rev = -1
+        self.clean = ""  # its state_text right after it was brought up: an analysis that left it otherwise is undone
+        self.ref: tuple | None = None
+
+
+class _Pool:
+    """The spare engines, started in the background the first time a build opens."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self.free: queue.Queue = queue.Queue()
+        self.all: list[_Spare] = []
+        self._started = False
+        self._lock = threading.Lock()
+
+    def start(self):
+        with self._lock:
+            if self._started or not self.size:
+                return
+            self._started = True
+
+        def make():
+            try:
+                spare = _Spare(PobEngine())
+            except Exception as err:  # noqa: BLE001 - without it the tabs are only counted one after another
+                log.warning("spare engine not started: %s", err)
+                return
+            with self._lock:
+                self.all.append(spare)
+            self.free.put(spare)
+        for _ in range(self.size):
+            threading.Thread(target=make, daemon=True, name="poe2lab-spare").start()
+
+    @property
+    def ready(self) -> int:
+        return len(self.all)
+
+
+class _SpareSlot:
+    """`with session.lock` of a pooled request: a free spare engine, brought to the open build's state first."""
+
+    def __init__(self, owner: "Session"):
+        self.owner = owner
+
+    def __enter__(self):
+        s = self.owner
+        spare = s.pool.free.get()
+        try:
+            if spare.rev != s.rev:
+                with s._lock:  # the session's engine between two of its uses
+                    rev = s.rev
+                    if s._snap is None or s._snap[0] != rev:
+                        s._snap = (rev, s._engine.snapshot())
+                    snap = s._snap[1]
+                spare.engine.restore(snap)
+                spare.rev, spare.ref, spare.clean = rev, None, spare.engine.state_text()
+            elif spare.engine.state_text() != spare.clean:  # the last analysis left another skill picked, an item...
+                spare.engine.restore(s._snap[1])
+                spare.clean = spare.engine.state_text()
+        except BaseException:
+            s.pool.free.put(spare)
+            raise
+        self.spare = spare
+        self.token = _slot.set(spare)
+        return self
+
+    def __exit__(self, *exc):
+        _slot.reset(self.token)
+        self.owner.pool.free.put(self.spare)
+        return False
 
 
 class _Results(dict):
@@ -75,37 +166,84 @@ class _Results(dict):
     def clear(self):
         super().clear()
         self.owner._state = None
+        self.owner.rev += 1
 
     def pop(self, *args):
         self.owner._state = None
+        self.owner.rev += 1
         return super().pop(*args)
 
     def __delitem__(self, key):
         super().__delitem__(key)
         self.owner._state = None
+        self.owner.rev += 1
 
 
 class Session:
     """The build currently open in the UI. The PoB engine is single-threaded, so every use takes the lock."""
 
     def __init__(self):
-        self.lock = threading.Lock()
+        self._lock = threading.Lock()
+        self.pool = _Pool(WORKERS)
+        self.rev = 0  # the open build's state: one more at each change (a spare engine at another rev is brought up)
+        self._snap: tuple | None = None  # (rev, the engine's snapshot) the spare engines are brought to
         self.path: Path | None = None
-        self.engine = None
+        self._engine = None
+        self._ref: tuple | None = None
         self.bp: BuildProfile | None = None
         self._cache: _Results = _Results(self)
         self.assistant: Assistant | None = None
         self.toolbox: Toolbox | None = None
         self._prices: PriceBook | None | bool = False
-        self.ref: tuple | None = None  # (name, engine, profile) of the reference build for comparisons
         self.main: Path | None = None  # the player's own character of the build (builds/<name>.main.txt), if any
         self.plan: dict | None = None  # passive tree edits on top of the build (see /api/tree/*)
         self.level: int | None = None  # character level: sets the enemy (see MapProfile.for_level)
         self.picked_filter: Path | None = None  # the player's filter chosen in the file dialog
         self.mtime = 0.0  # the build file's time when it was read: a newer file means PoB saved it again
-        self._frames: list[bool] = []  # the results being worked out, innermost last: whether each used prices
         self.priced: set = set()  # the results that used poe.ninja's prices (kept on disk for a while only)
         self._state: str | None = None  # what the open build's results come from (_state_of), while they hold
+
+    @property
+    def engine(self):
+        spare = _slot.get()
+        return spare.engine if spare is not None else self._engine
+
+    @engine.setter
+    def engine(self, value):
+        self._engine = value
+
+    @property
+    def lock(self):
+        """The session's engine's lock; for a pooled request (the preloader's) a spare engine instead."""
+        if _pooled.get() and _slot.get() is None and self.pool.ready and self._engine is not None:
+            return _SpareSlot(self)
+        return self._lock
+
+    @property
+    def ref(self) -> tuple | None:
+        """(name, engine, profile) of the reference build for comparisons: a spare engine has its own."""
+        spare = _slot.get()
+        return spare.ref if spare is not None else self._ref
+
+    @ref.setter
+    def ref(self, value):
+        spare = _slot.get()
+        if spare is not None:
+            spare.ref = value
+            return
+        self._ref = value
+        if value is None:  # the reference changed: the spare engines open it anew too
+            for other in list(self.pool.all):
+                other.ref = None
+
+    @property
+    def _frames(self) -> list[bool]:
+        """The results being worked out by this request, innermost last: whether each used prices."""
+        frames = _request_frames.get()
+        if frames is None:
+            frames = []
+            _request_frames.set(frames)
+        return frames
 
     def require(self, build: str | None = None):
         if self.engine is None:
@@ -134,6 +272,7 @@ class Session:
         self.cache.clear()
         self.assistant = self.toolbox = None
         self._state_of()  # the build as it opened, before an analysis moves anything in the engine
+        self.pool.start()
 
     @property
     def cache(self) -> dict:
@@ -143,6 +282,7 @@ class Session:
     def cache(self, value: dict):
         self._cache = _Results(self, value)
         self._state = None
+        self.rev += 1
 
     def file_changed(self) -> bool:
         try:
@@ -165,13 +305,20 @@ class Session:
         if kept is not resultcache.MISS:
             value, priced = kept
         else:
+            rev = self.rev
             self._frames.append(False)
             try:
-                value = fn()
+                if self.engine is not None and head in PERSISTED:
+                    with self.engine.kept_main():  # no analysis leaves the skills picked otherwise for the next
+                        value = fn()
+                else:
+                    value = fn()
             finally:
                 priced = self._frames.pop()
             if state:
                 resultcache.put(state, key, value, priced)
+            if rev != self.rev and _slot.get() is not None:
+                return value  # the build changed while a spare engine worked it out: not the open build's result
         if priced:
             self.priced.add(key)
             if self._frames:
@@ -242,6 +389,26 @@ RECORDED = "@build"  # the reference name of the open build as its file records 
 session = Session()
 app = FastAPI(title="poe2lab")
 app.add_middleware(GZipMiddleware, minimum_size=4096)  # the RU dictionary is several MB
+
+
+class _PoolMarker:
+    """A GET the page's preloader sent (X-Poe2lab-Pool: 1) may run on a spare engine (see WORKERS)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["method"] == "GET" and (b"x-poe2lab-pool", b"1") in scope["headers"]:
+            token = _pooled.set(True)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                _pooled.reset(token)
+        else:
+            await self.app(scope, receive, send)
+
+
+app.add_middleware(_PoolMarker)
 setup_log()
 
 
@@ -779,6 +946,7 @@ def _summary():
     e = session.engine
     q = _errors(_profile_questions)
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
+            "workers": session.pool.size,
             "gems": sorted({g["name"] for g in e.gems()}),
             "gemColors": {g["name"]: {"color": g["color"], "support": g["support"]} for g in e.gems()},
             "profile": describe_profile(session.bp, rage=q["rage"]), "profileRaw": _profile_raw(),
@@ -1574,8 +1742,12 @@ def skills_view(view: str = "build", scope: str = "level", build: str | None = N
             data = session.cached(("skills", "leveling", "target", name),
                                   lambda: skill_leveling_view(engine, profile.config(), levels=_guide_levels(bp))) | {"of": name}
         else:
-            data = session.cached(("skills", "leveling"),
-                                  lambda: skill_leveling_view(e, cfg, levels=_guide_levels(session.bp)))
+            # levelling is a league starter's (the players' guides and videos): its gems step by step; the supports
+            # PoB ranks for the build's own skills only for a class no starter is known for
+            starter = _leveling_starter()
+            data = session.cached(("skills", "leveling", starter and starter["id"]),
+                                  lambda: skill_leveling_view(e, cfg, levels=_guide_levels(session.bp),
+                                                              rank=starter is None)) | {"starter": starter}
         if view == "build":
             # gem edits are edits of the plan; each skill's own damage, crit, speed (crit is a skill's own in the game)
             numbers = session.cached(("skill-numbers",), lambda: e.skill_damage(cfg))
@@ -3359,6 +3531,28 @@ def _leveling_view():
         key = ("leveling", json.dumps(answers, sort_keys=True))
         road = session.cached(key, lambda: leveling.roadmap(engine, bp.rage, bp.mana_sustained, answers, here))
     return _json({"ways": ways, "answers": answers, "roadmap": road, "characterLevel": here})
+
+
+def _leveling_starter() -> dict | None:
+    """The league starter the player levels with: the one chosen as the way (Overview, levelling), else the first
+    starter way of the build's class (they come first, most like the build first); its gems step by step. None: no
+    starter for the class."""
+    engine = _reference(RECORDED)[1] if session.main is not None else session.engine
+    ways = session.cached(("leveling-ways",), lambda: leveling.ways(engine))["ways"]
+    answers = (_profile_raw().get("leveling") or {}) if _profile_path().exists() else {}
+    chosen = next((w for w in ways if w["id"] == answers.get("way") and w.get("starter")), None)
+    way = chosen or next((w for w in ways if w.get("starter")), None)
+    st = way and next((s for s in starters.load() if "starter:" + s["id"] == way["id"]), None)
+    if not st:
+        return None
+    steps = leveling.starter_gems(st)
+    # before a video's own skills drop: the skills of the way most like it, as the levelling plan has them
+    early = [s for s in way["skills"] if s.get("until")]
+    if early:
+        steps = [s | {"before": True} for s in leveling.starter_gems({"skills": early})] + steps
+    return {"id": way["id"], "title": st["title"], "url": st.get("url", ""), "source": st["source"],
+            "profile": st.get("profile", ""), "mainSkill": st["mainSkill"], "chosen": chosen is not None,
+            "steps": steps}
 
 
 @app.get("/api/leveling")

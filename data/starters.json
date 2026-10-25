@@ -2755,6 +2755,76 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Wolf Pack",
+     "level": 27
+    },
+    {
+     "name": "Minion Splash II",
+     "level": 55
+    },
+    {
+     "name": "Rage III",
+     "level": 55
+    },
+    {
+     "name": "Rapid Attacks II",
+     "level": 45
+    },
+    {
+     "name": "Feeding Frenzy II",
+     "level": 45
+    },
+    {
+     "name": "Muster",
+     "level": 33
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Reaver Minion",
+     "level": 32
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Storm Mage Minion",
+     "level": 42
+    },
+    {
+     "name": "Persistent Ground III",
+     "level": 55
+    },
+    {
+     "name": "Shock",
+     "level": 42
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Cleric Minion",
+     "level": 53
+    },
+    {
+     "name": "Last Gasp",
+     "level": 53
+    },
+    {
+     "name": "Deathmarch",
+     "level": 53
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 53
+    },
+    {
+     "name": "Sacrificial Lamb II",
+     "level": 53
+    }
+   ]
+  ],
   "tips": [],
   "patch": "0.5",
   "votes": 1
@@ -2788,6 +2858,66 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Snipe",
+     "level": 7
+    },
+    {
+     "name": "Elemental Focus",
+     "level": 33
+    },
+    {
+     "name": "Concentrated Area",
+     "level": 7
+    },
+    {
+     "name": "Elemental Armament II",
+     "level": 16
+    }
+   ],
+   [
+    {
+     "name": "Ice Shot",
+     "level": 32
+    },
+    {
+     "name": "Elemental Armament II",
+     "level": 32
+    },
+    {
+     "name": "Ice Bite II",
+     "level": 33
+    },
+    {
+     "name": "Rapid Attacks II",
+     "level": 45
+    },
+    {
+     "name": "Gambleshot",
+     "level": 33
+    },
+    {
+     "name": "Fork",
+     "level": 33
+    }
+   ],
+   [
+    {
+     "name": "Tornado Shot",
+     "level": 42
+    },
+    {
+     "name": "Overabundance II",
+     "level": 45
+    },
+    {
+     "name": "Durability",
+     "level": 42
+    }
+   ]
+  ],
   "tips": [
    "Акты 1–2: Молниеносная стрела, Громоотвод, Вестник грома и Морозная бомба. Ледяной выстрел открывается на 31 уровне: заранее держать два камня 7–8 уровня под Прицельный выстрел и Морозную метку; Вестник грома меняют на Вестник льда.",
    "Валюту копить до 22 уровня и скрафтить хороший лук (хватит до конца 3 акта); на 45 уровне в 4 акте вложить всё в Артиллерийский лук — он до 15-х карт, потом Лук Аннигилятора."
@@ -2824,6 +2954,80 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Oil Grenade",
+     "level": 32
+    },
+    {
+     "name": "Nova Projectiles I",
+     "level": 32
+    },
+    {
+     "name": "Magnified Area II",
+     "level": 33
+    },
+    {
+     "name": "Short Fuse II",
+     "level": 45
+    },
+    {
+     "name": "Multishot II",
+     "level": 32
+    },
+    {
+     "name": "Encroaching Ground",
+     "level": 32
+    }
+   ],
+   [
+    {
+     "name": "Tornado",
+     "level": 42
+    }
+   ],
+   [
+    {
+     "name": "Tornado",
+     "level": 42
+    },
+    {
+     "name": "Advancing Storm",
+     "level": 45
+    },
+    {
+     "name": "Magnified Area II",
+     "level": 42
+    }
+   ],
+   [
+    {
+     "name": "Flameblast",
+     "level": 53
+    },
+    {
+     "name": "Considered Casting",
+     "level": 53
+    },
+    {
+     "name": "Searing Flame II",
+     "level": 53
+    },
+    {
+     "name": "Magnified Area I",
+     "level": 53
+    },
+    {
+     "name": "Burgeon II",
+     "level": 53
+    },
+    {
+     "name": "Controlled Destruction",
+     "level": 53
+    }
+   ]
+  ],
   "tips": [
    "Переход в билд — на 52 уровне после двух испытаний (нужен узел возвышения); золота на перераспределение хватило впритык."
   ],
@@ -2854,6 +3058,52 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Oil Barrage",
+     "level": 32
+    },
+    {
+     "name": "Romira's Requital",
+     "level": 32
+    },
+    {
+     "name": "Hulking Minions",
+     "level": 45
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 33
+    },
+    {
+     "name": "Last Gasp",
+     "level": 32
+    }
+   ],
+   [
+    {
+     "name": "Whirling Assault",
+     "level": 42
+    },
+    {
+     "name": "Heavy Swing",
+     "level": 45
+    },
+    {
+     "name": "Heft",
+     "level": 55
+    },
+    {
+     "name": "Close Combat II",
+     "level": 55
+    },
+    {
+     "name": "Vorana's Siege",
+     "level": 42
+    }
+   ]
+  ],
   "tips": [
    "До 41 уровня: Frozen Locus и взрывать его Glacial Cascade (с Concentrated Area — иначе шип пролетает мимо), потом Ice Strike, с середины акта 2 — Storm Wave (не ближний бой, дешевле по мане). Hollow Palm Technique — рашить в акте 1 (на 16 уровне), снять посох; отказаться на 41 уровне, когда посох даёт больше урона."
   ],
@@ -2884,6 +3134,44 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Contagion",
+     "level": 1
+    },
+    {
+     "name": "Magnified Area II",
+     "level": 33
+    },
+    {
+     "name": "Chaotic Freeze",
+     "level": 33
+    }
+   ],
+   [
+    {
+     "name": "Essence Drain",
+     "level": 7
+    },
+    {
+     "name": "Swift Affliction II",
+     "level": 33
+    },
+    {
+     "name": "Zenith II",
+     "level": 33
+    },
+    {
+     "name": "Chain II",
+     "level": 16
+    },
+    {
+     "name": "Considered Casting",
+     "level": 16
+    }
+   ]
+  ],
   "tips": [
    "Акты 1–2: на босса Contagion и Essence Drain один раз, потом зарядить Bonestorm до 20 стаков и выпустить; Ravenous Swarm даёт физический бафф для Bonestorm."
   ],
@@ -2939,6 +3227,182 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Frost Bomb",
+     "level": 1
+    },
+    {
+     "name": "Potent Exposure",
+     "level": 16
+    },
+    {
+     "name": "Overabundance I",
+     "level": 1
+    },
+    {
+     "name": "Spell Echo",
+     "level": 16
+    },
+    {
+     "name": "Cooldown Recovery II",
+     "level": 45
+    },
+    {
+     "name": "Magnified Area II",
+     "level": 33
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Sniper Minion",
+     "level": 1
+    },
+    {
+     "name": "Muster",
+     "level": 33
+    },
+    {
+     "name": "Feeding Frenzy II",
+     "level": 45
+    },
+    {
+     "name": "Multishot II",
+     "level": 16
+    },
+    {
+     "name": "Heft",
+     "level": 55
+    },
+    {
+     "name": "Armour Break III",
+     "level": 45
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Arsonist Minion",
+     "level": 7
+    },
+    {
+     "name": "Fire Attunement",
+     "level": 7
+    },
+    {
+     "name": "Muster",
+     "level": 33
+    },
+    {
+     "name": "Multishot II",
+     "level": 16
+    },
+    {
+     "name": "Feeding Frenzy II",
+     "level": 45
+    },
+    {
+     "name": "Heft",
+     "level": 55
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Frost Mage Minion",
+     "level": 15
+    },
+    {
+     "name": "Rapid Casting II",
+     "level": 45
+    },
+    {
+     "name": "Muster",
+     "level": 33
+    },
+    {
+     "name": "Cold Attunement",
+     "level": 15
+    },
+    {
+     "name": "Multishot II",
+     "level": 16
+    },
+    {
+     "name": "Concentrated Area",
+     "level": 15
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Reaver Minion",
+     "level": 32
+    },
+    {
+     "name": "Fire Attunement",
+     "level": 32
+    },
+    {
+     "name": "Muster",
+     "level": 33
+    },
+    {
+     "name": "Feeding Frenzy II",
+     "level": 45
+    },
+    {
+     "name": "Minion Splash II",
+     "level": 55
+    },
+    {
+     "name": "Armour Break III",
+     "level": 45
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Storm Mage Minion",
+     "level": 42
+    },
+    {
+     "name": "Shock",
+     "level": 42
+    },
+    {
+     "name": "Overcharge",
+     "level": 45
+    },
+    {
+     "name": "Muster",
+     "level": 42
+    },
+    {
+     "name": "Feeding Frenzy II",
+     "level": 45
+    },
+    {
+     "name": "Lightning Attunement",
+     "level": 42
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Cleric Minion",
+     "level": 53
+    },
+    {
+     "name": "Brutus' Brain",
+     "level": 53
+    },
+    {
+     "name": "Rapid Casting II",
+     "level": 53
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ]
+  ],
   "tips": [
    "Босс: зажать ЛКМ (Ruzhan), пока не кончатся 2 заряда, потом ПКМ (Kelari), пока не кончатся 3. Зачистка — ПКМ по пачкам. Слабое место — всего 3 заряда: потратил и окружили — опасно.",
    "Уровни 1–5 — Spark, затем Contagion + Essence Drain (по гайду спидраннера Guys), с 14 — заряжаемое умение на боссов; после Balbala и первого испытания Сехем — Varashta и Kelari (Kelari's Deception)."
@@ -2985,6 +3449,98 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Skeletal Sniper Minion",
+     "level": 1
+    },
+    {
+     "name": "Last Gasp",
+     "level": 1
+    },
+    {
+     "name": "Rapid Attacks II",
+     "level": 45
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ],
+   [
+    {
+     "name": "Wolf Pack",
+     "level": 27
+    },
+    {
+     "name": "Loyalty",
+     "level": 27
+    },
+    {
+     "name": "Last Gasp",
+     "level": 27
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 33
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Reaver Minion",
+     "level": 32
+    },
+    {
+     "name": "Last Gasp",
+     "level": 32
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 33
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Storm Mage Minion",
+     "level": 42
+    },
+    {
+     "name": "Last Gasp",
+     "level": 42
+    },
+    {
+     "name": "Rapid Casting II",
+     "level": 45
+    },
+    {
+     "name": "Shock",
+     "level": 42
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Cleric Minion",
+     "level": 53
+    },
+    {
+     "name": "Last Gasp",
+     "level": 53
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 53
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ]
+  ],
   "tips": [
    "Босс: удар облика зверя с меткой (ломает броню) → вернуться в человека (X) → Pain Offering (жертва приспешника, усиливает остальных и приказы) → способность кинжала → заряды Kelari.",
    "Кампания до 21 уровня — гранаты (у чародейки много стихийного урона на дереве): Explosive Grenade с Multishot и Elemental Armament, Flash Grenade (ослепление), с 14 уровня Gas Grenade. Frost Bomb — Exposure на боссов и насыщение холодом для Spark в самом начале. Копить 7000 золота на перераспределение дерева при переходе."
@@ -3036,6 +3592,128 @@
    }
   ],
   "steps": [],
+  "groups": [
+   [
+    {
+     "name": "Ice Nova",
+     "level": 1
+    },
+    {
+     "name": "Encroaching Ground",
+     "level": 16
+    },
+    {
+     "name": "Expand",
+     "level": 55
+    },
+    {
+     "name": "Astral Projection",
+     "level": 33
+    },
+    {
+     "name": "Persistent Ground I",
+     "level": 16
+    },
+    {
+     "name": "Slow Potency",
+     "level": 1
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Sniper Minion",
+     "level": 1
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 33
+    },
+    {
+     "name": "Last Gasp",
+     "level": 1
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Frost Mage Minion",
+     "level": 15
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 33
+    },
+    {
+     "name": "Last Gasp",
+     "level": 15
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ],
+   [
+    {
+     "name": "Wolf Pack",
+     "level": 27
+    },
+    {
+     "name": "Minion Instability",
+     "level": 27
+    },
+    {
+     "name": "Infernal Legion I",
+     "level": 27
+    },
+    {
+     "name": "Deathmarch",
+     "level": 27
+    },
+    {
+     "name": "Loyalty",
+     "level": 27
+    },
+    {
+     "name": "Amanamu's Tithe",
+     "level": 27
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Reaver Minion",
+     "level": 32
+    },
+    {
+     "name": "Meat Shield II",
+     "level": 33
+    },
+    {
+     "name": "Last Gasp",
+     "level": 32
+    },
+    {
+     "name": "Minion Mastery",
+     "level": 55
+    }
+   ],
+   [
+    {
+     "name": "Skeletal Storm Mage Minion",
+     "level": 42
+    },
+    {
+     "name": "Last Gasp",
+     "level": 42
+    },
+    {
+     "name": "Lightning Mastery",
+     "level": 55
+    }
+   ]
+  ],
   "tips": [
    "Акт 1: Frost Bomb даёт насыщение холодом → Ice Nova с ним оставляет охлаждённую землю → снова Frost Bomb → Spark (позже Frost Darts) с насыщением. Frost Bomb с Overabundance I и Spell Cascade — две бомбы, два насыщения (одно на Ice Nova, другое на Frost Darts); Short Fuse II в акте 4 — насыщения намного быстрее."
   ],

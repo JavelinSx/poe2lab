@@ -123,6 +123,7 @@ function _poe2lab_item_view(item, slotName)
   end
   local tags = _poe2lab_array({})
   for t, on in pairs(item.base and item.base.tags or {}) do if on then tags[#tags + 1] = t end end
+  table.sort(tags)
   return { slot = slotName, name = item.name or "", baseName = item.baseName or "", type = item.type or "",
     rarity = item.rarity or "", itemLevel = item.itemLevel or 0, corrupted = item.corrupted and true or false,
     quality = item.quality or 0, reqLevel = item.requirements and item.requirements.level or 0, tags = tags,
@@ -323,6 +324,28 @@ return _poe2lab_json(out)""")
         self._lua(f"local g = build.skillsTab.socketGroupList[{socket_group_index}]\n"
                   f"g.set1 = {one}\ng.set2 = {two}")
         self.recalc()
+
+    @contextmanager
+    def kept_main(self):
+        """Whatever skills the calculations inside pick, the main group and every group's chosen active skill are
+        as they were on exit (recalculated only if one moved): an analysis that walks the skills leaves no trace."""
+        saved = self._json("""
+local actives = _poe2lab_array({})
+for i, g in ipairs(build.skillsTab.socketGroupList) do actives[i] = g.mainActiveSkill or 1 end
+return _poe2lab_json({ main = build.mainSocketGroup or 1, actives = actives })""")
+        try:
+            yield self
+        finally:
+            values = ", ".join(str(int(v)) for v in saved["actives"])
+            self._lua(f"""
+local saved, moved = {{ {values} }}, build.mainSocketGroup ~= {int(saved["main"])}
+for i, g in ipairs(build.skillsTab.socketGroupList) do
+  if saved[i] and (g.mainActiveSkill or 1) ~= saved[i] then g.mainActiveSkill = saved[i] moved = true end
+end
+if moved then
+  build.mainSocketGroup = {int(saved["main"])}
+  build.calcsTab:BuildOutput()
+end""")
 
     def second_weapon_set(self) -> bool:
         """Whether PoB computes the build with its second weapon set (the swap weapons)."""
@@ -789,7 +812,7 @@ return _poe2lab_json(out)""")
         Weapon sets: `mode` is the set a node is taken in (0: the main tree, 1, 2: weapon set I, II); `wc` - what a
         node costs taken in set I and II, when that differs from `cost`; `glob` - a keystone or a jewel socket (taken
         on the main tree only), `wnear` - one that cannot be taken now, being next to a weapon set's branch."""
-        return self._json("""
+        graph = self._json("""
 local spec, tree = build.spec, build.spec.tree
 -- no ascendancy chosen yet (PoB calls it "None"): every ascendancy of the class is shown, to choose from
 local asc = spec.curAscendClassId and spec.curAscendClassId > 0 and spec.curAscendClassName or nil
@@ -916,7 +939,9 @@ end
 local radii = _poe2lab_array({})
 for i, r in ipairs(tree.orbitRadii or {}) do radii[i] = r * tree.scaleImage end
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
-  ascendancyPoints = ascUsed, art = art, orbitRadii = radii, frames = frames })""") | {"budget": self.points_budget()}
+  ascendancyPoints = ascUsed, art = art, orbitRadii = radii, frames = frames })""")
+        graph["nodes"].sort(key=lambda n: n["id"])  # by id: the same order in every engine (Lua's pairs is not)
+        return graph | {"budget": self.points_budget()}
 
     def points_budget(self) -> dict:
         """Passive points: used on the main tree (a node taken in both weapon sets counts once) and how many the
@@ -1015,6 +1040,23 @@ for k in pairs(input) do keys[#keys + 1] = tostring(k) end
 table.sort(keys)
 for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. tostring(input[k]) end
 return build:SaveDB("poe2lab") .. "\\n" .. table.concat(parts, ";")""")
+
+    def snapshot(self) -> dict:
+        """The build as it is now, to open the same in another engine (restore): PoB's save of it and the
+        Configuration tab's values, set at run time ones too (set_config_input, the profile's corrections)."""
+        return self._json("""
+local input = {}
+for k, v in pairs(build.configTab.input) do
+  if type(v) == "number" or type(v) == "string" or type(v) == "boolean" then input[tostring(k)] = v end
+end
+return _poe2lab_json({ xml = build:SaveDB("poe2lab"), config = input })""")
+
+    def restore(self, snap: dict):
+        """Open what snapshot() took from another engine: the same build, the same numbers. PoB's global cache of
+        skills is emptied first: what the build loaded before left in it (its weapon sets' skill lists) would stay."""
+        self._lua("wipeGlobalCache()")
+        self.load_xml(snap["xml"])
+        self.set_config_input(snap["config"])
 
     def tree_points(self) -> int:
         """Main-tree points in use: allocated nodes without class/ascendancy starts, ascendancy and weapon-set nodes."""
@@ -1305,6 +1347,7 @@ local bases = _poe2lab_array({{}})
 for name, b in pairs(data.itemBases) do
   local tags = _poe2lab_array({{}})
   for t, on in pairs(b.tags or {{}}) do if on then tags[#tags + 1] = t end end
+  table.sort(tags)
   bases[#bases + 1] = {{ name = name, type = b.type or "", subType = b.subType or "", tags = tags,
     implicit = b.implicit or "", level = (b.req and b.req.level) or 0, quality = b.quality or 0,
     socketLimit = b.socketLimit or 0 }}
@@ -1643,6 +1686,7 @@ for gi, g in ipairs(build.skillsTab.socketGroupList) do
                   textLocal = describeLocal({ [stat] = value }, set.statDescriptionScope) }
               end
             end
+            table.sort(unmapped, function(a, b) return a.stat < b.stat end)  -- the same order in every engine
             sets[#sets + 1] = { label = set.label or "", lines = describe(stats, set.statDescriptionScope),
                                 linesLocal = describeLocal(stats, set.statDescriptionScope), unmapped = unmapped }
           end
@@ -1786,7 +1830,7 @@ build.calcsTab:BuildOutput()""")
 local typeName = {}
 for k, v in pairs(SkillType) do typeName[v] = k end
 local function arr(t) return _poe2lab_array(t or {}) end
-local function tags(d) local o = arr({}) for t, on in pairs(d.tags or {}) do if on then o[#o + 1] = t end end return o end
+local function tags(d) local o = arr({}) for t, on in pairs(d.tags or {}) do if on then o[#o + 1] = t end end table.sort(o) return o end
 local function types(set) local o = arr({}) for id, on in pairs(set or {}) do if on and typeName[id] then o[#o + 1] = typeName[id] end end return o end
 -- the required skill types of a support that this active skill has: why the support applies to it
 local function statIds(ge)

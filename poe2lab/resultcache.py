@@ -10,6 +10,7 @@ import hashlib
 import logging
 import os
 import pickle
+import threading
 import time
 from pathlib import Path
 
@@ -83,7 +84,7 @@ def put(state: str, key, value, priced: bool = False):
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")  # results written side by side
         tmp.write_bytes(data)
         os.replace(tmp, path)
     except OSError as err:

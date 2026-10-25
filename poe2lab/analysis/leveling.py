@@ -104,7 +104,7 @@ def ways(engine, catalog: list[dict] | None = None) -> dict:
         return len(early) >= 2 and min(early) <= EARLY_LEVEL
 
     # a weapon's elements with too few skills each make one way of that weapon ("Talisman": a slam of each element)
-    for weapon in {w for w, e in groups if w not in ("spell", "minion")}:
+    for weapon in sorted({w for w, e in groups if w not in ("spell", "minion")}):
         thin = [k for k in groups if k[0] == weapon and not enough(groups[k])]
         if len(thin) > 1:
             groups[(weapon, None)] = [s for k in thin for s in groups.pop(k)]
@@ -117,12 +117,13 @@ def ways(engine, catalog: list[dict] | None = None) -> dict:
         out.append({"id": f"{weapon}:{element or ''}", "weapon": weapon, "element": element, "skills": skills[:6],
                     "from": skills[0]["level"], "likeBuild": like,
                     "sameWeapon": bool(main_way) and weapon == main_way[0]})
-    out.sort(key=lambda w: (not w["likeBuild"], not w["sameWeapon"], w["from"], -len(w["skills"])))
+    # by id on a tie: the same ways in the same order whichever order the gems came in
+    out.sort(key=lambda w: (not w["likeBuild"], not w["sameWeapon"], w["from"], -len(w["skills"]), w["id"]))
     own = _build_way(engine, by_name, main, main_way)
     guided = [w for w in (_starter_way(st, by_name, main, main_way, info["ascendancy"], out)
                           for st in starters.for_class(info["class"], info["ascendancy"])) if w]
     guided.sort(key=lambda w: (not w["starter"]["sameAscendancy"], not w["likeBuild"], not w["sameWeapon"],
-                               -w["starter"]["votes"]))
+                               -w["starter"]["votes"], w["id"]))
     return {"class": info["class"], "ascendancy": info["ascendancy"], "level": info["level"],
             "attributes": sorted(primary), "mainSkill": main,
             "ways": guided[:MAX_STARTERS] + ([own] if own else []) + out[:MAX_WAYS]}
@@ -148,6 +149,25 @@ def _starter_way(st: dict, by_name: dict, main: str | None, main_way, ascendancy
         way = _until_build(way, [w for w in others if w["weapon"] == weapon] or others, early=1)
         way["skills"] = way["skills"][:10]
     return way
+
+
+def starter_gems(st: dict) -> list[dict]:
+    """A starter's gems step by step (poe2lab.starters): a maxroll planner's own steps (where in the campaign, the
+    level, each link group with its supports); a video's link groups from its PoB as their gems drop (each group from
+    its skill's level, a support from its own). A step that changes nothing is left out."""
+    steps = []
+    if st.get("steps"):
+        steps = [{"level": x["level"], "name": x.get("name", ""), "groups": [g for g in x["gems"] if g]}
+                 for x in st["steps"]]
+    elif st.get("groups"):
+        groups = [g for g in st["groups"] if g]
+        for level in sorted({g[0]["level"] for g in groups}):
+            steps.append({"level": level, "name": "", "groups": [[x["name"] for x in g if x["level"] <= level]
+                                                                  for g in groups if g[0]["level"] <= level]})
+    else:  # only the skills are known: each one as it drops
+        for level in sorted({s["level"] for s in st.get("skills") or []}):
+            steps.append({"level": level, "name": "", "groups": [[s["name"]] for s in st["skills"] if s["level"] <= level]})
+    return [s for i, s in enumerate(steps) if i == 0 or s["groups"] != steps[i - 1]["groups"]]
 
 
 def _build_way(engine, by_name: dict, main: str | None, main_way) -> dict | None:
