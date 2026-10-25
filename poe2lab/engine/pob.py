@@ -1024,6 +1024,9 @@ for i, r in ipairs(tree.orbitRadii or {}) do radii[i] = r * tree.scaleImage end
 return _poe2lab_json({ nodes = nodes, class = spec.curClassName, ascendancy = asc or "", points = used,
   ascendancyPoints = ascUsed, art = art, orbitRadii = radii, frames = frames })""")
         graph["nodes"].sort(key=lambda n: n["id"])  # by id: the same order in every engine (Lua's pairs is not)
+        for n in graph["nodes"]:
+            if isinstance(n.get("links"), list):
+                n["links"].sort()
         return graph | {"budget": self.points_budget()}
 
     def points_budget(self) -> dict:
@@ -2187,6 +2190,8 @@ for id, d in pairs(data.gems) do
       weapons = arr((function() local w = {} for k in pairs(ge.weaponTypes or {}) do w[#w + 1] = k end table.sort(w) return w end)()) }
   end
 end
+-- by name, then id: the same order in every engine (pairs is not), so "the first that fits" is always the same gem
+table.sort(out, function(a, b) if a.name ~= b.name then return a.name < b.name end return a.id < b.id end)
 return _poe2lab_json(out)""")
 
     def gem_texts(self) -> list[dict]:

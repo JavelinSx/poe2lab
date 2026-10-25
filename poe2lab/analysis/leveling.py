@@ -249,7 +249,9 @@ def _first_of_family(gem: dict, catalog: list[dict]) -> dict | None:
     for g in catalog:
         if g["support"] and g["family"] == fam and g["name"] != gem["name"]:
             lv = _gem_level(g)
-            if lv is not None and (own is None or lv < own) and (first is None or lv < first["level"]):
+            # the earliest; by name on a tie (the same one whichever order PoB lists the gems in)
+            if lv is not None and (own is None or lv < own) and (
+                    first is None or (lv, g["name"]) < (first["level"], first["name"])):
                 first = {"name": g["name"], "level": lv}
     return first
 

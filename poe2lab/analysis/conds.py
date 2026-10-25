@@ -154,7 +154,9 @@ def view(impacts: list[dict], sources: list[dict], out: dict, answers: dict, gap
         rows.append({"var": var, "label": imp["label"], "on": imp["checked"], "dps": round(imp["dps_pct"], 1),
                      "phys": round(imp["phys_hit_pct"], 1), "ele": round(imp["ele_hit_pct"], 1),
                      "chaos": round(imp["chaos_hit_pct"], 1), "recovery": round(imp["recovery_pct"], 1),
-                     "sources": by.get(var, []), "lines": lines.get(var, []), "suggested": sugg, "answer": ans,
+                     # by kind and name: the same order whichever order PoB's mod lists come in
+                     "sources": sorted(by.get(var, []), key=lambda x: (x["kind"], x["name"])),
+                     "lines": lines.get(var, []), "suggested": sugg, "answer": ans,
                      "share": share})
     base = out.get("CombinedDPS", 0)
     expected = combine(base, [(r["dps"], r["share"], r["on"]) for r in rows])
