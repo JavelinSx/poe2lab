@@ -135,3 +135,42 @@ def test_a_projectile_through_crystals_pierces_them_and_breaks_them_into_explosi
                          [(wall, {"mode": "cooldown", "x": 10, "y": 0})], lambda s, d: 5.0)
     assert ("a", 3) in seen  # three crystals on the way: three pierces before the dummy
     assert run["crystalStats"]["fw"]["broken"] == 3 and run["explosions"]["fw"]["a"] == 0  # 1 m: too far from it
+
+
+def test_shares_that_moved_a_little_count_nothing_anew():
+    old = [{"name": "Frostbolt", "share": 0.92}, {"name": "Frost Wall", "share": 0.08}]
+    assert not dummy.mix_changed(old, [{"name": "Frostbolt", "share": 0.93}, {"name": "Frost Wall", "share": 0.07}])
+    assert dummy.mix_changed(old, [{"name": "Frostbolt", "share": 0.80}, {"name": "Frost Wall", "share": 0.20}])
+    assert dummy.mix_changed(old, [{"name": "Frostbolt", "share": 1.0}])
+    assert dummy.mix_changed(None, old)
+
+
+def test_the_default_dummy_spams_the_strongest_and_uses_the_rest_as_they_go():
+    cat = [{"id": "1:1", "kind": "damage", "cooldown": 0, "triggered": False, "travel": False, "sustained": False, "dps": 5},
+           {"id": "2:1", "kind": "damage", "cooldown": 0, "triggered": False, "travel": False, "sustained": False, "dps": 9},
+           {"id": "3:1", "kind": "damage", "cooldown": 2, "triggered": False, "travel": False, "sustained": False, "dps": 9},
+           {"id": "4:1", "kind": "curse"}, {"id": "5:1", "kind": "mirror"}]
+    sc = dummy.default_scenario(cat)
+    assert sc["skills"]["2:1"]["share"] == 100 and sc["skills"]["1:1"]["share"] == 0
+    assert sc["skills"]["3:1"]["mode"] == "cooldown" and "4:1" in sc["curses"]
+    assert len(sc["dummies"]) == 20 and len(sc["mirrors"]) == 4
+
+
+def test_every_number_s_damage_is_the_dummy_s_mix():
+    from poe2lab.profile import open_build
+    e, _ = open_build("titan")
+    groups = [(g["index"], i) for g in e.skill_groups() if g["enabled"] for i, a in enumerate(g["actives"], 1)
+              if "AppliesCurse" not in a["types"]]
+    own = {}
+    for gi, ai in groups:
+        e.set_main_skill(gi, ai)
+        own[(gi, ai)] = e.what_if()["CombinedDPS"]
+    (g1, a1), (g2, a2) = sorted((k for k in own if own[k] > 0), key=lambda k: -own[k])[:2]
+    e.set_damage_mix([{"group": g1, "index": a1, "coef": 2.0}, {"group": g2, "index": a2, "coef": 0.5}])
+    mixed = e.what_if()["CombinedDPS"]
+    assert abs(mixed - (2.0 * own[(g1, a1)] + 0.5 * own[(g2, a2)])) < 1e-6 * max(1.0, mixed)
+    with e.kept_main():
+        e.set_main_skill(g2, a2)  # an analysis picks a skill: its own numbers
+        assert abs(e.what_if()["CombinedDPS"] - own[(g2, a2)]) < 1e-6 * max(1.0, own[(g2, a2)])
+    assert abs(e.what_if()["CombinedDPS"] - mixed) < 1e-6 * max(1.0, mixed)  # the mix again after it
+    assert e.skill_damage() and abs(e.what_if()["CombinedDPS"] - mixed) < 1e-6 * max(1.0, mixed)

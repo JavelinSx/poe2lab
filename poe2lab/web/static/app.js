@@ -762,8 +762,15 @@ function renderHeader() {
       h("span", { class: "who-path", title: t("whoPath", b.info.level, b.guide.level) }, h("span", { class: "track", style: `--v:${way}%` }, h("i"))),
       h("span", { class: "who-item", title: t("chGuideHint") }, h("span", { class: "av guide" }, I("scroll")), t("chGuide"), " ", who(b.guide))]
     : [h("span", { class: "who-item" }, h("b", {}, who(b.info)))]));
-  // a picker with skill icons (a <select> cannot show images)
   const picker = $("#main-skill");
+  // the build's damage is the dummy's: its skills and their shares (set on the dummy tab), not one skill picked here
+  if ((b.damageMix || []).length) {
+    picker.replaceChildren(h("button", { class: "picker-button select mix-button", title: t("mixHint"), onclick: () => switchTab("dummy") },
+      I("target"), h("span", {}, t("mixByDummy")),
+      b.damageMix.map((m) => h("span", { class: "mix-part" }, icon(m.name), `${trName(m.name)} ${Math.round(m.share * 100)}%`))));
+    return;
+  }
+  // a picker with skill icons (a <select> cannot show images)
   const entries = b.groups.flatMap((g) => g.skills.map((s, i) => ({ group: g.index, skill: i + 1, name: s })));
   const current = entries.find((e) => b.info.mainSocketGroup === e.group && b.mainSkill === e.name) || entries[0];
   const label = (e) => [icon(e.name), h("span", {}, `${e.group}. ${trName(e.name)}`)];
@@ -1739,11 +1746,31 @@ function renderDamage(r) {
   "conditions", rng.high > rng.low ? `DPS ${fmt(rng.low)} … ${fmt(rng.high)}` : null));
 
   const max = Math.max(...r.ranking.map((x) => x.score), 1);
-  blocks.push(foldedCard(h("div", { class: "card" }, h("h3", {}, t("investTitle")), h("div", { class: "sub" }, t("investSub")),
-    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", {}, t("colEffect")), h("th", { class: "num" }, t("colScore")))),
+  // the quick estimate weighs the skills by the dummy; its best damage lines run through the full dummy on request
+  const onDummy = new Map();
+  const dummyCell = (x) => h("td", { class: "num dm-check-cell", "data-mod": x.mod });
+  const checkable = r.ranking.filter((x) => x.dps > 0).slice(0, 6);
+  const checkBtn = (state.build.damageMix || []).length && checkable.length ? h("button", { class: "ghost small", title: t("dmCheckHint"), onclick: async () => {
+    checkBtn.disabled = true;
+    checkBtn.textContent = t("dmChecking");
+    try {
+      const res = await api(`/api/dummy/check?${buildQuery()}`, { method: "POST", body: { candidates: checkable.map((x) => ({ label: x.mod, mods: [x.mod] })) } });
+      for (const c of res.candidates) onDummy.set(c.label, c.pct);
+      document.querySelectorAll(".dm-check-cell").forEach((td) => {
+        const v = onDummy.get(td.dataset.mod);
+        td.textContent = v === undefined ? "" : t("dmCheckRow", pct(v));
+      });
+      checkBtn.textContent = t("dmCheckRun");
+    } catch (e) { toast(e.message); checkBtn.textContent = t("dmCheckRun"); }
+    checkBtn.disabled = false;
+  } }, I("target"), " ", t("dmCheckRun")) : null;
+  blocks.push(foldedCard(h("div", { class: "card" }, h("div", { class: "row" }, h("h3", {}, t("investTitle")), checkBtn),
+    h("div", { class: "sub" }, t("investSub")),
+    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, t("colMod")), h("th", {}, t("colEffect")), h("th", { class: "num" }, t("colScore")),
+      checkBtn ? h("th", { class: "num", title: t("dmCheckHint") }, t("dmCheckTitle")) : null)),
       h("tbody", {}, r.ranking.map((x) => h("tr", {}, h("td", { class: "mod", title: x.mod }, trMod(x.mod)),
         h("td", {}, deltas({ dps: x.dps, phys_hit: x.physHit, chaos_hit: x.chaosHit, recovery: x.recovery })),
-        h("td", { class: "num" }, scoreBar(x.score, max))))))),
+        h("td", { class: "num" }, scoreBar(x.score, max)), checkBtn ? dummyCell(x) : null))))),
   "invest", r.ranking.length ? t("bestIs", trMod(r.ranking[0].mod)) : null));
 
   return [h("div", { class: "grid two" }, blocks)];

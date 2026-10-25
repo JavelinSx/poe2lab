@@ -40,7 +40,8 @@ def test_page_versions_its_scripts(client):
 
 def test_load_report_and_compare(client):
     b = client.post("/api/load", json={"name": "titan"}, headers=H).json()
-    assert b["mainSkill"] == "Furious Slam" and b["info"]["ascendancy"] == "Titan"
+    # the build's damage is the dummy's (its default pack the first time): the main skill is its biggest share
+    assert b["damageMix"] and b["mainSkill"] == b["damageMix"][0]["name"] and b["info"]["ascendancy"] == "Titan"
     r = client.get("/api/report?mode=balanced").json()
     assert r["damageRange"]["high"] > r["damageRange"]["low"] > 0
     assert any(g["title"] == "Слабость к физическим ударам" for g in r["gates"])

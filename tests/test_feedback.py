@@ -66,7 +66,8 @@ def test_report_carries_the_open_build(relay):
     assert body["build"]["name"] == "titan" and "<PathOfBuilding2>" in decode_pob_code(body["build"]["code"])
     assert "planCode" not in body["build"]  # no tree plan open
     assert body["profile"]["corrections"]  # titan has a profile with corrections
-    assert body["context"]["tab"] == "damage" and body["context"]["mainSkill"] == "Furious Slam"
+    # the main skill is the dummy's biggest share (the build's damage is the dummy's)
+    assert body["context"]["tab"] == "damage" and body["context"]["mainSkill"] == server.session.bp.damage_mix[0]["name"]
     assert body["images"] == [{"type": "png", "data": PNG.split(",", 1)[1]}]
     # a second report right away is held back on this side
     again = client.post("/api/feedback", headers=H, json={"message": "ещё одно сообщение"})

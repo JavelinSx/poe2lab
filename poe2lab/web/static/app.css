@@ -1711,3 +1711,7 @@ div.eg-q-mod { user-select: none; }
 .dm-crystal { fill: #9fdcff; fill-opacity: .7; stroke: #2a6f99; stroke-width: .5; pointer-events: none; }
 /* a starter's step: the gems new at it */
 .lv-socket.new { box-shadow: 0 0 0 2px var(--gold) inset; border-radius: 8px; }
+/* the header: the build's damage is the dummy's - its skills and their shares */
+.mix-button { gap: 6px; flex-wrap: wrap; }
+.mix-part { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
+.mix-part img, .mix-part .ic { width: 16px; height: 16px; }

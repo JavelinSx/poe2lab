@@ -54,6 +54,8 @@ class BuildProfile:
     quests: dict = field(default_factory=dict)  # the campaign rewards the player took: PoB config key -> value
     # the skills the player bound to a weapon set in game: skill name -> 1 or 2 (the character's data loses it)
     weapon_sets: dict = field(default_factory=dict)
+    # the build's damage as the dummy has it (poe2lab.analysis.dummy.mix_of): [{"name", "dps", "share", "coef"}]
+    damage_mix: list = field(default_factory=list)
     # filled when applied
     correction_dps_pct: float = 0.0
     path: Path | None = None
@@ -73,6 +75,7 @@ class BuildProfile:
             planner=raw.get("planner"),
             corrections=[Correction(**c) for c in raw.get("corrections", [])],
             notes=raw.get("notes", []), quests=raw.get("quests") or {}, weapon_sets=raw.get("weapon_sets") or {},
+            damage_mix=raw.get("damage_mix") or [],
             path=path,
         )
 
@@ -104,6 +107,7 @@ def open_build(build: Path, group: int | None = None, skill: int | None = None,
             engine.set_main_skill(profile.group, profile.skill)
         except PobError:
             pass  # the build changed since the profile was written (gems moved): keep the build's own main skill
+    apply_damage_mix(engine, profile.damage_mix)
     if profile.quests:
         # the rewards the player says they took, in place of what the build's file has
         known = {r["var"] for r in engine.quest_rewards()}
@@ -133,6 +137,23 @@ def apply_weapon_sets(engine: PobEngine, weapon_sets: dict) -> list[int]:
             engine.set_group_weapon_set(g["index"], ws)
             changed.append(g["index"])
     return changed
+
+
+def apply_damage_mix(engine: PobEngine, mix: list) -> list[dict]:
+    """Every number's damage as the dummy has it (PobEngine.set_damage_mix): the mix's skills found by name in this
+    engine's groups (a build's guide and its character have the same skills in other places). Returns the entries."""
+    if not mix:
+        engine.set_damage_mix(None)
+        return []
+    spots = {}
+    for g in engine.skill_groups():
+        if g["enabled"]:
+            for i, a in enumerate(g["actives"], 1):
+                spots.setdefault(a["name"], (g["index"], i))
+    entries = [{"group": spots[m["name"]][0], "index": spots[m["name"]][1], "coef": float(m["coef"]), "name": m["name"]}
+               for m in mix if m["name"] in spots and m.get("coef")]
+    engine.set_damage_mix(entries or None)
+    return entries
 
 
 def describe(profile: BuildProfile, rage: bool = True) -> list[str]:

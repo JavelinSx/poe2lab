@@ -52,6 +52,52 @@ function _poe2lab_numbers(t)
   return dkjson.encode(res)
 end
 
+-- one skill's damage as every analysis reads it: a minion skill's is its army's (see _poe2lab_numbers)
+local function _poe2lab_damage(t)
+  local own = _poe2lab_finite(t.CombinedDPS) and t.CombinedDPS or 0
+  local m = t.Minion
+  if own < 1e-6 and type(m) == "table" then
+    local per = m.CombinedDPS or m.TotalDPS or 0
+    if _poe2lab_finite(per) and per > 0 then
+      local count = (_poe2lab_finite(t.ActiveMinionLimit) and t.ActiveMinionLimit > 0) and t.ActiveMinionLimit or 1
+      return per * count
+    end
+  end
+  return own
+end
+
+-- The build's damage as the dummy has it (PobEngine.set_damage_mix): its skills, each weighed by its share of the
+-- dummy's damage. While it is on, a calculation's CombinedDPS is the weighed sum of those skills' damage under the
+-- same change (the main skill's own number stays as SkillCombinedDPS); off once an analysis picks a skill itself.
+_poe2lab_mix = nil
+
+function _poe2lab_mixed(calcFunc, override)
+  local out = calcFunc(override, false)
+  local mix = _poe2lab_mix
+  if not (mix and mix.on and #mix.list > 0) or override.mainSocketGroup then return out end
+  local list, total = build.skillsTab.socketGroupList, 0
+  for _, m in ipairs(mix.list) do
+    local g = list[m.g]
+    if g and m.g == build.mainSocketGroup and m.a == (g.mainActiveSkill or 1) then
+      total = total + m.c * _poe2lab_damage(out)  -- the main skill: already counted
+    elseif g then
+      local was = g.mainActiveSkill
+      g.mainActiveSkill = m.a
+      local o2 = {}
+      for k, v in pairs(override) do o2[k] = v end
+      o2.mainSocketGroup = m.g
+      local ok, o = pcall(calcFunc, o2, false)
+      g.mainActiveSkill = was
+      if not ok then error(o, 0) end
+      total = total + m.c * _poe2lab_damage(o)
+    end
+  end
+  out.SkillCombinedDPS = out.CombinedDPS
+  out.CombinedDPS = total
+  out.MixDPS = total
+  return out
+end
+
 function _poe2lab_nodeset(ids)
   if #ids == 0 then return nil end
   local set = {}
@@ -306,7 +352,8 @@ return _poe2lab_json(out)""")
             raise PobError(f"active skill {active_skill_index} out of range 1..{len(skills)} for group {socket_group_index}")
         self._lua(
             f"build.mainSocketGroup = {socket_group_index}\n"
-            f"build.skillsTab.socketGroupList[{socket_group_index}].mainActiveSkill = {active_skill_index}"
+            f"build.skillsTab.socketGroupList[{socket_group_index}].mainActiveSkill = {active_skill_index}\n"
+            "if _poe2lab_mix then _poe2lab_mix.on = false end"  # the picked skill's own numbers from now on
         )
         self.recalc()
 
@@ -332,7 +379,8 @@ return _poe2lab_json(out)""")
         saved = self._json("""
 local actives = _poe2lab_array({})
 for i, g in ipairs(build.skillsTab.socketGroupList) do actives[i] = g.mainActiveSkill or 1 end
-return _poe2lab_json({ main = build.mainSocketGroup or 1, actives = actives })""")
+return _poe2lab_json({ main = build.mainSocketGroup or 1, actives = actives,
+                       mix = _poe2lab_mix ~= nil and _poe2lab_mix.on == true })""")
         try:
             yield self
         finally:
@@ -342,6 +390,7 @@ local saved, moved = {{ {values} }}, build.mainSocketGroup ~= {int(saved["main"]
 for i, g in ipairs(build.skillsTab.socketGroupList) do
   if saved[i] and (g.mainActiveSkill or 1) ~= saved[i] then g.mainActiveSkill = saved[i] moved = true end
 end
+if _poe2lab_mix then _poe2lab_mix.on = {'true' if saved.get("mix") else 'false'} end
 if moved then
   build.mainSocketGroup = {int(saved["main"])}
   build.calcsTab:BuildOutput()
@@ -366,6 +415,7 @@ end""")
         if not self._json(f"return _poe2lab_json({g} ~= nil)"):
             return []  # no skills yet: a build just made (poe2lab.newbuild)
         active = int(self._lua(f"return {g}.mainActiveSkill or 1"))
+        mix = self._lua("return tostring(_poe2lab_mix ~= nil and _poe2lab_mix.on == true)")  # each skill's own below
         out = []
         try:
             for g in self.socket_groups():
@@ -386,7 +436,8 @@ end""")
             # grants, missing from a planner file): no range check here
             self._lua(f"build.mainSocketGroup = {group}\n"
                       f"local g = build.skillsTab.socketGroupList[{group}]\n"
-                      f"if g then g.mainActiveSkill = {active} end")
+                      f"if g then g.mainActiveSkill = {active} end\n"
+                      f"if _poe2lab_mix then _poe2lab_mix.on = {mix} end")
             self.recalc()
         return sorted(out, key=lambda x: -x["dps"])
 
@@ -397,6 +448,7 @@ end""")
         before = int(self._lua("return build.mainSocketGroup"))
         g = f"build.skillsTab.socketGroupList[{before}]"
         active = int(self._lua(f"return {g} and {g}.mainActiveSkill or 1"))
+        mix = self._lua("return tostring(_poe2lab_mix ~= nil and _poe2lab_mix.on == true)")
         if group != before:
             self.set_main_skill(group, 1)
         try:
@@ -405,7 +457,8 @@ end""")
             if group != before:
                 self._lua(f"build.mainSocketGroup = {before}\n"
                           f"local g = build.skillsTab.socketGroupList[{before}]\n"
-                          f"if g then g.mainActiveSkill = {active} end")
+                          f"if g then g.mainActiveSkill = {active} end\n"
+                          f"if _poe2lab_mix then _poe2lab_mix.on = {mix} end")
                 self.recalc()
 
     def stat_sources(self, names: list[str], player: bool = False, flags: tuple[str, ...] = ()) -> dict:
@@ -751,8 +804,38 @@ local s = g and g.displaySkillList and g.displaySkillList[g.mainActiveSkill or 1
 return s and s.activeEffect.grantedEffect.name""")
 
     def stats(self) -> dict[str, float]:
-        """All numeric outputs of the last full calculation."""
-        return self._json("return _poe2lab_numbers(build.calcsTab.mainOutput)")
+        """All numeric outputs of the last full calculation (CombinedDPS the dummy's mix while it is on)."""
+        return self._json("""
+if _poe2lab_mix and _poe2lab_mix.on and #_poe2lab_mix.list > 0 then
+  local out = build.calcsTab.mainOutput
+  local mixed = _poe2lab_mixed(build.calcsTab:GetMiscCalculator(), {})
+  local res = {}
+  for k, v in pairs(out) do res[k] = v end
+  res.SkillCombinedDPS, res.CombinedDPS, res.MixDPS = out.CombinedDPS, mixed.CombinedDPS, mixed.MixDPS
+  return _poe2lab_numbers(res)
+end
+return _poe2lab_numbers(build.calcsTab.mainOutput)""")
+
+    def set_damage_mix(self, entries: list[dict] | None):
+        """The build's damage as the dummy has it: [{"group", "index", "coef"}] - CombinedDPS of every calculation is
+        then sum(coef x that skill's damage) (poe2lab.analysis.dummy.damage_mix); None - the main skill's alone. The
+        main skill is the mix's first (the most damage). Picking a skill (set_main_skill) turns it off until
+        kept_main puts things back."""
+        self._mix = entries or None
+        if not entries:
+            self._lua("_poe2lab_mix = nil")
+            return
+        rows = ", ".join(f"{{ g = {int(e['group'])}, a = {int(e['index'])}, c = {float(e['coef'])!r} }}" for e in entries)
+        self._lua(f"_poe2lab_mix = {{ on = true, list = {{ {rows} }} }}")
+        top = entries[0]
+        self._lua(f"build.mainSocketGroup = {int(top['group'])}\n"
+                  f"local g = build.skillsTab.socketGroupList[{int(top['group'])}]\n"
+                  f"if g then g.mainActiveSkill = {int(top['index'])} end")
+        self._lua("_poe2lab_mix.on = true")
+        self.recalc()
+
+    def damage_mix(self) -> list[dict] | None:
+        return getattr(self, "_mix", None)
 
     def node_lines(self, ids=None) -> dict[int, list[str]]:
         """Stat lines of passive nodes by id: the given ones, or every allocated node (the ascendancy's too)."""
@@ -1205,7 +1288,7 @@ local calcFunc = build.calcsTab:GetMiscCalculator()
 local override = {{ addNodes = _poe2lab_nodeset({{ {add} }}), removeNodes = _poe2lab_nodeset({{ {remove} }}){extra} }}
 local out = _poe2lab_with_gems_disabled({{ {gems} }}, function()
   return _poe2lab_with_setup({{ {cfg} }}, {{ {lines} }}, {{ {enemy_lines} }},
-    function() return calcFunc(override, false) end)
+    function() return _poe2lab_mixed(calcFunc, override) end)
 end)
 return _poe2lab_numbers(out)""")
 

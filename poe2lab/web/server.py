@@ -61,7 +61,7 @@ from ..i18n import pob_line, stat_templates
 from ..knowledge import collect as collect_mechanics
 from ..logs import log, log_file, setup as setup_log, tail as log_tail
 from ..pobfiles import PROJECT_BUILDS, resolve_build
-from ..profile import CORRECTION_BLOCK, BuildProfile, describe as describe_profile, open_build
+from ..profile import CORRECTION_BLOCK, BuildProfile, apply_damage_mix, describe as describe_profile, open_build
 
 STATIC = Path(__file__).resolve().parent / "static"
 SLOTS_ORDER = ["Weapon 1", "Helmet", "Body Armour", "Gloves", "Boots", "Amulet", "Ring 1", "Ring 2", "Belt"]
@@ -138,9 +138,11 @@ class _SpareSlot:
                         s._snap = (rev, s._engine.snapshot())
                     snap = s._snap[1]
                 spare.engine.restore(snap)
+                spare.engine.set_damage_mix(s._engine.damage_mix())
                 spare.rev, spare.ref, spare.clean = rev, None, spare.engine.state_text()
             elif spare.engine.state_text() != spare.clean:  # the last analysis left another skill picked, an item...
                 spare.engine.restore(s._snap[1])
+                spare.engine.set_damage_mix(s._engine.damage_mix())
                 spare.clean = spare.engine.state_text()
         except BaseException:
             s.pool.free.put(spare)
@@ -269,6 +271,8 @@ class Session:
             self.ref = None
         self.level = self.engine.info()["level"]
         self.plan = None
+        if not self.bp.damage_mix:
+            _first_damage_mix()
         self.cache.clear()
         self.assistant = self.toolbox = None
         self._state_of()  # the build as it opened, before an analysis moves anything in the engine
@@ -336,7 +340,8 @@ class Session:
         if self._state is None:
             try:
                 texts = gamedata.names_path("ru")
-                parts = [resultcache.code_version(), self.engine.state_text(), repr(self.profile), repr(self.level),
+                parts = [resultcache.code_version(), self.engine.state_text(), repr(self.engine.damage_mix()),
+                         repr(self.profile), repr(self.level),
                          json.dumps(self.plan, sort_keys=True, default=str), ninja.chosen_league() or "",
                          str(texts.stat().st_mtime_ns) if texts.is_file() else ""]
                 self._state = hashlib.sha256("\0".join(parts).encode("utf-8", "replace")).hexdigest()
@@ -383,7 +388,7 @@ class Session:
 PERSISTED = {"report", "gear", "skills", "explain", "explain-guide", "skill-roles", "skill-numbers", "triggers",
              "mechanics", "tree", "tree-packages", "jewels", "quests", "leveling-ways", "unmodeled", "conditions",
              "versus", "slot-choice", "slot-advice", "guide-damage-group", "leveling", "questions", "ctor-leveling",
-             "ctor-switch"}
+             "ctor-switch", "dummy-mix-default"}
 PRICE_SOURCES = {"unique-prices", "market", "ladder-worn"}
 RECORDED = "@build"  # the reference name of the open build as its file records it (the guide, the gear before edits)
 session = Session()
@@ -947,6 +952,8 @@ def _summary():
     q = _errors(_profile_questions)
     return {"name": session.path.stem, "info": e.info(), "mainSkill": e.main_skill(), "groups": e.socket_groups(),
             "workers": session.pool.size,
+            # what every damage number is: the dummy's skills and their shares (none: the main skill's own)
+            "damageMix": [{"name": m["name"], "share": m["share"], "dps": m["dps"]} for m in session.bp.damage_mix],
             "gems": sorted({g["name"] for g in e.gems()}),
             "gemColors": {g["name"]: {"color": g["color"], "support": g["support"]} for g in e.gems()},
             "profile": describe_profile(session.bp, rage=q["rage"]), "profileRaw": _profile_raw(),
@@ -1779,6 +1786,10 @@ def _reference(name: str):
         session.ref = None  # free the previous reference first
         path = session.path if name == RECORDED else resolve_build(name)
         engine, bp = _errors(lambda: open_build(path))
+        if name == RECORDED and not bp.damage_mix and session.bp.damage_mix:
+            # the guide counted like the character: the same skills weighed the same (the dummy's default mix)
+            bp.damage_mix = session.bp.damage_mix
+            apply_damage_mix(engine, bp.damage_mix)
         session.ref = (name, engine, bp)
     return session.ref
 
@@ -3178,7 +3189,7 @@ def save_profile(raw: dict):
         before = path.read_text(encoding="utf-8") if path.exists() else None
         if before:  # the levelling and quest answers are saved by their own pages
             raw = {k: v for k, v in json.loads(before).items()
-                   if k in ("leveling", "quests", "author", "conditions", "weapon_sets")} | raw
+                   if k in ("leveling", "quests", "author", "conditions", "weapon_sets", "damage_mix")} | raw
         path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             session.load(str(session.path))
@@ -3748,14 +3759,66 @@ def endgame_income(lang: str = "ru"):
 
 # ---- the dummy: the build's damage per second on dummies laid out by hand, all its skills at once ----
 
+def _dummy_path() -> Path:
+    """The dummy's layout of the open build (the page's): beside its profile, apart from it - a dummy moved does not
+    count the build's results anew, only a mix that moved does."""
+    return PROJECT_BUILDS / f"{session.path.stem}.dummy.json"
+
+
+def _dummy_scenario() -> dict | None:
+    path = _dummy_path()
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    except (OSError, ValueError):
+        return None
+
+
+def _dummy_catalogue() -> list[dict]:
+    return session.cached("dummy-skills", lambda: dummy.skills(session.engine, _game_texts("ru")))
+
+
+def _set_damage_mix(mix: list[dict]):
+    """The dummy's skills and shares as every number's damage: kept in the build profile, put on the engine."""
+    path = _profile_path()
+    raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    raw["damage_mix"] = [{k: m[k] for k in ("name", "dps", "share", "coef")} for m in mix]
+    path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+    session.bp.damage_mix = raw["damage_mix"]
+    apply_damage_mix(session.engine, session.bp.damage_mix)
+    session.ref = None  # the guide counted the same way: opened anew with the profile
+
+
+def _first_damage_mix():
+    """A build whose dummy the player has not run yet: its layout (the page's, or the default pack of 20) run once
+    and its skills' shares used - kept with the results (found again after a restart), not in the profile: the
+    profile has the player's own dummy only (/api/dummy/calc)."""
+    def compute():
+        with dummy.keep_main(session.engine):
+            catalogue = dummy.skills(session.engine, _game_texts("ru"))
+            scenario = _dummy_scenario() or dummy.default_scenario(catalogue)
+            try:
+                result = dummy.calc(session.engine, scenario, catalogue)
+            except Exception as err:  # noqa: BLE001 - without it the main skill's damage is every number's, as before
+                log.warning("dummy mix: %s", err)
+                return []
+            return [{k: m[k] for k in ("name", "dps", "share", "coef")}
+                    for m in dummy.mix_of(session.engine, catalogue, result, session.profile.config())]
+    session.bp.damage_mix = session.cached(("dummy-mix-default",), compute)
+    apply_damage_mix(session.engine, session.bp.damage_mix)
+
+
 @app.get("/api/dummy/skills")
 def dummy_skills(build: str | None = None):
-    """The build's skills as the dummy uses them (poe2lab.analysis.dummy.skills)."""
+    """The build's skills as the dummy uses them (poe2lab.analysis.dummy.skills), the layout kept for the build
+    (none yet: the page's own or the default) and what the build's damage is made of now."""
     with session.lock:
         session.require(build)
         with dummy.keep_main(session.engine):
-            return _json({"skills": session.cached("dummy-skills", lambda: dummy.skills(session.engine, _game_texts("ru"))),
-                          "kinds": list(dummy.KINDS), "states": list(dummy.STATES)})
+            catalogue = _dummy_catalogue()
+            saved = _dummy_scenario()
+            return _json({"skills": catalogue, "kinds": list(dummy.KINDS), "states": list(dummy.STATES),
+                          "scenario": saved, "defaultScenario": dummy.default_scenario(catalogue),
+                          "mix": session.bp.damage_mix})
 
 
 class DummyScenario(BaseModel):
@@ -3764,14 +3827,45 @@ class DummyScenario(BaseModel):
 
 @app.post("/api/dummy/calc")
 def dummy_calc(req: DummyScenario, build: str | None = None):
-    """The build's damage per second on the scenario's dummies (poe2lab.analysis.dummy.calc)."""
+    """The build's damage per second on the scenario's dummies (poe2lab.analysis.dummy.calc). The layout is kept for
+    the build, and its skills' shares become every number's damage when they moved (mixChanged: count all anew)."""
     if len(req.scenario.get("dummies") or []) > 60:
         raise HTTPException(400, "не больше 60 манекенов")
     with session.lock:
         session.require(build)
         with dummy.keep_main(session.engine):
-            catalogue = session.cached("dummy-skills", lambda: dummy.skills(session.engine, _game_texts("ru")))
-            return _json(dummy.calc(session.engine, req.scenario, catalogue))
+            catalogue = _dummy_catalogue()
+            result = dummy.calc(session.engine, req.scenario, catalogue)
+            mix = dummy.mix_of(session.engine, catalogue, result, session.profile.config())
+        _dummy_path().write_text(json.dumps(req.scenario, ensure_ascii=False), encoding="utf-8")
+        changed = bool(mix) and dummy.mix_changed(session.bp.damage_mix, mix)
+        if changed:
+            _set_damage_mix(mix)
+            session.cache.clear()  # every damage number moves with it
+            session.assistant = session.toolbox = None
+        return _json(result | {"mix": session.bp.damage_mix, "mixChanged": changed})
+
+
+class DummyCheck(BaseModel):
+    candidates: list[dict]
+
+
+@app.post("/api/dummy/check")
+def dummy_check(req: DummyCheck, build: str | None = None):
+    """The best candidates of a quick estimate run on the dummy itself, one by one (poe2lab.analysis.dummy
+    .check_on_dummy): mirrors, crystals and pierces counted, what the estimate leaves out."""
+    if not 0 < len(req.candidates) <= 10:
+        raise HTTPException(400, "от 1 до 10 кандидатов")
+    with session.lock:
+        session.require(build)
+        scenario = _dummy_scenario()
+        if scenario is None:
+            with dummy.keep_main(session.engine):
+                scenario = dummy.default_scenario(_dummy_catalogue())
+        bad = [line for c in req.candidates for line in c.get("mods") or [] if not session.engine.can_parse_mod(line)]
+        if bad:
+            raise HTTPException(400, f"PoB не понимает строку: {bad[0]!r}")
+        return _json(dummy.check_on_dummy(session.engine, scenario, req.candidates, _game_texts("ru")))
 
 
 @app.get("/api/glossary")

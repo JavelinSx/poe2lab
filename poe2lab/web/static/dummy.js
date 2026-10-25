@@ -23,22 +23,9 @@ function dmPreset(kind, n, boss) {
   return out;
 }
 
-// a new scenario for the build: the dummies at the pack, the strongest spammable skill spammed, the ones with a
-// cooldown on it, the triggered ones at a rate of one a second
-function dmDefault(cat) {
-  const dmg = cat.filter((s) => s.kind === "damage");
-  const spam = dmg.filter((s) => !s.cooldown && !s.triggered && !s.travel && !s.sustained).sort((a, b) => b.dps - a.dps)[0];
-  const skills = {};
-  dmg.forEach((s) => {
-    skills[s.id] = { on: true, x: 9, y: 0, states: [], split: !!s.sustained, sim: true, speed: 4, range: 12, width: 0.3, critPerPierce: 0,
-      mode: s.triggered ? "rate" : s.sustained ? "sustain" : s.cooldown ? "cooldown" : "spam", share: s === spam ? 100 : 0, rate: 1, interval: 4 };
-  });
-  const curses = {};
-  cat.filter((s) => s.kind === "curse").forEach((s) => { curses[s.id] = { on: true, x: 9, y: 0 }; });
-  // the mirrors' spots: in your Presence (4 m) around you, as many as can be at once
-  const mirrors = cat.some((s) => s.kind === "mirror") ? dmMirrorRing() : [];
-  return { level: 83, dummies: dmPreset("normal", 20), skills, curses, mirrors, always: [] };
-}
+// a new scenario for the build (the server's, poe2lab.analysis.dummy.default_scenario): the dummies at the pack, the
+// strongest spammable skill spammed, the ones with a cooldown on it, the triggered ones once a second, a fresh copy
+const dmDefault = () => JSON.parse(JSON.stringify(DM.def));
 function dmMirrorRing() {
   // one on the way to the dummies (you aim through it in the game), the others around you
   return [0, 1, 2, 3].map((i) => ({ x: +(3 * Math.cos(i * Math.PI / 2)).toFixed(2), y: +(3 * Math.sin(i * Math.PI / 2)).toFixed(2) }));
@@ -48,12 +35,16 @@ TABS.dummy = async (view) => {
   view.replaceChildren(loading(t("dmLoading")));
   const r = await cached("dummy-skills", () => api(`/api/dummy/skills?${buildQuery()}`));
   DM.cat = r.skills;
+  DM.def = r.defaultScenario;
+  DM.mix = r.mix || [];
   if (DM.build !== state.build.name || !DM.sc) {
     DM.build = state.build.name;
-    try { DM.sc = JSON.parse(localStorage.getItem(dmKey()) || "null"); } catch (_) { DM.sc = null; }
-    if (!DM.sc || !DM.sc.dummies) DM.sc = dmDefault(DM.cat);
+    // the layout kept for the build (it is every number's damage), else this browser's older one, else the default
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(dmKey()) || "null"); } catch (_) { local = null; }
+    DM.sc = r.scenario || (local && local.dummies ? local : null) || dmDefault();
     // skills added to the build since: default placements
-    const fresh = dmDefault(DM.cat);
+    const fresh = dmDefault();
     for (const [k, v] of Object.entries(fresh.skills)) if (!DM.sc.skills[k]) DM.sc.skills[k] = { ...v, share: 0 };
     for (const [k, v] of Object.entries(fresh.curses)) if (!DM.sc.curses[k]) DM.sc.curses[k] = v;
   }
@@ -78,6 +69,16 @@ async function dmCalc() {
     const res = await api(`/api/dummy/calc?${buildQuery()}`, { method: "POST", body: { scenario: DM.sc } });
     if (token !== DM.token) return;
     DM.res = res;
+    DM.mix = res.mix || [];
+    if (res.mixChanged) {
+      // the skills' shares moved: every tab's damage is the new layout's - the header shows it, the tabs count anew
+      state.build.damageMix = DM.mix.map((m) => ({ name: m.name, share: m.share, dps: m.dps }));
+      const keep = state.cache["dummy-skills"];
+      resetCache();
+      if (keep) state.cache["dummy-skills"] = keep;
+      renderHeader();
+      toast(t("mixChanged"), true);
+    }
   } catch (e) { DM.res = { error: e.message }; }
   const box = document.querySelector(".dm-result");
   if (box) box.replaceWith(dmResult());
@@ -301,5 +302,6 @@ function dmResult() {
         s.sim ? h("div", { class: "small" }, t("dmSimStats", fmt(s.sim.shattered, 1), fmt(s.sim.copiesPerCast, 1), fmt(s.sim.hitsPerCast, 1), fmt(s.sim.avgPierced, 1), s.sim.maxPierced, Math.max(0, ...(s.sim.inAir || [0])))) : null,
         s.sim && s.sim.crystalsPierced ? h("div", { class: "small" }, t("dmCrystalsPierced", fmt(s.sim.crystalsPierced, 1))) : null,
         s.crystals ? h("div", { class: "small" }, t("dmCrystalStats", s.crystals.perUse, fmt(s.crystals.broken, 1), s.crystals.alive)) : null)))),
+    (DM.mix || []).length ? h("div", { class: "action" }, t("mixNote", DM.mix.map((m) => `${trName(m.name)} ${Math.round(m.share * 100)}%`).join(", "))) : null,
     h("div", { class: "hint" }, t("dmHonest")));
 }

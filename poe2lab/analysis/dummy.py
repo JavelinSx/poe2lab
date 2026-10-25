@@ -198,7 +198,7 @@ def keep_main(engine):
     return engine.kept_main()
 
 
-def skills(engine, statdesc_dir=None) -> list[dict]:
+def skills(engine, statdesc_dir=None, mods: tuple = ()) -> list[dict]:
     """The build's skills as the dummy uses them: each active skill of an enabled group with PoB's numbers for it as
     the main skill - one use's damage on one target, uses per second, cooldown, duration, its area and projectiles -
     and what it is (damage, curse, mirrors, meta, buff). Curses socketed into Blasphemy are an aura around the
@@ -218,7 +218,7 @@ def skills(engine, statdesc_dir=None) -> list[dict]:
         for i, a in enumerate(g["actives"], 1):
             types = set(a["types"])
             engine.set_main_skill(g["index"], i)
-            o = engine.what_if()
+            o = engine.what_if(mods=list(mods))
             speed = _num(o, "Speed")
             total = _num(o, "TotalDPS")
             kind = ("mirror" if a["name"] == "Mirror of Refraction" else "curse" if "AppliesCurse" in types
@@ -428,6 +428,8 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
     # PoB once per skill and dummy state (dummies alike share it)
     cache: dict[tuple, dict] = {}
 
+    extra = tuple(scenario.get("mods") or ())  # a candidate's lines on the whole build (check_on_dummy)
+
     def damage(s: dict, d: Dummy, mods: tuple = ()) -> tuple[float, float]:
         key = (s["id"], d.kind, tuple(sorted(states[d.id])), tuple(sorted(curses[d.id])), mods)
         if key not in cache:
@@ -436,10 +438,10 @@ def calc(engine, scenario: dict, catalogue: list[dict] | None = None) -> dict:
             if s.get("statSet"):  # a crystal's explosion: the skill's own stat set for it
                 with engine.shown_stat_set(s["group"], s["name"], s["statSet"]):
                     engine.set_main_skill(s["group"], s["index"])
-                    o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(mods))
+                    o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(extra + mods))
             else:
                 engine.set_main_skill(s["group"], s["index"])
-                o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(mods))
+                o = engine.what_if(config=cfg, disable_gems=_gem_pairs(engine, off), mods=list(extra + mods))
             speed = _num(o, "Speed")
             cache[key] = (_num(o, "TotalDPS") / speed if speed else _num(o, "AverageHit"),
                           sum(_num(o, k) for k in DOT_KEYS))
@@ -758,3 +760,85 @@ def simulate(sim: list[tuple[dict, dict]], dummies: list[Dummy], spots: list[tup
             peaks[second] = max(peaks[second], n)
     return {"damage": damage, "stats": stats, "time": SIM_TIME - SIM_WARMUP, "explosions": explosions,
             "crystalStats": cstats}
+
+
+# ---------- the dummy as the build's damage: every analysis weighs the skills by their share of it ----------
+MIX_MIN_SHARE = 0.03  # a skill below this share of the dummy's damage is left out of the mix
+MIX_MAX = 4  # at most this many skills in it (each one more PoB calculation per what-if)
+
+
+def _preset(kind: str, n: int) -> list[dict]:
+    """The dummy page's presets (dummy.js dmPreset): one at 9 m, or a pack as a sunflower around it."""
+    if n == 1:
+        return [{"id": "d1", "x": 9, "y": 0, "kind": kind}]
+    out = []
+    for i in range(n):
+        a, r = i * 2.39996, 0.6 * math.sqrt(i + 0.5) * 1.15
+        out.append({"id": f"d{i + 1}", "x": round(9 + r * math.cos(a), 2), "y": round(r * math.sin(a), 2), "kind": kind})
+    return out
+
+
+def default_scenario(catalogue: list[dict]) -> dict:
+    """The dummy page's new scenario (dummy.js dmDefault): a pack of 20, the strongest spammable skill spammed, the
+    ones with a cooldown on it, the triggered ones once a second, curses at the pack, mirrors around the character."""
+    dmg = [s for s in catalogue if s["kind"] == "damage"]
+    spam = max((s for s in dmg if not s["cooldown"] and not s["triggered"] and not s["travel"] and not s["sustained"]),
+               key=lambda s: s["dps"], default=None)
+    sk = {s["id"]: {"on": True, "x": 9, "y": 0, "states": [], "split": bool(s["sustained"]), "sim": True, "speed": 4,
+                    "range": 12, "width": PROJECTILE_RADIUS, "critPerPierce": 0, "rate": 1, "interval": 4,
+                    "mode": "rate" if s["triggered"] else "sustain" if s["sustained"] else "cooldown" if s["cooldown"]
+                    else "spam", "share": 100 if s is spam else 0} for s in dmg}
+    curses = {s["id"]: {"on": True, "x": 9, "y": 0} for s in catalogue if s["kind"] == "curse"}
+    mirrors = [{"x": round(3 * math.cos(i * math.pi / 2), 2), "y": round(3 * math.sin(i * math.pi / 2), 2)}
+               for i in range(4)] if any(s["kind"] == "mirror" for s in catalogue) else []
+    return {"level": 83, "dummies": _preset("normal", 20), "skills": sk, "curses": curses, "mirrors": mirrors,
+            "always": []}
+
+
+def mix_of(engine, catalogue: list[dict], result: dict, config: dict) -> list[dict]:
+    """The skills the dummy's result says the damage is: the biggest shares (MIX_MIN_SHARE, MIX_MAX), each with the
+    dummy's damage of it, its share and coef - the dummy's damage over PoB's own of the skill (at `config`), so the
+    mix sum(coef x PoB's damage) is the dummy's damage of them, and moves with everything PoB counts of each skill.
+    A crystal's explosions count to their skill."""
+    by_id = {s["id"]: s for s in catalogue}
+    dps: dict[str, float] = {}
+    for row in result.get("skills") or []:
+        sid = row["id"].removesuffix(":x")
+        if sid in by_id:
+            dps[sid] = dps.get(sid, 0.0) + float(row["dps"] or 0)
+    total = sum(dps.values())
+    if total <= 0:
+        return []
+    out = []
+    with engine.kept_main():
+        for sid, v in sorted(dps.items(), key=lambda kv: -kv[1]):
+            if v / total < MIX_MIN_SHARE or len(out) >= MIX_MAX:
+                break
+            s = by_id[sid]
+            engine.set_main_skill(s["group"], s["index"])
+            own = _num(engine.what_if(config=config), "CombinedDPS")
+            if own > 0:
+                out.append({"name": s["name"], "group": s["group"], "index": s["index"], "dps": round(v),
+                            "share": round(v / total, 4), "coef": v / own})
+    return out
+
+
+def mix_changed(old: list[dict] | None, new: list[dict], tolerance: float = 0.02) -> bool:
+    """Whether the skills or their shares moved more than `tolerance` (a few points do not count everything anew)."""
+    a = {x["name"]: x["share"] for x in old or []}
+    b = {x["name"]: x["share"] for x in new}
+    return set(a) != set(b) or any(abs(a[k] - b[k]) > tolerance for k in b)
+
+
+def check_on_dummy(engine, scenario: dict, candidates: list[dict], statdesc_dir=None) -> dict:
+    """Candidates (each {"label", "mods": [lines]}) put on the whole build and the dummy run with each: its total
+    against the dummy's without them - mirrors, crystals, pierces and all, what the quick estimate leaves out."""
+    with engine.kept_main():
+        base = calc(engine, scenario, skills(engine, statdesc_dir))
+        out = []
+        for c in candidates:
+            mods = tuple(c.get("mods") or ())
+            got = calc(engine, scenario | {"mods": list(mods)}, skills(engine, statdesc_dir, mods))
+            out.append({"label": c.get("label", ""), "mods": list(mods), "total": got["total"],
+                        "pct": (got["total"] / base["total"] - 1) * 100 if base["total"] else 0.0})
+    return {"base": base["total"], "candidates": sorted(out, key=lambda x: -x["pct"])}

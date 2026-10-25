@@ -65,7 +65,8 @@ def test_diff_lists_gear_tree_and_stats():
 def test_reload_endpoint_keeps_profile_and_skill(builds):
     client = TestClient(server.app)
     r = client.post("/api/load", json={"name": "mine"}, headers=H).json()
-    assert r["kind"] == "code" and r["mainSkill"] == "Furious Slam"
+    main = r["damageMix"][0]["name"]  # the main skill: the dummy's biggest share
+    assert r["kind"] == "code" and r["mainSkill"] == main
     assert client.get("/api/status").json()["buildChanged"] is False
 
     same = client.post("/api/reload", json={}, headers=H).json()  # nothing new: read the file again
@@ -76,6 +77,6 @@ def test_reload_endpoint_keeps_profile_and_skill(builds):
     body = new.json()
     assert body["name"] == "mine" and body["hasProfile"]  # same name, profile kept
     assert body["changes"]["class"][0] == "Titan" and body["changes"]["items"]
-    assert body["changes"]["skillBefore"] == "Furious Slam"
+    assert body["changes"]["skillBefore"] == main
     bad = client.post("/api/reload", json={"code": "garbage"}, headers=H)
     assert bad.status_code == 400
