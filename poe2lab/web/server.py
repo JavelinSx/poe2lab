@@ -1015,9 +1015,10 @@ def clear_main():
 
 
 @app.post("/api/pob/open")
-def pob_open():
-    """Path of Building for updating the open build: started with it open, or the running window brought forward."""
-    path = session.path if session.engine is not None else None
+def pob_open(empty: bool = False):
+    """Path of Building for updating the open build: started with it open, or the running window brought forward.
+    `empty`: without a build (a new one is being added: its code is copied from PoB)."""
+    path = session.path if session.engine is not None and not empty else None
     try:
         return pobapp.open_pob(path)
     except OSError as err:

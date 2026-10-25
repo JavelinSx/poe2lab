@@ -442,6 +442,16 @@ function renderAddBuild(prefill) {
     if (!name.value.trim()) name.placeholder = f.name.replace(/\.[^.]+$/, "");
   } });
   hideBuildChrome();
+  // Path of Building opened (or brought forward) to copy a build's code from it, as in the character dialog
+  const pobNote = h("div", { class: "action hidden" }, t("pobCodeOpened"));
+  const openPob = h("button", { class: "ghost small", onclick: async () => {
+    try {
+      const r = await api("/api/pob/open?empty=1", { method: "POST" });
+      if (r.state === "missing") { toast(t("pobMissingAdd")); return; }
+      pobNote.classList.remove("hidden");
+      code.focus();
+    } catch (e) { toast(e.message); }
+  } }, t("pobOpen"));
   const fromGame = h("div", { class: "planner-files" });
   api("/api/planner").then((p) => {
     if (!p.files.length) return;
@@ -452,8 +462,9 @@ function renderAddBuild(prefill) {
   $("#view").replaceChildren(h("div", { class: "card stack add-build" },
     h("h3", {}, t("addTitle")), h("div", { class: "sub" }, t("addSub")),
     name, code, stage,
-    h("div", { class: "row small" }, h("button", { class: "ghost small", onclick: () => file.click() }, t("addFile")),
+    h("div", { class: "row small" }, openPob, h("button", { class: "ghost small", onclick: () => file.click() }, t("addFile")),
       h("span", { class: "muted" }, t("addFileHint")), file),
+    pobNote,
     fromGame,
     h("div", { class: "row" }, go, h("button", { class: "ghost",
       onclick: () => { if (state.build) { renderHeader(); switchTab(state.tab); } else renderEmpty(); } }, t("cancel")))));
